@@ -12,6 +12,17 @@ from .utils import generate_random_name
 from . import ui
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+# oss-fuzz scripts fetched by scripts/setup-third-party.sh
+THIRD_PARTY_OSS_FUZZ = Path(__file__).parent.parent.parent / "third_party" / "oss-fuzz"
+
+# Scripts sourced from oss-fuzz (fetched into third_party/oss-fuzz/).
+OSS_FUZZ_SCRIPTS = {
+    "compile", "reproduce", "run_fuzzer",
+    "parse_options.py", "replay_build.sh", "make_build_replayable.py",
+}
+
+# Custom scripts from our templates directory.
+CUSTOM_SCRIPTS = {"oss_crs_handler.sh", "oss_crs_builder_server.py"}
 
 
 def extract_name_from_proj_path(proj_path: str) -> str:
@@ -51,6 +62,14 @@ class Target:
             return None
         repo_hash = self.__get_repo_hash()
         image_tag = self.get_docker_image_name()
+
+        # Skip rebuild if the image already exists locally
+        check = subprocess.run(
+            ["docker", "image", "inspect", image_tag],
+            capture_output=True, text=True,
+        )
+        if check.returncode == 0:
+            return image_tag
 
         tasks = [
             (
@@ -235,6 +254,23 @@ class Target:
                 cwd=self.work_dir,
             )
 
+    @staticmethod
+    def _resolve_script_path(dst_name: str) -> Optional[Path]:
+        """Resolve the source path for a script to copy into the snapshot.
+
+        For oss-fuzz scripts: sourced from third_party/oss-fuzz/.
+        For custom scripts: always uses templates directory.
+        Returns None if the script cannot be found.
+        """
+        if dst_name in CUSTOM_SCRIPTS:
+            return TEMPLATES_DIR / dst_name
+
+        if dst_name in OSS_FUZZ_SCRIPTS:
+            candidate = THIRD_PARTY_OSS_FUZZ / dst_name
+            if candidate.exists():
+                return candidate
+        return None
+
     def get_target_env(self) -> dict:
         # TODO: implement this properly
         ret = {
@@ -302,7 +338,7 @@ class Target:
                 "--privileged",
                 "--shm-size=2g",
                 target_base_image,
-                "bash", "-c", "compile && cp -n /usr/local/bin/replay_build.sh $SRC/",
+                "bash", "-c", "compile",
             ]
             result = progress.run_command_with_streaming_output(
                 cmd=run_cmd,
@@ -312,26 +348,98 @@ class Target:
             if not result.success:
                 return result
 
-            # Step 2: Copy the default handler script into the container
-            handler_src = TEMPLATES_DIR / "default_handler.sh"
-            cp_cmd = [
+            # Step 2: Copy scripts into stopped container.
+            # oss-fuzz scripts come from third_party/; custom scripts from templates/.
+            all_scripts = list(CUSTOM_SCRIPTS) + list(OSS_FUZZ_SCRIPTS)
+            for dst_name in all_scripts:
+                script_src = self._resolve_script_path(dst_name)
+                if script_src is None:
+                    return TaskResult(
+                        success=False,
+                        output=f"Cannot find source for script: {dst_name}. "
+                        "Run: bash scripts/setup-third-party.sh",
+                    )
+                cp_cmd = [
+                    "docker", "cp",
+                    str(script_src),
+                    f"{container_name}:/usr/local/bin/{dst_name}",
+                ]
+                result = progress.run_command_with_streaming_output(
+                    cmd=cp_cmd,
+                    cwd=self.work_dir,
+                    info_text=f"Copying {script_src.name} → {dst_name}",
+                )
+                if not result.success:
+                    return result
+
+            # Step 2b: Copy libCRS into stopped container
+            libcrs_path = TEMPLATES_DIR.parent.parent.parent / "libCRS"
+            cp_libcrs_cmd = [
                 "docker", "cp",
-                str(handler_src),
-                f"{container_name}:/usr/local/bin/oss_crs_handler.sh",
+                str(libcrs_path),
+                f"{container_name}:/tmp/libCRS",
             ]
             result = progress.run_command_with_streaming_output(
-                cmd=cp_cmd,
+                cmd=cp_libcrs_cmd,
                 cwd=self.work_dir,
-                info_text="Copying handler script into container",
+                info_text="Copying libCRS into container",
             )
             if not result.success:
                 return result
 
-            # Step 3: Commit the container as snapshot image
+            # Step 2c: Commit intermediate image, then run setup container
+            intermediate_tag = f"{snapshot_tag}-intermediate"
+            commit_intermediate_cmd = [
+                "docker", "commit", container_name, intermediate_tag,
+            ]
+            result = progress.run_command_with_streaming_output(
+                cmd=commit_intermediate_cmd,
+                cwd=self.work_dir,
+                info_text="Committing intermediate image",
+            )
+            if not result.success:
+                return result
+
+            # Run a setup container from intermediate to execute all setup commands:
+            # - chmod all scripts
+            # - copy replay_build.sh to $SRC/ (where compile expects it)
+            # - install pip dependencies
+            # - install libCRS
+            setup_container_name = f"{container_name}-setup"
+            setup_cmd = [
+                "docker", "run",
+                f"--name={setup_container_name}",
+                "--privileged",
+                intermediate_tag,
+                "bash", "-c",
+                # chmod all scripts in /usr/local/bin/ that we copied
+                "chmod +x /usr/local/bin/oss_crs_handler.sh "
+                "/usr/local/bin/compile "
+                "/usr/local/bin/reproduce "
+                "/usr/local/bin/run_fuzzer "
+                "/usr/local/bin/parse_options.py "
+                "/usr/local/bin/replay_build.sh "
+                "/usr/local/bin/make_build_replayable.py && "
+                # Place replay_build.sh where compile looks for it ($SRC/)
+                "cp /usr/local/bin/replay_build.sh $SRC/replay_build.sh && "
+                # Install Python dependencies for builder server
+                "pip3 install fastapi uvicorn python-multipart && "
+                # Install libCRS
+                "bash /tmp/libCRS/install.sh",
+            ]
+            result = progress.run_command_with_streaming_output(
+                cmd=setup_cmd,
+                cwd=self.work_dir,
+                info_text="Running setup (chmod, pip install, libCRS)",
+            )
+            if not result.success:
+                return result
+
+            # Step 3: Commit the setup container as final snapshot image
             commit_cmd = [
                 "docker", "commit",
                 "-c", "ENV REPLAY_ENABLED=1",
-                container_name,
+                setup_container_name,
                 snapshot_tag,
             ]
             result = progress.run_command_with_streaming_output(
@@ -349,9 +457,17 @@ class Target:
             self.snapshot_image_tag = snapshot_tag
             return TaskResult(success=True, output=f"Snapshot created: {snapshot_tag}")
         finally:
-            # Always clean up the container
+            # Always clean up both containers and the intermediate image
             subprocess.run(
                 ["docker", "rm", "-f", container_name],
+                capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["docker", "rm", "-f", f"{container_name}-setup"],
+                capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["docker", "rmi", "-f", f"{snapshot_tag}-intermediate"],
                 capture_output=True, text=True,
             )
 

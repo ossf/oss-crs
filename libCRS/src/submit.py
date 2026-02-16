@@ -78,7 +78,8 @@ class SubmitHelper:
         with self.flush_lock:
             if self.shared_fs_dir is not None:
                 for item in cur_queue:
-                    dst_path = self.shared_fs_dir / item.hash
+                    suffix = item.file_path.suffix or ""
+                    dst_path = self.shared_fs_dir / f"{item.hash}{suffix}"
                     item_path = item.file_path
                     rsync_copy(item_path, dst_path)
                     for ext in ["callstack", "crash_log", "metadata"]:

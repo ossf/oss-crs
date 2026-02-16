@@ -89,6 +89,18 @@ def add_run_command(subparsers):
         default=None,
         help="Maximum run duration in seconds. Gracefully stops all containers when exceeded.",
     )
+    run.add_argument(
+        "--pov",
+        type=Path,
+        default=None,
+        help="Single POV file to copy into CRS FETCH_DIR",
+    )
+    run.add_argument(
+        "--pov-dir",
+        type=Path,
+        default=None,
+        help="Directory containing POV files to copy into CRS FETCH_DIR",
+    )
 
 
 def add_check_command(subparsers):
@@ -146,7 +158,7 @@ def main() -> bool:
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
-        if not crs_compose.run(target):
+        if not crs_compose.run(target, pov=args.pov, pov_dir=args.pov_dir):
             return False
     elif args.command == "check":
         pass

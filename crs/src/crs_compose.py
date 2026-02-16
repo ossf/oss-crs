@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
@@ -103,11 +105,29 @@ class CRSCompose:
 
         return True
 
-    def run(self, target: Target) -> bool:
+    def run(
+        self,
+        target: Target,
+        pov: Optional[Path] = None,
+        pov_dir: Optional[Path] = None,
+    ) -> bool:
         if not self.__validate_before_run(target):
             return False
         target.init_repo()
-        if not self.__check_target_built(target):
+        need_build = not self.__check_target_built(target)
+
+        # Also check if snapshot image exists when incremental_build is enabled
+        if not need_build and self.config.incremental_build:
+            sanitizer = target.get_target_env().get("sanitizer", "address")
+            snapshot_tag = target.get_snapshot_image_name(sanitizer)
+            check = subprocess.run(
+                ["docker", "image", "inspect", snapshot_tag],
+                capture_output=True, text=True,
+            )
+            if check.returncode != 0:
+                need_build = True
+
+        if need_build:
             if not self.build_target(target):
                 return False
 
@@ -117,7 +137,14 @@ class CRSCompose:
             sanitizer = target.get_target_env().get("sanitizer", "address")
             target.snapshot_image_tag = target.get_snapshot_image_name(sanitizer)
 
-        return self.__run(target)
+        # Collect POV files from --pov and --pov-dir
+        pov_files: list[Path] = []
+        if pov is not None:
+            pov_files.append(pov)
+        if pov_dir is not None:
+            pov_files.extend(f for f in pov_dir.iterdir() if f.is_file())
+
+        return self.__run(target, pov_files)
 
     def __validate_before_run(self, target: Target) -> bool:
         tasks = [
@@ -158,14 +185,14 @@ class CRSCompose:
 
         return True
 
-    def __run(self, target: Target) -> bool:
+    def __run(self, target: Target, pov_files: list[Path] = None) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
-            return self.__run_local(target)
+            return self.__run_local(target, pov_files or [])
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
             return False
 
-    def __run_local(self, target: Target) -> bool:
+    def __run_local(self, target: Target, pov_files: list[Path] = None) -> bool:
         with MultiTaskProgress(
             tasks=[],
             title="CRS Compose Run",
@@ -177,7 +204,8 @@ class CRSCompose:
                     (
                         "Prepare Running Environment",
                         lambda progress: self.__prepare_local_running_env(
-                            project_name, target, tmp_docker_compose, progress
+                            project_name, target, tmp_docker_compose, progress,
+                            pov_files=pov_files or [],
                         ),
                     ),
                     (
@@ -209,6 +237,7 @@ class CRSCompose:
         target: Target,
         tmp_docker_compose: TmpDockerCompose,
         progress: MultiTaskProgress,
+        pov_files: list[Path] = None,
     ) -> TaskResult:
         def prepare_docker_compose(progress: MultiTaskProgress) -> TaskResult:
             content = renderer.render_run_crs_compose_docker_compose(
@@ -230,7 +259,18 @@ class CRSCompose:
                 )
             return progress.run_added_tasks()
 
+        def copy_povs(progress: MultiTaskProgress) -> TaskResult:
+            for crs in self.crs_list:
+                fetch_dir = crs.get_fetch_dir(target)
+                fetch_dir.mkdir(parents=True, exist_ok=True)
+                for f in pov_files:
+                    shutil.copy2(f, fetch_dir / f.name)
+            return TaskResult(success=True)
+
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
+
+        if pov_files:
+            progress.add_task("Copy POV files to FETCH_DIR", copy_povs)
 
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose

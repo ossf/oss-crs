@@ -37,5 +37,8 @@ def rsync_copy(src: Path, dst: Path) -> None:
 
 def file_hash(path: Path) -> str:
     """Compute the MD5 checksum of a file."""
+    h = hashlib.md5()
     with path.open("rb") as f:
-        return hashlib.file_digest(f, "md5").hexdigest()
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()

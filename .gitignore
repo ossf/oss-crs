@@ -2,7 +2,6 @@
 *.egg-info
 **/__pycache__
 build
-oss-fuzz
 .work
 /logs
 .vscode
@@ -12,3 +11,4 @@ oss-fuzz
 tags
 .planning
 .oss-crs-workdir/
+third_party/

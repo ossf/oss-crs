@@ -60,9 +60,13 @@ services:
       - OSS_CRS_SHARED_DIR=/OSS_CRS_SHARED_DIR
 {%- if snapshot_image_tag %}
       - OSS_CRS_SNAPSHOT_IMAGE={{ snapshot_image_tag }}
+      - OSS_CRS_BUILDER_URL=http://builder.{{ crs.name }}:8080
 {%- endif %}
       ###########################################
 {%- for env_key, env_value in module_config.additional_env.items() %}
+      - {{ env_key }}={{ env_value }}
+{%- endfor %}
+{%- for env_key, env_value in crs.resource.additional_env.items() %}
       - {{ env_key }}={{ env_value }}
 {%- endfor %}
 {%- if llm_context is defined %}
@@ -80,15 +84,43 @@ services:
       - {{ crs.get_submit_dir(target) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ crs.get_fetch_dir(target) }}:/OSS_CRS_FETCH_DIR:ro
       - {{ crs.get_shared_dir(target) }}:/OSS_CRS_SHARED_DIR:rw
-{%- if snapshot_image_tag %}
-      - /var/run/docker.sock:/var/run/docker.sock
-{%- endif %}
     networks:
       {{ crs_compose_name }}-{{ crs.name }}-network:
         aliases:
           - {{module_name}}.{{ crs.name }}
       {{ crs_compose_name }}-network:
 {% endfor %}
+{%- if snapshot_image_tag %}
+  {{ crs.name }}_builder:
+    image: {{ snapshot_image_tag }}
+    privileged: true
+    shm_size: "2g"
+    cpuset: "{{ crs.resource.cpuset }}"
+    command: ["python3", "/usr/local/bin/oss_crs_builder_server.py"]
+    restart: on-failure:3
+    environment:
+      - SANITIZER={{ target_env.sanitizer }}
+      - ARCHITECTURE={{ target_env.architecture }}
+      - FUZZING_ENGINE={{ target_env.engine }}
+      - FUZZING_LANGUAGE={{ target_env.language }}
+      - PROJECT_NAME={{ target_env.name }}
+      - FUZZER_ARGS=-rss_limit_mb=2560 -timeout=25
+      - OSS_CRS_RUN_ENV_TYPE={{ crs_compose_env.type }}
+      - OSS_CRS_SHARED_DIR=/OSS_CRS_SHARED_DIR
+      - OSS_CRS_NAME={{ crs.name }}
+    volumes:
+      - {{ crs.get_shared_dir(target) }}:/OSS_CRS_SHARED_DIR:rw
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    networks:
+      {{ crs_compose_name }}-{{ crs.name }}-network:
+        aliases:
+          - builder.{{ crs.name }}
+{%- endif %}
 {% endfor %}
   ###########################################
   # OSS-CRS-INFRA-SERVICES

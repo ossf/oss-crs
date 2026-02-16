@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""HTTP builder server for incremental patch builds.
+
+Endpoints:
+    POST /build       - Apply patch and compile (calls oss_crs_handler.sh)
+    POST /run-pov     - Run POV binary via oss-fuzz reproduce script
+    POST /run-test    - Run test script against a specific build
+    GET  /status/<id> - Poll job status
+    GET  /health      - Healthcheck
+
+All jobs are processed sequentially through a single worker thread
+to prevent races on shared source tree state. Build artifacts are
+saved per job ID at /builds/{job_id}/out/ so multiple builds can
+coexist and be tested independently.
+"""
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import hashlib
+import os
+import queue
+import re
+import shutil
+import subprocess
+import threading
+import uuid
+from pathlib import Path
+
+app = FastAPI(title="Builder Sidecar", description="Incremental patch build server")
+job_queue: queue.Queue = queue.Queue()
+job_results: dict = {}
+
+BUILDS_DIR = Path("/builds")
+
+
+def _ignore_build_junk(directory, contents):
+    """Skip source/git directories when copying build artifacts — only binaries are needed.
+
+    Filters .git at all levels, but only filters src at the /out root level.
+    """
+    ignored = [c for c in contents if c == ".git"]
+    if os.path.basename(directory) == "out" or directory == "/out":
+        ignored.extend(c for c in contents if c == "src")
+    return ignored
+
+
+class JobSubmitResponse(BaseModel):
+    id: str
+    status: str
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# POST /build — apply patch + compile
+# ---------------------------------------------------------------------------
+def _make_build_id(patch_content: bytes) -> str:
+    """Deterministic build ID from project + sanitizer + patch content."""
+    project = os.environ.get("PROJECT_NAME", "unknown")
+    sanitizer = os.environ.get("SANITIZER", "unknown")
+    hasher = hashlib.sha256()
+    hasher.update(f"{project}:{sanitizer}:".encode())
+    hasher.update(patch_content)
+    return hasher.hexdigest()[:12]
+
+
+@app.post("/build", response_model=JobSubmitResponse)
+async def submit_build(patch: UploadFile = File(...)):
+    patch_content = await patch.read()
+    job_id = _make_build_id(patch_content)
+
+    # Dedup: if same build is already in-flight, return existing job
+    if job_id in job_results and job_results[job_id]["status"] in ("queued", "running"):
+        return JobSubmitResponse(id=job_id, status=job_results[job_id]["status"])
+
+    work_dir = Path(f"/tmp/jobs/{job_id}")
+    req_dir = work_dir / "request"
+    resp_dir = work_dir / "response"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    resp_dir.mkdir(parents=True, exist_ok=True)
+
+    (req_dir / "patch.diff").write_bytes(patch_content)
+
+    job_results[job_id] = {"id": job_id, "status": "queued"}
+    job_queue.put(("build", job_id, req_dir, resp_dir))
+    return JobSubmitResponse(id=job_id, status="queued")
+
+
+# ---------------------------------------------------------------------------
+# POST /run-pov — run POV via oss-fuzz reproduce script
+# ---------------------------------------------------------------------------
+_HARNESS_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
+
+
+@app.post("/run-pov", response_model=JobSubmitResponse)
+async def submit_run_pov(
+    pov: UploadFile = File(...),
+    harness_name: str = Form(...),
+    build_id: str = Form(...),
+):
+    if not _HARNESS_NAME_RE.match(harness_name):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid harness_name: must be alphanumeric, hyphens, underscores, or dots only"},
+        )
+    build_out = BUILDS_DIR / build_id / "out"
+    if not build_out.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Build {build_id} not found. Call /build first."},
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    work_dir = Path(f"/tmp/jobs/{job_id}")
+    req_dir = work_dir / "request"
+    resp_dir = work_dir / "response"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    resp_dir.mkdir(parents=True, exist_ok=True)
+
+    (req_dir / "pov.bin").write_bytes(await pov.read())
+    (req_dir / "harness_name").write_text(harness_name)
+    (req_dir / "build_id").write_text(build_id)
+
+    job_results[job_id] = {"id": job_id, "status": "queued"}
+    job_queue.put(("run-pov", job_id, req_dir, resp_dir))
+    return JobSubmitResponse(id=job_id, status="queued")
+
+
+# ---------------------------------------------------------------------------
+# POST /run-test — run a test script
+# ---------------------------------------------------------------------------
+@app.post("/run-test", response_model=JobSubmitResponse)
+async def submit_run_test(
+    test_script: UploadFile = File(...),
+    build_id: str = Form(...),
+):
+    build_out = BUILDS_DIR / build_id / "out"
+    if not build_out.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Build {build_id} not found. Call /build first."},
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    work_dir = Path(f"/tmp/jobs/{job_id}")
+    req_dir = work_dir / "request"
+    resp_dir = work_dir / "response"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    resp_dir.mkdir(parents=True, exist_ok=True)
+
+    (req_dir / "test.sh").write_bytes(await test_script.read())
+    (req_dir / "build_id").write_text(build_id)
+
+    job_results[job_id] = {"id": job_id, "status": "queued"}
+    job_queue.put(("run-test", job_id, req_dir, resp_dir))
+    return JobSubmitResponse(id=job_id, status="queued")
+
+
+# ---------------------------------------------------------------------------
+# GET /status/<job_id> — poll any job
+# ---------------------------------------------------------------------------
+@app.get("/status/{job_id}")
+def get_job_status(job_id: str):
+    result = job_results.get(job_id)
+    if not result:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Job handlers (run inside the worker thread)
+# ---------------------------------------------------------------------------
+
+def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
+    """Apply patch and compile via oss_crs_handler.sh."""
+    try:
+        subprocess.run(
+            ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return {"build_exit_code": 1, "build_log": "Build timed out"}
+
+    response = {}
+    for name, key, parse in [
+        ("build_exit_code", "build_exit_code", int),
+        ("build.log", "build_log", str),
+    ]:
+        f = resp_dir / name
+        if f.exists():
+            response[key] = parse(f.read_text().strip())
+    response.setdefault("build_exit_code", 1)
+
+    # Save build artifacts for later POV/test runs
+    if response["build_exit_code"] == 0:
+        build_out = BUILDS_DIR / job_id / "out"
+        if build_out.exists():
+            shutil.rmtree(build_out)
+        build_out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree("/out", str(build_out), ignore=_ignore_build_junk)
+
+    return response
+
+
+def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
+    """Run POV binary via oss-fuzz reproduce script."""
+    harness_name = (req_dir / "harness_name").read_text().strip()
+    build_id = (req_dir / "build_id").read_text().strip()
+    pov_path = req_dir / "pov.bin"
+    pov_timeout = int(os.environ.get("POV_TIMEOUT", "30"))
+
+    build_out = BUILDS_DIR / build_id / "out"
+    if not (build_out / harness_name).exists():
+        return {
+            "pov_exit_code": 127,
+            "pov_stderr": f"Harness binary not found: {build_out / harness_name}",
+        }
+
+    env = os.environ.copy()
+    env["OUT"] = str(build_out)
+    env["TESTCASE"] = str(pov_path)
+
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/reproduce", harness_name],
+            capture_output=True,
+            text=True,
+            timeout=pov_timeout,
+            env=env,
+            cwd=str(build_out),
+        )
+        return {
+            "pov_exit_code": result.returncode,
+            "pov_stderr": result.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "pov_exit_code": 124,
+            "pov_stderr": "POV execution timed out",
+        }
+
+
+def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
+    """Run test script against a specific build's artifacts."""
+    test_path = req_dir / "test.sh"
+    test_path.chmod(0o755)
+    build_id = (req_dir / "build_id").read_text().strip()
+    test_timeout = int(os.environ.get("TEST_TIMEOUT", "120"))
+
+    build_out = BUILDS_DIR / build_id / "out"
+    env = os.environ.copy()
+    env["OUT"] = str(build_out)
+
+    try:
+        result = subprocess.run(
+            [str(test_path)],
+            capture_output=True,
+            text=True,
+            timeout=test_timeout,
+            env=env,
+        )
+        return {
+            "test_exit_code": result.returncode,
+            "test_stderr": result.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "test_exit_code": 124,
+            "test_stderr": "Test execution timed out",
+        }
+
+
+_HANDLERS = {
+    "build": _handle_build,
+    "run-pov": _handle_run_pov,
+    "run-test": _handle_run_test,
+}
+
+
+def job_worker():
+    """Sequential worker — processes one job at a time."""
+    while True:
+        action, job_id, req_dir, resp_dir = job_queue.get()
+        job_results[job_id]["status"] = "running"
+        try:
+            handler = _HANDLERS[action]
+            result = handler(job_id, req_dir, resp_dir)
+            job_results[job_id] = {"id": job_id, "status": "done", **result}
+        except Exception as e:
+            job_results[job_id] = {
+                "id": job_id,
+                "status": "done",
+                "error": str(e),
+            }
+        finally:
+            shutil.rmtree(req_dir.parent, ignore_errors=True)
+            job_queue.task_done()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Register /builds as a shared directory via libCRS so artifacts
+    # are visible to CRS modules through the shared filesystem.
+    try:
+        result = subprocess.run(
+            ["libCRS", "register-shared-dir", str(BUILDS_DIR), "builds"],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"Warning: libCRS register-shared-dir failed (rc={exc.returncode}): {exc.stderr.strip()}")
+        BUILDS_DIR.mkdir(parents=True, exist_ok=True)
+    except FileNotFoundError:
+        print("Warning: libCRS not found, falling back to local mkdir")
+        BUILDS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Build the unpatched source once at startup so run-pov can reproduce
+    # crashes with --build-id base without a prior /build call.
+    base_out = BUILDS_DIR / "base" / "out"
+    if not base_out.exists():
+        print("Building base (unpatched) artifacts...")
+        req_dir = Path("/tmp/base_build_req")
+        resp_dir = Path("/tmp/base_build_resp")
+        req_dir.mkdir(parents=True, exist_ok=True)
+        resp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            # Pre-configure git safe.directory to avoid "dubious ownership" errors.
+            subprocess.run(
+                ["git", "config", "--global", "--add", "safe.directory", "*"],
+                capture_output=True,
+            )
+            result = subprocess.run(
+                ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
+                capture_output=True, text=True, timeout=600,
+            )
+            out_files = list(Path("/out").iterdir()) if Path("/out").exists() else []
+            if out_files:
+                base_out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree("/out", str(base_out), ignore=_ignore_build_junk)
+                print("Base build complete: %s" % base_out)
+            else:
+                print("Warning: /out is empty after compile, base build skipped")
+        except Exception as exc:
+            print("Warning: base build failed: %s" % exc)
+        finally:
+            shutil.rmtree(req_dir, ignore_errors=True)
+            shutil.rmtree(resp_dir, ignore_errors=True)
+
+    threading.Thread(target=job_worker, daemon=True).start()
+    uvicorn.run(app, host="0.0.0.0", port=8080)

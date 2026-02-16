@@ -227,6 +227,7 @@ def main():
     # Patch build commands
     # =========================================================================
 
+    # apply-patch-build command
     apply_patch_build_parser = subparsers.add_parser(
         "apply-patch-build",
         help="Apply a patch to the snapshot image and rebuild",
@@ -237,12 +238,66 @@ def main():
     apply_patch_build_parser.add_argument(
         "response_dir", type=Path, help="Directory to receive build results"
     )
+
     def _apply_patch_build(args):
-        exit_code = crs_utils.apply_patch_build(args.patch_path, args.response_dir)
-        print(exit_code)
+        exit_code = crs_utils.apply_patch_build(
+            args.patch_path, args.response_dir,
+        )
         sys.exit(exit_code)
 
     apply_patch_build_parser.set_defaults(func=_apply_patch_build)
+
+    # run-pov command
+    run_pov_parser = subparsers.add_parser(
+        "run-pov",
+        help="Run a POV binary against a specific build's output",
+    )
+    run_pov_parser.add_argument(
+        "pov_path", type=Path, help="Path to the POV binary file"
+    )
+    run_pov_parser.add_argument(
+        "response_dir", type=Path, help="Directory to receive POV results"
+    )
+    run_pov_parser.add_argument(
+        "--harness", type=str, required=True,
+        help="Harness binary name in /out/",
+    )
+    run_pov_parser.add_argument(
+        "--build-id", type=str, required=True,
+        help="Build ID from a prior apply-patch-build call",
+    )
+
+    def _run_pov(args):
+        exit_code = crs_utils.run_pov(
+            args.pov_path, args.harness, args.build_id, args.response_dir,
+        )
+        sys.exit(exit_code)
+
+    run_pov_parser.set_defaults(func=_run_pov)
+
+    # run-test command
+    run_test_parser = subparsers.add_parser(
+        "run-test",
+        help="Run a test script against a specific build's output",
+    )
+    run_test_parser.add_argument(
+        "test_script", type=Path, help="Path to the test script"
+    )
+    run_test_parser.add_argument(
+        "response_dir", type=Path, help="Directory to receive test results"
+    )
+    run_test_parser.add_argument(
+        "--build-id", type=str, required=True,
+        help="Build ID from a prior apply-patch-build call",
+    )
+
+    def _run_test(args):
+        exit_code = crs_utils.run_test(
+            args.test_script, args.build_id, args.response_dir,
+        )
+        sys.exit(exit_code)
+
+    run_test_parser.set_defaults(func=_run_test)
 
     # =========================================================================
     # Service discovery
