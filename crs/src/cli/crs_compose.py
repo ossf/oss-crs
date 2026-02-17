@@ -124,7 +124,7 @@ def _sigterm_handler(signum, frame):
     raise KeyboardInterrupt("SIGTERM received")
 
 
-def main() -> bool:
+def cli() -> bool:
     signal.signal(signal.SIGTERM, _sigterm_handler)
     load_dotenv()
     parser = argparse.ArgumentParser(
@@ -174,5 +174,9 @@ def main() -> bool:
     return True
 
 
+def main() -> int:
+    return 0 if cli() else 1
+
+
 if __name__ == "__main__":
-    sys.exit(0 if main() else 1)
+    sys.exit(main())
