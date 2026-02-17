@@ -39,11 +39,11 @@ dev = [
 [tool.setuptools]
 packages = [
     "crs", "crs.src",
-    "crs_registry"
+    "registry"
 ]
 
 [tool.setuptools.package-data]
-"crs_registry" = ["*/*.yaml"]
+"registry" = ["*/*.yaml"]
 
 [dependency-groups]
 dev = [
