@@ -6,6 +6,8 @@ import string
 import secrets
 import yaml
 
+from ..config.crs import OSS_CRS_INFRA_PREFIX
+
 RAND_CHARS = string.ascii_lowercase + string.digits
 
 if TYPE_CHECKING:
@@ -18,6 +20,20 @@ if TYPE_CHECKING:
 CUR_DIR = Path(__file__).parent
 OSS_CRS_ROOT_PATH = (CUR_DIR / "../../../").resolve()
 LIBCRS_PATH = (OSS_CRS_ROOT_PATH / "libCRS").resolve()
+
+
+def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
+    """Resolve a module's dockerfile path.
+
+    Handles two cases:
+    - Framework module reference: "oss-crs-infra:<module-name>" resolves to
+      OSS_CRS_ROOT_PATH/oss-crs-infra/<module-name>/Dockerfile
+    - File path: resolved relative to crs_path
+    """
+    if dockerfile.startswith(OSS_CRS_INFRA_PREFIX):
+        module_name = dockerfile[len(OSS_CRS_INFRA_PREFIX):]
+        return str(OSS_CRS_ROOT_PATH / "oss-crs-infra" / module_name / "Dockerfile")
+    return str(crs_path / dockerfile)
 
 
 def _generate_random_key(length: int = 10) -> str:
@@ -144,6 +160,7 @@ def render_run_crs_compose_docker_compose(
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
         "snapshot_image_tag": target.snapshot_image_tag or "",
         "builder_url": crs_compose.builder_url,
+        "resolve_dockerfile": _resolve_module_dockerfile,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

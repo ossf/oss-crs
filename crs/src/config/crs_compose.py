@@ -99,6 +99,7 @@ class CRSComposeConfig(BaseModel):
     oss_crs_infra: ResourceConfig
     crs_entries: dict[str, CRSEntry] = Field(default_factory=dict)
     llm_config: Optional[LLMConfig] = None
+    incremental_build: bool = False
 
     @field_validator("docker_registry")
     @classmethod
@@ -136,12 +137,14 @@ class CRSComposeConfig(BaseModel):
         DOCKER_REGISTRY = "docker_registry"
         OSS_CRS_INFRA = "oss_crs_infra"
         LLM_CONFIG = "llm_config"
+        INCREMENTAL_BUILD = "incremental_build"
         run_env = data.get(RUN_ENV)
         docker_registry = data.get(DOCKER_REGISTRY)
         oss_crs_infra = data.get(OSS_CRS_INFRA)
         llm_config = data.get(LLM_CONFIG)
+        incremental_build = data.get(INCREMENTAL_BUILD, False)
 
-        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
+        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG, INCREMENTAL_BUILD}
         crs_entries = {
             key: value for key, value in data.items() if key not in reserved_keys
         }
@@ -152,6 +155,7 @@ class CRSComposeConfig(BaseModel):
             oss_crs_infra=oss_crs_infra,
             crs_entries=crs_entries,
             llm_config=llm_config,
+            incremental_build=incremental_build,
         )
 
     def md5_hash(self) -> str:

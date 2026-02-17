@@ -84,6 +84,18 @@ class CRS:
         self.resource = resource
         self.crs_compose_env = crs_compose_env
 
+    @property
+    def builder_url(self) -> Optional[str]:
+        """URL for this CRS's builder module, if it has one.
+
+        Returns the Docker Compose service URL for the first module with
+        use_snapshot=True. Returns None if no builder module exists.
+        """
+        if not self.config.has_builder_module:
+            return None
+        module_name = self.config.builder_module_name
+        return f"http://{self.name}_{module_name}:8080"
+
     def prepare(
         self,
         publish: bool = False,
@@ -181,8 +193,15 @@ class CRS:
                 success=False,
                 error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
+        # Filter out snapshot builds — they are handled by target.create_snapshot()
+        # at the CRSCompose level, not by the docker-compose build pipeline
+        non_snapshot_builds = [
+            b for b in self.config.target_build_phase.builds if not b.snapshot
+        ]
+        if not non_snapshot_builds:
+            return TaskResult(success=True)
         build_work_dir = self.work_dir / (target_base_image.replace(":", "_"))
-        for build_config in self.config.target_build_phase.builds:
+        for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
                 build_name,
@@ -209,8 +228,15 @@ class CRS:
                 success=False,
                 error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
+        # Filter out snapshot builds — snapshots produce Docker images, not files in
+        # the build-out directory, so they have no outputs to check here
+        non_snapshot_builds = [
+            b for b in self.config.target_build_phase.builds if not b.snapshot
+        ]
+        if not non_snapshot_builds:
+            return TaskResult(success=True)
         build_out_dir = self.get_build_output_dir(target)
-        for build_config in self.config.target_build_phase.builds:
+        for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
                 f"Check build outputs for {build_name}",

@@ -50,6 +50,14 @@ class CRSCompose:
         module_name = next(iter(crs.config.crs_run_phase.modules.keys()))
         return f"http://{crs.name}_{module_name}:8080"
 
+    @property
+    def _any_needs_snapshot(self) -> bool:
+        """Check if any CRS needs a snapshot (new-style or old-style builder)."""
+        return (
+            any(crs.config.has_snapshot for crs in self.crs_list)
+            or self._builder_crs is not None
+        )
+
     @staticmethod
     def _get_sanitizer(target: Target) -> str:
         return target.get_target_env().get("sanitizer", "address")
@@ -98,15 +106,30 @@ class CRSCompose:
 
         tasks = []
 
-        # Create snapshot if a builder CRS exists
-        if self._builder_crs is not None:
-            sanitizer = self._get_sanitizer(target)
-            tasks.append(
-                (
-                    "Create snapshot",
-                    lambda p, s=sanitizer: target.create_snapshot(s, p),
+        # Create snapshot(s) if incremental build is enabled and any CRS needs a snapshot
+        if self.config.incremental_build and self._any_needs_snapshot:
+            # Collect unique sanitizers from all snapshot builds across all CRSes
+            snapshot_sanitizers: set[str] = set()
+            default_sanitizer = self._get_sanitizer(target)
+
+            for crs in self.crs_list:
+                for build_config in crs.config.snapshot_builds:
+                    sanitizer = build_config.additional_env.get(
+                        "SANITIZER", default_sanitizer
+                    )
+                    snapshot_sanitizers.add(sanitizer)
+
+            # Old-style builder CRS also triggers a snapshot
+            if self._builder_crs is not None and not snapshot_sanitizers:
+                snapshot_sanitizers.add(default_sanitizer)
+
+            for sanitizer in sorted(snapshot_sanitizers):
+                tasks.append(
+                    (
+                        f"Create snapshot ({sanitizer})",
+                        lambda p, s=sanitizer: target.create_snapshot(s, p),
+                    )
                 )
-            )
 
         for crs in self.crs_list:
             tasks.append(
@@ -134,8 +157,8 @@ class CRSCompose:
         target.init_repo()
         need_build = not self.__check_target_built(target)
 
-        # Also check if snapshot image exists when builder CRS is present
-        if not need_build and self._builder_crs is not None:
+        # Also check if snapshot image exists when incremental build is enabled
+        if not need_build and self.config.incremental_build and self._any_needs_snapshot:
             snapshot_tag = target.get_snapshot_image_name(self._get_sanitizer(target))
             check = subprocess.run(
                 ["docker", "image", "inspect", snapshot_tag],
@@ -150,7 +173,7 @@ class CRSCompose:
 
         # Ensure snapshot_image_tag is set for the run phase, even if
         # build_target() was skipped because the target was already built.
-        if self._builder_crs is not None and target.snapshot_image_tag is None:
+        if self.config.incremental_build and self._any_needs_snapshot and target.snapshot_image_tag is None:
             target.snapshot_image_tag = target.get_snapshot_image_name(
                 self._get_sanitizer(target)
             )

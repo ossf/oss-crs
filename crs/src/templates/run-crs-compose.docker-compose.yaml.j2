@@ -18,19 +18,20 @@ volumes:
 
 services:
 # crs.name can be different from name defined in crs.yaml; crs.name comes from crs-compose.yaml
-{% for crs in crs_list %} 
+{% for crs in crs_list %}
 {% for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
+{% if module_config.dockerfile %}
   {{ crs.name }}_{{ module_name }}:
     privileged: true
     build:
       context: {{ crs.crs_path }}
-      dockerfile: {{ crs.crs_path }}/{{ module_config.dockerfile }}
+      dockerfile: {{ resolve_dockerfile(crs.crs_path, module_config.dockerfile) }}
       additional_contexts:
         libcrs: {{ libCRS_path }}
       args:
         - target_base_image={{target.get_docker_image_name()}}
         - crs_version={{ crs.config.version }}
-{%- if snapshot_image_tag and crs.config.is_builder %}
+{%- if snapshot_image_tag and (module_config.use_snapshot or crs.config.is_builder) %}
         - snapshot_image={{ snapshot_image_tag }}
 {%- endif %}
     environment:
@@ -58,7 +59,10 @@ services:
       - OSS_CRS_SUBMIT_DIR=/OSS_CRS_SUBMIT_DIR
       - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
       - OSS_CRS_SHARED_DIR=/OSS_CRS_SHARED_DIR
-{%- if builder_url and not crs.config.is_builder %}
+{%- if crs.builder_url and not module_config.use_snapshot %}
+      - OSS_CRS_SNAPSHOT_IMAGE={{ snapshot_image_tag }}
+      - OSS_CRS_BUILDER_URL={{ crs.builder_url }}
+{%- elif builder_url and not crs.config.is_builder %}
       - OSS_CRS_SNAPSHOT_IMAGE={{ snapshot_image_tag }}
       - OSS_CRS_BUILDER_URL={{ builder_url }}
 {%- endif %}
@@ -84,7 +88,7 @@ services:
       - {{ crs.get_submit_dir(target) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ crs.get_fetch_dir(target) }}:/OSS_CRS_FETCH_DIR:ro
       - {{ crs.get_shared_dir(target) }}:/OSS_CRS_SHARED_DIR:rw
-{%- if crs.config.is_builder %}
+{%- if module_config.use_snapshot or crs.config.is_builder %}
     shm_size: "2g"
     restart: on-failure:3
     healthcheck:
@@ -99,6 +103,7 @@ services:
         aliases:
           - {{module_name}}.{{ crs.name }}
       {{ crs_compose_name }}-network:
+{% endif %}
 {% endfor %}
 {% endfor %}
   ###########################################
