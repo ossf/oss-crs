@@ -18,18 +18,22 @@ volumes:
 
 services:
 # crs.name can be different from name defined in crs.yaml; crs.name comes from crs-compose.yaml
-{% for crs in crs_list %} 
+{% for crs in crs_list %}
 {% for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
+{% if module_config.dockerfile %}
   {{ crs.name }}_{{ module_name }}:
     privileged: true
     build:
       context: {{ crs.crs_path }}
-      dockerfile: {{ crs.crs_path }}/{{ module_config.dockerfile }}
+      dockerfile: {{ resolve_dockerfile(crs.crs_path, module_config.dockerfile) }}
       additional_contexts:
         libcrs: {{ libCRS_path }}
       args:
         - target_base_image={{target.get_docker_image_name()}}
-        - crs_version={{ crs.version }}
+        - crs_version={{ crs.config.version }}
+{%- if snapshot_image_tag and (module_config.run_snapshot or crs.config.is_builder) %}
+        - snapshot_image={{ snapshot_image_tag }}
+{%- endif %}
     environment:
       ###########################################
       # OSS_FUZZ standard environment variables
@@ -53,13 +57,21 @@ services:
       - OSS_CRS_MEMORY_LIMIT="{{ crs.resource.memory }}"
       - OSS_CRS_BUILD_OUT_DIR=/OSS_CRS_BUILD_OUT_DIR
       - OSS_CRS_SUBMIT_DIR=/OSS_CRS_SUBMIT_DIR
-      - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
       - OSS_CRS_SHARED_DIR=/OSS_CRS_SHARED_DIR
+{%- if exchange_dir %}
+      - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
+{%- endif %}
+{%- if snapshot_image_tag and not module_config.run_snapshot and not crs.config.is_builder %}
+      - OSS_CRS_SNAPSHOT_IMAGE={{ snapshot_image_tag }}
+{%- endif %}
       ###########################################
 {%- for env_key, env_value in module_config.additional_env.items() %}
       - {{ env_key }}={{ env_value }}
 {%- endfor %}
-{%- if llm_context is defined %}
+{%- for env_key, env_value in crs.resource.additional_env.items() %}
+      - {{ env_key }}={{ env_value }}
+{%- endfor %}
+{%- if llm_context is defined and not crs.config.is_builder %}
       - OSS_CRS_LLM_API_URL=http://litellm.oss-crs:4000
       - OSS_CRS_LLM_API_KEY={{ llm_context.api_keys[crs.name] }}
     depends_on:
@@ -72,13 +84,27 @@ services:
     volumes:
       - {{ crs.get_build_output_dir(target) }}:/OSS_CRS_BUILD_OUT_DIR:ro
       - {{ crs.get_submit_dir(target) }}:/OSS_CRS_SUBMIT_DIR:rw
-      - {{ crs.get_fetch_dir(target) }}:/OSS_CRS_FETCH_DIR:ro
       - {{ crs.get_shared_dir(target) }}:/OSS_CRS_SHARED_DIR:rw
+{%- if exchange_dir %}
+      - {{ exchange_dir }}:/OSS_CRS_FETCH_DIR:ro
+{%- endif %}
+{%- if module_config.run_snapshot or crs.config.is_builder %}
+    attach: false
+    shm_size: "2g"
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+{%- endif %}
     networks:
       {{ crs_compose_name }}-{{ crs.name }}-network:
         aliases:
           - {{module_name}}.{{ crs.name }}
       {{ crs_compose_name }}-network:
+{% endif %}
 {% endfor %}
 {% endfor %}
   ###########################################
@@ -90,7 +116,9 @@ services:
   # OSS-CRS-LITELLM
   ###########################################
   oss-crs-litellm:
-    image: ghcr.io/berriai/litellm-database:main-stable 
+    image: ghcr.io/berriai/litellm-database:main-stable
+    attach: false
+    restart: on-failure:3
     depends_on:
       oss-crs-postgres:
         condition: service_healthy
@@ -117,6 +145,7 @@ services:
   oss-crs-postgres:
     image: postgres:16-alpine
     attach: false
+    restart: on-failure:3
     environment:
       - POSTGRES_USER=crs
       - POSTGRES_PASSWORD={{ llm_context.postgres_password }}
@@ -131,6 +160,7 @@ services:
           - postgres.oss-crs-infra-only
   oss-crs-litellm-key-gen:
     image: oss-crs-litellm-key-gen:latest
+    attach: false
     build:
       context: {{ oss_crs_infra_root_path }}/litellm-key-gen
       dockerfile: {{ oss_crs_infra_root_path }}/litellm-key-gen/Dockerfile
@@ -146,3 +176,22 @@ services:
       - {{ llm_context.key_gen_request_path }}:/key_gen_request.yaml:ro
   ###########################################
 {% endif %}
+  ###########################################
+  # OSS-CRS-EXCHANGE SIDECAR
+  ###########################################
+{%- if exchange_dir %}
+  oss-crs-exchange:
+    build:
+      context: {{ oss_crs_infra_root_path }}/exchange
+    attach: false
+    restart: on-failure:3
+    volumes:
+      - {{ exchange_dir }}:/exchange:rw
+{%- for crs in crs_list %}
+{%- if not crs.config.is_builder %}
+      - {{ crs.get_submit_dir(target) }}:/submit/{{ crs.name }}:ro
+{%- endif %}
+{%- endfor %}
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+{%- endif %}

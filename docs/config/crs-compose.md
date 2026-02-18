@@ -27,6 +27,8 @@ llm_config:                    # required if CRS uses LLMs
   cpuset: <cpu-set>
   memory: <memory-limit>
   llm_budget: <optional-integer>
+  additional_env:              # optional extra env vars
+    <KEY>: <value>
   source:
     url: <git-url>           # Either url+ref OR local_path required
     ref: <git-ref>
@@ -96,6 +98,7 @@ Each CRS entry is defined as a top-level key (other than `run_env` and `oss_crs_
 | `cpuset`    | string  | Yes      | CPU cores to allocate (see [CPU Set Format](#cpu-set-format)) |
 | `memory`    | string  | Yes      | Memory limit (see [Memory Format](#memory-format)) |
 | `llm_budget`| integer | No       | LLM API budget limit (must be > 0 if specified)  |
+| `additional_env` | dict[string, string] | No | Additional environment variables passed to all modules in this CRS entry |
 | `source`    | object  | Yes      | Source configuration (see [Source Configuration](#source-configuration)) |
 
 #### Source Configuration
@@ -186,6 +189,8 @@ atlantis-crs:
 local-path-crs:
   cpuset: "6-7"
   memory: "8GB"
+  additional_env:
+    DEBUG: "1"
   source:
     local_path: /home/crs-compose/my-crs
 ```

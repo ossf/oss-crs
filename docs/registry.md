@@ -30,6 +30,7 @@ source:
 |---|---|---|
 | **crs-libfuzzer** | bug-finding | A lightweight CRS that runs libFuzzer on the target. Good starting point and baseline for evaluation. |
 | **atlantis-multilang-wo-concolic** | bug-finding | A multi-language LLM-powered CRS that generates and refines fuzz harnesses without concolic execution. |
+| **crs-claude-code** | bug-fixing | An LLM-powered CRS that uses Claude Code to generate patches for vulnerabilities. Language-agnostic via a builder sidecar. |
 
 ### Planned
 
@@ -41,7 +42,7 @@ The following CRSs are planned for inclusion in the registry:
 | atlantis-c-bullseye | Planned |
 | atlantis-c-deepgen | Planned |
 | atlantis-c-libafl | Planned |
-| atlantis-claude-code | Planned |
+| crs-claude-code | Registered |
 | atlantis-java-atljazzer | Planned |
 | atlantis-java-main | Planned |
 | atlantis-multi-retrieval | Planned |

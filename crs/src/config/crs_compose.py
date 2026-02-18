@@ -67,6 +67,12 @@ class CRSEntry(ResourceConfig):
     """Configuration for a single CRS entry."""
 
     source: CRSSource
+    additional_env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("additional_env", mode="before")
+    @classmethod
+    def coerce_none_env(cls, v):
+        return v if v is not None else {}
 
 
 class RunEnv(Enum):
@@ -156,7 +162,7 @@ class CRSComposeConfig(BaseModel):
     def md5_hash(self) -> str:
         """Compute MD5 hash of the configuration."""
         config_json = self.model_dump(exclude_none=True, mode="json")
-        config_json = remove_keys(config_json, ["cpuset", "llm_budget", "memory"])
+        config_json = remove_keys(config_json, ["cpuset", "llm_budget", "memory", "additional_env"])
         config_json = json.dumps(config_json)
         return hashlib.md5(config_json.encode()).hexdigest()[:12]
 

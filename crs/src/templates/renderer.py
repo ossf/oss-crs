@@ -3,8 +3,10 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from typing import TYPE_CHECKING, Optional
 import os
 import string
-import random
+import secrets
 import yaml
+
+from ..config.crs import OSS_CRS_INFRA_PREFIX
 
 RAND_CHARS = string.ascii_lowercase + string.digits
 
@@ -13,27 +15,41 @@ if TYPE_CHECKING:
     from ..target import Target
     from ..config.crs import BuildConfig
     from ..utils import TmpDockerCompose
-    from ..crs_compose import CRSComposeConfig
+    from ..crs_compose import CRSCompose
 
 CUR_DIR = Path(__file__).parent
 OSS_CRS_ROOT_PATH = (CUR_DIR / "../../../").resolve()
 LIBCRS_PATH = (OSS_CRS_ROOT_PATH / "libCRS").resolve()
 
 
+def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
+    """Resolve a module's dockerfile path.
+
+    Handles two cases:
+    - Framework module reference: "oss-crs-infra:<module-name>" resolves to
+      OSS_CRS_ROOT_PATH/oss-crs-infra/<module-name>/Dockerfile
+    - File path: resolved relative to crs_path
+    """
+    if dockerfile.startswith(OSS_CRS_INFRA_PREFIX):
+        module_name = dockerfile[len(OSS_CRS_INFRA_PREFIX):]
+        return str(OSS_CRS_ROOT_PATH / "oss-crs-infra" / module_name / "Dockerfile")
+    return str(crs_path / dockerfile)
+
+
 def _generate_random_key(length: int = 10) -> str:
     """Generate a random alphanumeric string."""
-    return "".join(random.choice(RAND_CHARS) for _ in range(length))
+    return "".join(secrets.choice(RAND_CHARS) for _ in range(length))
 
 
 def render_template(template_path: Path, context: dict) -> str:
-    """Render a Jinja1 template with the given context.
+    """Render a Jinja2 template with the given context.
 
     Args:
-        template_path (str | Path): Path to the Jinja1 template file.
+        template_path (str | Path): Path to the Jinja2 template file.
         context (dict): Context variables for rendering the template.
 
     Returns:
-        bytes: Rendered template content as bytes.
+        str: Rendered template content.
     """
     template_dir = Path(template_path).parent
     template_file = Path(template_path).name
@@ -85,7 +101,7 @@ def render_build_target_docker_compose(
 
 
 def prepare_llm_context(
-    tmp_docker_compose: "TmpDockerCompose", crs_compose: "CRSComposeConfig"
+    tmp_docker_compose: "TmpDockerCompose", crs_compose: "CRSCompose"
 ) -> Optional[dict]:
     if crs_compose.llm.exists():
         # Prepare LiteLLM environment variables
@@ -101,6 +117,8 @@ def prepare_llm_context(
         keys = {}
         key_info = {}
         for crs in crs_compose.crs_list:
+            if crs.config.is_builder:
+                continue
             key = "sk-" + _generate_random_key(16)
             keys[crs.name] = key
             key_info[crs.name] = {
@@ -125,12 +143,20 @@ def prepare_llm_context(
 
 
 def render_run_crs_compose_docker_compose(
-    crs_compose: "CRSComposeConfig",
+    crs_compose: "CRSCompose",
     tmp_docker_compose: "TmpDockerCompose",
     crs_compose_name: str,
     target: "Target",
 ) -> str:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
+
+    # Exchange dir is shared across all CRSs — compute once
+    exchange_dir = None
+    for crs in crs_compose.crs_list:
+        if not crs.config.is_builder:
+            exchange_dir = str(crs.get_exchange_dir(target))
+            break
+
     context = {
         "libCRS_path": str(LIBCRS_PATH),
         "crs_compose_name": crs_compose_name,
@@ -139,6 +165,9 @@ def render_run_crs_compose_docker_compose(
         "target_env": target.get_target_env(),
         "target": target,
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
+        "snapshot_image_tag": target.snapshot_image_tag or "",
+        "resolve_dockerfile": _resolve_module_dockerfile,
+        "exchange_dir": exchange_dir,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

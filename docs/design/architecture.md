@@ -135,10 +135,12 @@ $ libCRS skip-build-output <path in output fs>
 $ libCRS register-submit-dir pov /povs
 $ libCRS register-submit-dir seed /seeds
 $ libCRS register-submit-dir bug-candidate /bug-candidates
+$ libCRS register-submit-dir patch /patches
 
 $ libCRS submit pov <pov_file_path>
 $ libCRS submit seed <seed_file_path>
 $ libCRS submit bug-candidate <bug_candidate_file_path>
+$ libCRS submit patch <patch_file_path>
 ```
  
 #### ✅ Sharing File between Containers in a CRS
@@ -146,20 +148,26 @@ $ libCRS submit bug-candidate <bug_candidate_file_path>
 $ libCRS register-shared-dir <local_dir_path> <shared_fs_path>
 ```
 
-#### 📝 Fetching Functions (TODO)
+#### ✅ Fetching Functions
 ```
+# Register a daemon to poll FETCH_DIR/<type>/ for new files
 $ libCRS register-fetch-dir pov /shared-povs
+$ libCRS register-fetch-dir diff /shared-diffs
 $ libCRS register-fetch-dir seed /shared-seeds
-$ libCRS register-fetch-dir bug-candidate /shared-bug-candidates
 
-$ libCRS fetch pov <dst_dir_path> # return a list of file names
-$ libCRS fetch seed <dst_dir_path>
-$ libCRS fetch bug-candidate <dst_dir_path>
+# One-shot fetch from FETCH_DIR
+$ libCRS fetch pov /shared-povs
+$ libCRS fetch diff /shared-diffs
+
+# FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by crs-compose via --pov/--pov-dir, --diff, --corpus flags
+# An exchange sidecar copies submissions from SUBMIT_DIR to EXCHANGE_DIR (CRS containers do not write to EXCHANGE_DIR directly)
 ```
 
-#### 📝Patching Functions (TODO)
+#### ✅ Builder Sidecar Functions
 ```
-$ libCRS apply-patch-build <patch diff file> <dst dir path>
+$ libCRS apply-patch-build <patch diff file> <response dir> --builder <module_name>
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
+$ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
 ```
 
 #### ✅ Network Functions

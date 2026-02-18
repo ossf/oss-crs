@@ -1,0 +1,55 @@
+# Framework builder CRS — used as a separate compose entry for backward compatibility.
+#
+# NEW: CRS developers should declare builder support in their OWN crs.yaml:
+#
+#   target_build_phase:
+#     builds:
+#       - name: default-build
+#         dockerfile: builder.Dockerfile
+#         outputs: [build, src]
+#       - name: inc-builder-asan          # snapshot build, framework default
+#         snapshot: true
+#         dockerfile: oss-crs-infra:default-builder
+#         additional_env:
+#           SANITIZER: address
+#       - name: inc-builder-ubsan         # multiple sanitizers = multiple builds
+#         snapshot: true
+#         dockerfile: oss-crs-infra:default-builder
+#         additional_env:
+#           SANITIZER: undefined
+#
+#   crs_run_phase:
+#     patcher:
+#       dockerfile: patcher.Dockerfile
+#     inc-builder-asan:                   # same name links to build phase
+#       run_snapshot: true
+#       dockerfile: oss-crs-infra:default-builder  # explicit framework module
+#     inc-builder-ubsan:
+#       run_snapshot: true
+#       dockerfile: oss-crs-infra:default-builder
+#
+#   For custom builder sidecar:
+#     inc-builder-asan:
+#       run_snapshot: true
+#       dockerfile: custom-sidecar.Dockerfile  # CRS developer's own code
+#
+# The builder sidecar shares resources with the parent CRS — no separate
+# compose entry needed. Behavior is configured via additional_env.
+
+name: oss-crs-builder
+type:
+  - builder
+version: 1.0.0
+docker_registry: local
+
+crs_run_phase:
+  server:
+    dockerfile: oss-crs/server.Dockerfile
+    additional_env:
+      FUZZER_ARGS: "-rss_limit_mb=2560 -timeout=25"
+
+supported_target:
+  mode: [full, delta]
+  language: [c, c++, jvm, go, rust, python, swift, javascript, lua]
+  sanitizer: [address]
+  architecture: [x86_64]

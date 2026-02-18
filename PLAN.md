@@ -122,7 +122,7 @@ Features that will significantly improve the platform's utility for real-world c
 
 | Item | Status | Notes |
 |---|---|---|
-| `InfraClient` in libCRS | Stub only | `submit_batch` is currently a no-op; will connect to seed/PoV dedup services |
+| `InfraClient` in libCRS | ✅ Implemented | Exchange sidecar handles SUBMIT_DIR → EXCHANGE_DIR; InfraClient fetches from FETCH_DIR (read-only) |
 
 ---
 

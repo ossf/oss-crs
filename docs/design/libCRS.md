@@ -24,7 +24,8 @@ This installs:
 ### Dependencies
 
 - Python >= 3.10
-- `watchdog >= 6.0.0` (filesystem event monitoring for directory registration)
+- `watchdog >= 6.0.0` (filesystem event monitoring for `register-submit-dir`)
+- `requests >= 2.28.0` (HTTP client for builder sidecar communication)
 - `rsync` (installed automatically by `install.sh`)
 
 ## Environment Variables
@@ -38,6 +39,8 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_BUILD_OUT_DIR` | Shared filesystem path for build outputs |
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
+| `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (not set on builder sidecars) |
+| `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules when the CRS has builder sidecars) |
 
 ## Architecture
 
@@ -74,6 +77,7 @@ All submission and fetching operations work with one of the following data types
 | `seed` | Fuzzing seed inputs |
 | `bug-candidate` | Potential bug reports for verification |
 | `patch` | Patches to fix discovered bugs |
+| `diff` | Reference diffs for delta-mode analysis |
 
 ## CLI Reference
 
@@ -148,18 +152,16 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, or `bug-candidate` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` |
 | `path` | Local directory to watch |
 | `--log` | *(Optional)* Log file path for the daemon |
 
 **How it works:**
 1. A daemon process is forked into the background.
-2. The daemon uses `watchdog` to monitor the directory for new files.
+2. The daemon uses `watchdog` to monitor the directory for new data files (dotfiles are ignored).
 3. New files are deduplicated by MD5 hash and queued for submission.
 4. Queued files are flushed in batches (every 10 seconds or when 100 files accumulate).
-5. Files are also copied to the shared submit directory for cross-CRS access.
-
-**Metadata support:** For each file `<name>`, you can create a `.<name>.metadata` JSON file with a `"finder"` field to attribute which component found the artifact.
+5. Flushed files are copied to SUBMIT_DIR (host-visible, per-CRS). The exchange sidecar handles copying to EXCHANGE_DIR.
 
 **Example:**
 ```bash
@@ -194,9 +196,9 @@ $ libCRS register-shared-dir /shared-corpus corpus
 $ libCRS register-shared-dir /shared-corpus corpus
 ```
 
-#### `register-fetch-dir` 📝 *(TODO)*
+#### `register-fetch-dir` ✅
 
-Register a directory to automatically fetch shared data from other CRSs via oss-crs-infra.
+Register a local directory for automatic fetching of shared data from other CRSs. A background daemon polls the fetch directory periodically for new files and copies them to the registered path.
 
 ```bash
 $ libCRS register-fetch-dir [--log <log_path>] <type> <path>
@@ -204,15 +206,20 @@ $ libCRS register-fetch-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, or `bug-candidate` |
-| `path` | Local directory to receive shared data |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `patch`, or `diff` |
+| `path` | Local directory path to receive fetched data |
 | `--log` | *(Optional)* Log file path for the daemon |
+
+**How it works:**
+1. A daemon process is forked into the background.
+2. The daemon performs an initial sync: copies existing files from `FETCH_DIR/<type>/` (bootup data + inter-CRS data) into the local path.
+3. The daemon periodically polls `FETCH_DIR/<type>/` for new files via `InfraClient.fetch_new()`.
+4. Files are deduplicated by name (hash-based names from `submit` provide natural content dedup).
 
 **Example:**
 ```bash
-$ libCRS register-fetch-dir seed /shared-seeds
 $ libCRS register-fetch-dir pov /shared-povs
-$ libCRS register-fetch-dir bug-candidate /shared-bug-candidates
+$ libCRS register-fetch-dir --log /var/log/fetch-seeds.log seed /shared-seeds
 ```
 
 ---
@@ -229,7 +236,7 @@ $ libCRS submit <type> <file_path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, or `bug-candidate` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` |
 | `file_path` | Path to the file to submit |
 
 **Example:**
@@ -239,9 +246,9 @@ $ libCRS submit seed /tmp/interesting-input
 $ libCRS submit bug-candidate /tmp/bug-report
 ```
 
-#### `fetch` 📝 *(TODO)*
+#### `fetch` ✅
 
-Fetch shared data from other CRSs to a local directory. Returns a list of downloaded file names (one per line).
+Fetch shared data from other CRSs (and bootup data) to a local directory. Returns a list of newly downloaded file names (one per line). Files already present in the destination are skipped.
 
 ```bash
 $ libCRS fetch <type> <dst_dir_path>
@@ -249,13 +256,19 @@ $ libCRS fetch <type> <dst_dir_path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, or `bug-candidate` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `patch`, or `diff` |
 | `dst_dir_path` | Local directory to download files into |
+
+**How it works:**
+1. Scans `FETCH_DIR/<type>/` for all available data (bootup data + inter-CRS data).
+2. Copies only files not already present in the destination directory.
+3. Returns the list of newly copied file names.
 
 **Example:**
 ```bash
 $ libCRS fetch seed /tmp/shared-seeds
 $ libCRS fetch pov /tmp/shared-povs
+$ libCRS fetch diff /tmp/ref-diffs
 ```
 
 ---
@@ -284,14 +297,74 @@ $ libCRS get-service-domain my-analyzer
 
 ---
 
-### Patching Commands 📝 *(TODO)*
+### Builder Sidecar Commands
 
-#### `apply-patch-build`
+These commands communicate with a builder sidecar service to apply patches, run PoVs, and run tests against incremental builds. The `--builder` flag specifies which builder module to use — libCRS resolves the module name to a URL internally via `get-service-domain`.
 
-Apply a diff patch to a target build and rebuild.
+#### `apply-patch-build` ✅
+
+Apply a unified diff patch to the snapshot image and rebuild. Sends the patch to the builder's `/build` endpoint, polls until completion, and writes the result to the response directory.
 
 ```bash
-$ libCRS apply-patch-build <patch_diff_file> <dst_dir_path>
+$ libCRS apply-patch-build <patch_path> <response_dir> --builder <module_name>
+```
+
+| Argument | Description |
+|---|---|
+| `patch_path` | Path to the unified diff file |
+| `response_dir` | Directory to receive build results (build ID, exit code, logs) |
+| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+
+The command exits with the build's exit code (0 = success, non-zero = failure). The response directory contains:
+- `build_id` — The build identifier for use with `run-pov` and `run-test`
+- Build logs and exit status
+
+**Example:**
+```bash
+$ libCRS apply-patch-build /tmp/fix.diff /tmp/build-result --builder builder-asan
+$ cat /tmp/build-result/build_id
+abc123
+```
+
+#### `run-pov` ✅
+
+Run a PoV (proof-of-vulnerability) binary against a specific patched build. Sends the PoV to the builder's `/run-pov` endpoint.
+
+```bash
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
+```
+
+| Argument | Description |
+|---|---|
+| `pov_path` | Path to the PoV binary file |
+| `response_dir` | Directory to receive PoV results |
+| `--harness` | Harness binary name in `/out/` |
+| `--build-id` | Build ID from a prior `apply-patch-build` call |
+| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+
+**Example:**
+```bash
+$ libCRS run-pov /tmp/crash-input /tmp/pov-result \
+    --harness fuzz_target --build-id abc123 --builder builder-asan
+```
+
+#### `run-test` ✅
+
+Run the project's bundled `test.sh` against a specific patched build. Sends the request to the builder's `/run-test` endpoint.
+
+```bash
+$ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
+```
+
+| Argument | Description |
+|---|---|
+| `response_dir` | Directory to receive test results |
+| `--build-id` | Build ID from a prior `apply-patch-build` call |
+| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+
+**Example:**
+```bash
+$ libCRS run-test /tmp/test-result --build-id abc123 --builder builder-asan
 ```
 
 ## Typical Usage in a CRS
@@ -336,6 +409,30 @@ ANALYZER_HOST=$(libCRS get-service-domain analyzer)
 /opt/fuzzer --target /opt/target --output /output --seeds /shared-corpus
 ```
 
+### During Run Phase (Builder Sidecar / Patcher)
+
+```bash
+#!/bin/bash
+# run-patcher.sh — executed in a patcher module (uses --builder to specify which builder sidecar to talk to)
+
+# Generate a patch (your CRS logic)
+generate_patch > /tmp/patch.diff
+
+# Apply the patch and rebuild incrementally
+libCRS apply-patch-build /tmp/patch.diff /tmp/build-result --builder builder-asan
+BUILD_ID=$(cat /tmp/build-result/build_id)
+
+# Run PoV against the patched build
+libCRS run-pov /tmp/crash-input /tmp/pov-result \
+  --harness fuzz_target --build-id "$BUILD_ID" --builder builder-asan
+
+# Run the project's test suite against the patched build
+libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
+
+# If both pass, submit the patch
+libCRS submit patch /tmp/patch.diff
+```
+
 ## Implementation Status
 
 | Feature | Status | Notes |
@@ -347,8 +444,10 @@ ANALYZER_HOST=$(libCRS get-service-domain analyzer)
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
 | `submit` | ✅ Implemented | Single-file submission |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
-| `register-fetch-dir` | 📝 Planned | Registered in CLI, not yet implemented |
-| `fetch` | 📝 Planned | Registered in CLI, not yet implemented |
-| `apply-patch-build` | 📝 Planned | Not yet registered in CLI |
+| `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |
+| `fetch` | ✅ Implemented | One-shot fetch from FETCH_DIR via InfraClient |
+| `apply-patch-build` | ✅ Implemented | Sends patch to builder sidecar `/build` endpoint |
+| `run-pov` | ✅ Implemented | Sends PoV to builder sidecar `/run-pov` endpoint |
+| `run-test` | ✅ Implemented | Sends test request to builder sidecar `/run-test` endpoint |
 | `AzureCRSUtils` | 📝 Planned | Azure deployment backend for `CRSUtils` |
-| InfraClient integration | 📝 Stub | `submit_batch` is a no-op stub |
+| InfraClient integration | ✅ Implemented | Exchange sidecar copies from SUBMIT_DIR to EXCHANGE_DIR; InfraClient fetches from FETCH_DIR |

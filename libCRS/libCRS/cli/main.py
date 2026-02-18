@@ -4,15 +4,16 @@ import argparse
 from pathlib import Path
 from ..base import DataType, CRSUtils
 from ..local import LocalCRSUtils
-from ..common import OSS_CRS_RUN_ENV_TYPE, EnvType
+from ..common import get_run_env_type, EnvType
 
 
 def init_crs_utils() -> CRSUtils:
-    if OSS_CRS_RUN_ENV_TYPE == EnvType.LOCAL:
+    env_type = get_run_env_type()
+    if env_type == EnvType.LOCAL:
         return LocalCRSUtils()
     else:
         raise NotImplementedError(
-            f"CRSUtils not implemented for run environment: {OSS_CRS_RUN_ENV_TYPE}"
+            f"CRSUtils not implemented for run environment: {env_type}"
         )
 
 
@@ -118,6 +119,10 @@ def main():
     # Data registration commands (auto-sync directories)
     # =========================================================================
 
+    # Valid types for submit vs fetch commands
+    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH]
+    fetch_types = list(DataType)
+
     # register-submit-dir command (auto-submit data to oss-crs-infra)
     register_submit_dir_parser = subparsers.add_parser(
         "register-submit-dir",
@@ -126,9 +131,9 @@ def main():
     register_submit_dir_parser.add_argument(
         "type",
         type=DataType,
-        choices=list(DataType),
+        choices=submit_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate",
+        help="Type of data: pov, seed, bug-candidate, patch",
     )
     register_submit_dir_parser.add_argument(
         "path", type=Path, help="Directory path to register"
@@ -170,9 +175,9 @@ def main():
     register_fetch_dir_parser.add_argument(
         "type",
         type=DataType,
-        choices=list(DataType),
+        choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate",
+        help="Type of data: pov, seed, bug-candidate, patch, diff",
     )
     register_fetch_dir_parser.add_argument(
         "path", type=Path, help="Directory path to receive shared data"
@@ -199,9 +204,9 @@ def main():
     submit_parser.add_argument(
         "type",
         type=DataType,
-        choices=list(DataType),
+        choices=submit_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate",
+        help="Type of data: pov, seed, bug-candidate, patch",
     )
     submit_parser.add_argument("path", type=Path, help="File path to submit")
     submit_parser.set_defaults(func=lambda args: crs_utils.submit(args.type, args.path))
@@ -214,14 +219,104 @@ def main():
     fetch_parser.add_argument(
         "type",
         type=DataType,
-        choices=list(DataType),
+        choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate",
+        help="Type of data: pov, seed, bug-candidate, patch, diff",
     )
     fetch_parser.add_argument("path", type=Path, help="Output directory path")
     fetch_parser.set_defaults(
         func=lambda args: print("\n".join(crs_utils.fetch(args.type, args.path)))
     )
+
+    # =========================================================================
+    # Patch build commands
+    # =========================================================================
+
+    # apply-patch-build command
+    apply_patch_build_parser = subparsers.add_parser(
+        "apply-patch-build",
+        help="Apply a patch to the snapshot image and rebuild",
+    )
+    apply_patch_build_parser.add_argument(
+        "patch_path", type=Path, help="Path to the unified diff file"
+    )
+    apply_patch_build_parser.add_argument(
+        "response_dir", type=Path, help="Directory to receive build results"
+    )
+    apply_patch_build_parser.add_argument(
+        "--builder", type=str, required=True,
+        help="Builder sidecar module name (resolved to URL via get-service-domain)",
+    )
+
+    def _apply_patch_build(args):
+        exit_code = crs_utils.apply_patch_build(
+            args.patch_path, args.response_dir, args.builder,
+        )
+        sys.exit(exit_code)
+
+    apply_patch_build_parser.set_defaults(func=_apply_patch_build)
+
+    # run-pov command
+    run_pov_parser = subparsers.add_parser(
+        "run-pov",
+        help="Run a POV binary against a specific build's output",
+    )
+    run_pov_parser.add_argument(
+        "pov_path", type=Path, help="Path to the POV binary file"
+    )
+    run_pov_parser.add_argument(
+        "response_dir", type=Path, help="Directory to receive POV results"
+    )
+    run_pov_parser.add_argument(
+        "--harness", type=str, required=True,
+        help="Harness binary name in /out/",
+    )
+    run_pov_parser.add_argument(
+        "--build-id", type=str, required=True,
+        help="Build ID from a prior apply-patch-build call",
+    )
+    run_pov_parser.add_argument(
+        "--builder", type=str, required=True,
+        help="Builder sidecar module name (resolved to URL via get-service-domain)",
+    )
+
+    def _run_pov(args):
+        exit_code = crs_utils.run_pov(
+            args.pov_path, args.harness, args.build_id, args.response_dir,
+            args.builder,
+        )
+        sys.exit(exit_code)
+
+    run_pov_parser.set_defaults(func=_run_pov)
+
+    # run-test command
+    run_test_parser = subparsers.add_parser(
+        "run-test",
+        help="Run the project's bundled test.sh against a specific build's output",
+    )
+    run_test_parser.add_argument(
+        "response_dir", type=Path, help="Directory to receive test results"
+    )
+    run_test_parser.add_argument(
+        "--build-id", type=str, required=True,
+        help="Build ID from a prior apply-patch-build call",
+    )
+    run_test_parser.add_argument(
+        "--builder", type=str, required=True,
+        help="Builder sidecar module name (resolved to URL via get-service-domain)",
+    )
+
+    def _run_test(args):
+        exit_code = crs_utils.run_test(
+            args.build_id, args.response_dir, args.builder,
+        )
+        sys.exit(exit_code)
+
+    run_test_parser.set_defaults(func=_run_test)
+
+    # =========================================================================
+    # Service discovery
+    # =========================================================================
 
     get_service_domain_parser = subparsers.add_parser(
         "get-service-domain",

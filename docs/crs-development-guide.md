@@ -297,10 +297,12 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |
+| `OSS_CRS_FETCH_DIR` | Inter-CRS data exchange + bootup data (read-only, shared across all CRSs) | `/OSS_CRS_FETCH_DIR` |
 | `FUZZING_ENGINE` | OSS-Fuzz fuzzing engine | `libfuzzer` |
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
 | `ARCHITECTURE` | Target architecture | `x86_64` |
 | `FUZZING_LANGUAGE` | Target language | `c` |
+| `OSS_CRS_SNAPSHOT_IMAGE` | Snapshot Docker image tag (set on non-builder modules when the CRS has builder sidecars) | `my-crs-snapshot-asan:latest` |
 
 ### LLM Environment Variables (if configured)
 
@@ -320,14 +322,25 @@ libCRS download-build-output <src_path> <dst_path>
 libCRS skip-build-output <dst_path>
 
 # Automatic directory submission (runs as daemon)
-libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate
+libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
 libCRS register-shared-dir <local_path> <shared_path>
+
+# Fetch directory registration (daemon poller for FETCH_DIR)
+libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, patch, diff
+
+# One-shot fetch (copies from FETCH_DIR)
+libCRS fetch <type> <path>                    # type: pov, seed, bug-candidate, patch, diff
 
 # Manual submission
 libCRS submit <type> <file_path>
 
 # Network
 libCRS get-service-domain <service_name>
+
+# Incremental build (builder sidecar)
+libCRS apply-patch-build <patch_path> <response_dir> --builder <module_name>
+libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
+libCRS run-test <response_dir> --build-id <id> --builder <module_name>
 ```
 
 For the complete libCRS reference, see [design/libCRS.md](design/libCRS.md).
@@ -377,6 +390,15 @@ uv run crs-compose run \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
+
+# Optional: pass POVs, diffs, or corpus files to CRS containers
+uv run crs-compose run \
+  --compose-file ./my-crs-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml \
+  --pov-dir ./povs \
+  --diff ./ref.diff \
+  --corpus ./seeds
 ```
 
 ### Debugging Tips
@@ -472,6 +494,181 @@ FUZZER_ADDR=$(libCRS get-service-domain fuzzer)
 
 ---
 
+## Incremental Builds (Builder Sidecar)
+
+Incremental builds let your CRS apply patches and rebuild the target **without recompiling from scratch**. Instead of running the full build-target phase for each patch, the framework creates a Docker snapshot of the compiled project, and a builder sidecar service applies patches on top of it.
+
+### When to Use
+
+Use incremental builds when your CRS needs to:
+- Generate and test patches (bug-fixing CRSs)
+- Rapidly rebuild after small source changes
+- Run PoVs or tests against patched builds
+
+### How It Works
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                    my-crs (Isolated)                          │
+│                                                               │
+│  ┌──────────────┐    ┌──────────────────┐                    │
+│  │   patcher    │───▶│  builder-asan    │                    │
+│  │  (module)    │    │  (builder sidecar)│                    │
+│  │              │───▶│                  │                    │
+│  └──────────────┘    └──────────────────┘                    │
+│         │                                                    │
+│         │            ┌──────────────────┐                    │
+│         └───────────▶│ builder-coverage │                    │
+│                      │ (builder sidecar)│                    │
+│                      └──────────────────┘                    │
+│                                                               │
+│  Patcher uses libCRS commands:                               │
+│    apply-patch-build  →  send patch to builder, get build ID │
+│    run-pov            →  run PoV against a patched build     │
+│    run-test           →  run test.sh against a patched build │
+└───────────────────────────────────────────────────────────────┘
+```
+
+1. During `build-target`, snapshot build steps (with `snapshot: true`) create a Docker image of the fully compiled target.
+2. During `run`, builder sidecar modules (with `run_snapshot: true`) start from the snapshot image and expose an HTTP API.
+3. Your patcher module sends patches via `libCRS apply-patch-build`, which calls the builder's `/build` endpoint.
+4. The builder applies the patch, recompiles incrementally, and returns the result.
+
+### Adding to `crs.yaml`
+
+```yaml
+target_build_phase:
+  - name: asan-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: address
+  - name: coverage-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: coverage
+
+crs_run_phase:
+  patcher:
+    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
+  builder-asan:
+    dockerfile: oss-crs-infra:default-builder
+    run_snapshot: true
+  builder-coverage:
+    dockerfile: oss-crs-infra:default-builder
+    run_snapshot: true
+```
+
+Only builder sidecar modules get `run_snapshot: true`. The patcher is a regular module that uses the `--builder` flag on libCRS commands to specify which builder sidecar to communicate with.
+
+### Compose File Setup
+
+No special compose file configuration is needed. The framework automatically detects snapshot builds from `crs.yaml`. Just reference your CRS as usual:
+
+```yaml
+run_env: local
+docker_registry: ghcr.io/my-org
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "4G"
+
+my-patcher-crs:
+  cpuset: "2-7"
+  memory: "16G"
+  source:
+    local_path: /path/to/my-crs
+```
+
+No separate `oss-crs-builder` entry is needed — each CRS declares its own builder sidecars in `crs.yaml`.
+
+### Using Builder Commands in Your Patcher
+
+```bash
+#!/bin/bash
+# run-patcher.sh — entry script for a patcher module
+
+# 1. Generate a patch (your CRS logic)
+generate_patch > /tmp/patch.diff
+
+# 2. Apply the patch and rebuild (specify which builder sidecar to use)
+libCRS apply-patch-build /tmp/patch.diff /tmp/build-result --builder builder-asan
+# Exit code 0 = build succeeded, non-zero = build failed
+# /tmp/build-result/ contains build_id and build output
+
+BUILD_ID=$(cat /tmp/build-result/build_id)
+
+# 3. Run PoV against the patched build
+libCRS run-pov /tmp/crash-input /tmp/pov-result \
+  --harness fuzz_target --build-id "$BUILD_ID" --builder builder-asan
+
+# 4. Run the project's test suite against the patched build
+libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
+```
+
+### Multi-Sanitizer Setup
+
+You can create separate snapshot builds for each sanitizer. Each builder sidecar module runs independently, so your patcher can test patches against multiple sanitizer configurations in parallel:
+
+```yaml
+target_build_phase:
+  - name: asan-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: address
+  - name: ubsan-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: undefined
+
+crs_run_phase:
+  patcher:
+    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
+  builder-asan:
+    dockerfile: oss-crs-infra:default-builder
+    run_snapshot: true
+  builder-ubsan:
+    dockerfile: oss-crs-infra:default-builder
+    run_snapshot: true
+```
+
+### Custom Builder Sidecar
+
+If the default builder (`oss-crs-infra:default-builder`) doesn't meet your needs, you can write your own. Use the default builder as a starting point and customize the build logic, caching strategy, or compilation flags.
+
+```yaml
+target_build_phase:
+  - name: my-snapshot
+    dockerfile: oss-crs/my-custom-builder.Dockerfile  # your own build logic
+    snapshot:
+      sanitizer: address
+
+crs_run_phase:
+  patcher:
+    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
+    run_snapshot:
+      - my-builder
+  my-builder:
+    dockerfile: oss-crs/my-custom-sidecar.Dockerfile  # your own sidecar
+```
+
+Your custom sidecar must implement the same HTTP API on port 8080:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Healthcheck — return 200 when ready |
+| `/build` | POST | Accept `patch` file upload, apply and compile, return build ID |
+| `/run-pov` | POST | Accept `pov` file, `harness_name`, `build_id`, run the PoV |
+| `/run-test` | POST | Accept `build_id`, run the project's test suite |
+| `/status/<id>` | GET | Poll job status (`queued`, `running`, `done`) |
+
+See [builder/README.md](../builder/README.md) for the full API specification and implementation reference.
+
+---
+
 ## Using LLMs in Your CRS
 
 If your CRS leverages LLMs (e.g., for harness generation, code analysis, or patch synthesis):
@@ -532,17 +729,56 @@ Your CRS should submit findings through libCRS:
 - **`register-submit-dir`** — Best for high-volume output. Forks a daemon that watches the directory, deduplicates files by hash, and submits in batches. Use this for seeds and PoVs.
 - **`submit`** — Best for one-off submissions. Submits a single file immediately.
 
-### Adding Metadata
+---
 
-For each submitted file `<name>`, you can optionally create a `.<name>.metadata` JSON file:
+## Fetching Data
 
-```json
-{
-  "finder": "my-fuzzer-module"
-}
+CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to all non-builder containers. Data arrives from two sources:
+
+1. **Bootup data** — Files passed via `crs-compose run` flags (`--pov-dir`, `--diff`, `--corpus`), pre-populated by the host before containers start.
+2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
+
+### Bootup Data (crs-compose run flags)
+
+The operator passes data via `crs-compose run`:
+- `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/pov/`
+- `--diff <file>` — Reference diff → `FETCH_DIR/diff/ref.diff`
+- `--corpus <dir>` — Seed corpus files → `FETCH_DIR/seed/`
+
+### Using register-fetch-dir (Daemon Poller)
+
+For continuous data fetching, use `register-fetch-dir`. It forks a daemon that performs an initial sync and then polls `FETCH_DIR` for new files:
+
+```bash
+# In your entry script:
+libCRS register-fetch-dir pov /my-povs &
+libCRS register-fetch-dir seed /my-seeds &
 ```
 
-This attributes the artifact to the component that found it.
+The daemon:
+1. Copies existing files from `FETCH_DIR/<type>/` into the local directory.
+2. Polls `FETCH_DIR/<type>/` periodically for new files and copies them as they arrive.
+
+### Using fetch (One-Shot)
+
+For a one-time data snapshot, use `fetch`:
+
+```bash
+# Get all currently available POVs (bootup + inter-CRS)
+NEW_FILES=$(libCRS fetch pov /my-povs)
+echo "New files: $NEW_FILES"
+
+# Call again later to get only new files since last fetch
+NEW_FILES=$(libCRS fetch pov /my-povs)
+```
+
+### Available Data Types
+
+| CLI Flag | Data Type | FETCH_DIR Subdirectory |
+|---|---|---|
+| `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/pov/` |
+| `--diff` | `diff` | `FETCH_DIR/diff/` |
+| `--corpus` | `seed` | `FETCH_DIR/seed/` |
 
 ---
 
@@ -559,6 +795,13 @@ Before publishing your CRS, verify:
 - [ ] `supported_target` accurately reflects your CRS capabilities
 - [ ] `required_llms` lists all models used (if any)
 - [ ] The CRS runs successfully against at least one OSS-Fuzz project
+
+**Additional checks for incremental builds:**
+
+- [ ] Snapshot build steps have `snapshot: true` and use `oss-crs-infra:default-builder` (or a custom builder Dockerfile)
+- [ ] Builder sidecar modules have `run_snapshot: true` in `crs_run_phase`
+- [ ] Patcher module uses `apply-patch-build`, `run-pov`, and/or `run-test` commands correctly
+- [ ] Each sanitizer has its own snapshot build step and builder sidecar module
 
 ---
 

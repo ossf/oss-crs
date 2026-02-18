@@ -80,7 +80,37 @@ uv run crs-compose run \
 
 > **Note:** LLM-powered CRSs require an LLM API key. Refer to [docs/config/llm.md](docs/config/llm.md) for configuration details.
 
-### 4. Run an Ensemble of Multiple CRSs
+### 4. Use the Builder CRS for Incremental Builds
+
+For CRSs that generate source patches (bug-fixing), the **Builder CRS** provides fast incremental builds. Instead of rebuilding the target from scratch for each patch, the builder creates a snapshot of the compiled project and applies patches on top of it.
+
+First, fetch the required oss-fuzz scripts (one-time setup):
+
+```bash
+bash scripts/setup-third-party.sh
+```
+
+Then add the builder as a separate CRS entry in your compose file alongside your patcher CRS:
+
+```yaml
+oss-crs-builder:
+  source:
+    local_path: /path/to/oss-crs/builder
+  cpuset: "2-3"
+  memory: "8G"
+
+my-patcher-crs:
+  source:
+    local_path: /path/to/my-patcher-crs
+  cpuset: "4-7"
+  memory: "16G"
+```
+
+The framework automatically creates a snapshot image, starts the builder service, and connects it with your patcher CRS. Any CRS that uses `libCRS.apply_patch_build()` will communicate with the builder via HTTP.
+
+See [`builder/README.md`](builder/README.md) for full details on the builder's API and configuration.
+
+### 5. Run an Ensemble of Multiple CRSs
 
 Combine multiple CRSs in a single campaign to get the best of each approach. Simply define them in an ensemble compose file
  For example, [`./example/ensemble/ensemble-compose.yaml`](example/ensemble/ensemble-compose.yaml) launches both **crs-libfuzzer** and **multilang** simultaneously. Check the compose file for detailed configuration.
@@ -122,6 +152,7 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 - [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
 - [CRS Configuration](docs/config/crs.md): CRS config reference
 - [CRS-Compose Configuration](docs/config/crs-compose.md): Compose file reference
+- [Builder CRS](builder/README.md): Incremental build service for patch-testing CRSs
 - [LLM Configuration](docs/config/llm.md): LLM provider setup
 - [Plan](PLAN.md): Upcoming features and planned improvements
 

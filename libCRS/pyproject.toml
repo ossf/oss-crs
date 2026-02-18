@@ -6,12 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "watchdog>=6.0.0",
+    "requests>=2.28.0",
 ]
 
 
 [project.scripts]
-"libCRS" = "src.cli.main:main"
+"libCRS" = "libCRS.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src", "src.*"]
+include = ["libCRS", "libCRS.*"]
