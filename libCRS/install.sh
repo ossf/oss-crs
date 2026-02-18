@@ -10,4 +10,4 @@ source $HOME/.local/bin/env
 apt-get update && apt-get install -y rsync
 
 uv tool install "$SCRIPT_DIR"
-ln -sf "$HOME/.local/bin/libCRS" /usr/local/bin/libCRS 
+ln -sf "$HOME/.local/bin/libCRS" /usr/local/bin/libCRS

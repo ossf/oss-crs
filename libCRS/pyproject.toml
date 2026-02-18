@@ -11,8 +11,8 @@ dependencies = [
 
 
 [project.scripts]
-"libCRS" = "src.cli.main:main"
+"libCRS" = "libCRS.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src", "src.*"]
+include = ["libCRS", "libCRS.*"]
