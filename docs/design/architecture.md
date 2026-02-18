@@ -135,10 +135,12 @@ $ libCRS skip-build-output <path in output fs>
 $ libCRS register-submit-dir pov /povs
 $ libCRS register-submit-dir seed /seeds
 $ libCRS register-submit-dir bug-candidate /bug-candidates
+$ libCRS register-submit-dir patch /patches
 
 $ libCRS submit pov <pov_file_path>
 $ libCRS submit seed <seed_file_path>
 $ libCRS submit bug-candidate <bug_candidate_file_path>
+$ libCRS submit patch <patch_file_path>
 ```
  
 #### ✅ Sharing File between Containers in a CRS
@@ -148,17 +150,23 @@ $ libCRS register-shared-dir <local_dir_path> <shared_fs_path>
 
 #### ✅ Fetching Functions
 ```
-# Register a local dir as symlink to FETCH_DIR/<type>/
+# Register a daemon to poll EXCHANGE_DIR/<type>/ for new files
 $ libCRS register-fetch-dir pov /shared-povs
 $ libCRS register-fetch-dir diff /shared-diffs
 $ libCRS register-fetch-dir seed /shared-seeds
 
-# Populated by crs-compose via --pov/--pov-dir, --diff, --corpus flags
+# One-shot fetch from EXCHANGE_DIR
+$ libCRS fetch pov /shared-povs
+$ libCRS fetch diff /shared-diffs
+
+# EXCHANGE_DIR is pre-populated by crs-compose via --pov/--pov-dir, --diff, --corpus flags
 ```
 
-#### 📝Patching Functions (TODO)
+#### ✅ Builder Sidecar Functions
 ```
-$ libCRS apply-patch-build <patch diff file> <dst dir path> --builder <module_name>
+$ libCRS apply-patch-build <patch diff file> <response dir> --builder <module_name>
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
+$ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
 ```
 
 #### ✅ Network Functions

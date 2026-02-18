@@ -297,6 +297,7 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |
+| `OSS_CRS_EXCHANGE_DIR` | Inter-CRS data exchange + bootup data (shared across all CRSs) | `/OSS_CRS_EXCHANGE_DIR` |
 | `FUZZING_ENGINE` | OSS-Fuzz fuzzing engine | `libfuzzer` |
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
 | `ARCHITECTURE` | Target architecture | `x86_64` |
@@ -324,8 +325,11 @@ libCRS skip-build-output <dst_path>
 libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
 libCRS register-shared-dir <local_path> <shared_path>
 
-# Fetch directory registration (symlink to FETCH_DIR/<type>/)
-libCRS register-fetch-dir <type> <path>       # type: pov, seed, diff, bug-candidate
+# Fetch directory registration (daemon watcher for EXCHANGE_DIR)
+libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, patch, diff
+
+# One-shot fetch (copies from EXCHANGE_DIR)
+libCRS fetch <type> <path>                    # type: pov, seed, bug-candidate, patch, diff
 
 # Manual submission
 libCRS submit <type> <file_path>
@@ -725,53 +729,56 @@ Your CRS should submit findings through libCRS:
 - **`register-submit-dir`** — Best for high-volume output. Forks a daemon that watches the directory, deduplicates files by hash, and submits in batches. Use this for seeds and PoVs.
 - **`submit`** — Best for one-off submissions. Submits a single file immediately.
 
-### Adding Metadata
-
-For each submitted file `<name>`, you can optionally create a `.<name>.metadata` JSON file:
-
-```json
-{
-  "finder": "my-fuzzer-module"
-}
-```
-
-This attributes the artifact to the component that found it.
-
 ---
 
 ## Fetching Data
 
-The framework can pass data into CRS containers via `crs-compose run` flags. Inside your CRS, use `libCRS register-fetch-dir` to access the data.
+CRS containers receive data through `EXCHANGE_DIR`, a shared volume mounted to all non-builder containers. Data arrives from two sources:
 
-### How It Works
+1. **Bootup data** — Files passed via `crs-compose run` flags (`--pov-dir`, `--diff`, `--corpus`), pre-populated into `EXCHANGE_DIR` before containers start.
+2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`.
 
-1. The operator passes data via `crs-compose run`:
-   - `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/pov/`
-   - `--diff <file>` — Reference diff → `FETCH_DIR/diff/ref.diff`
-   - `--corpus <dir>` — Seed corpus files → `FETCH_DIR/seed/`
+### Bootup Data (crs-compose run flags)
 
-2. Inside the CRS container, register a local directory to access the data:
-   ```bash
-   libCRS register-fetch-dir pov /my-povs
-   # /my-povs is now a symlink to $OSS_CRS_FETCH_DIR/pov/
+The operator passes data via `crs-compose run`:
+- `--pov <file>` or `--pov-dir <dir>` — PoV files → `EXCHANGE_DIR/pov/`
+- `--diff <file>` — Reference diff → `EXCHANGE_DIR/diff/ref.diff`
+- `--corpus <dir>` — Seed corpus files → `EXCHANGE_DIR/seed/`
 
-   libCRS register-fetch-dir diff /my-diffs
-   # /my-diffs is now a symlink to $OSS_CRS_FETCH_DIR/diff/
-   ```
+### Using register-fetch-dir (Daemon Watcher)
 
-3. Read files from the symlinked directory as normal:
-   ```bash
-   ls /my-povs/           # Lists all POV files
-   cat /my-diffs/ref.diff  # Read the reference diff
-   ```
+For continuous data fetching, use `register-fetch-dir`. It forks a daemon that performs an initial sync and then watches `EXCHANGE_DIR` for new files:
+
+```bash
+# In your entry script:
+libCRS register-fetch-dir pov /my-povs &
+libCRS register-fetch-dir seed /my-seeds &
+```
+
+The daemon:
+1. Copies existing files from `EXCHANGE_DIR/<type>/` into the local directory.
+2. Watches `EXCHANGE_DIR/<type>/` for new files and copies them as they arrive.
+
+### Using fetch (One-Shot)
+
+For a one-time data snapshot, use `fetch`:
+
+```bash
+# Get all currently available POVs (bootup + inter-CRS)
+NEW_FILES=$(libCRS fetch pov /my-povs)
+echo "New files: $NEW_FILES"
+
+# Call again later to get only new files since last fetch
+NEW_FILES=$(libCRS fetch pov /my-povs)
+```
 
 ### Available Data Types
 
-| CLI Flag | Data Type | FETCH_DIR Subdirectory |
+| CLI Flag | Data Type | EXCHANGE_DIR Subdirectory |
 |---|---|---|
-| `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/pov/` |
-| `--diff` | `diff` | `FETCH_DIR/diff/` |
-| `--corpus` | `seed` | `FETCH_DIR/seed/` |
+| `--pov`, `--pov-dir` | `pov` | `EXCHANGE_DIR/pov/` |
+| `--diff` | `diff` | `EXCHANGE_DIR/diff/` |
+| `--corpus` | `seed` | `EXCHANGE_DIR/seed/` |
 
 ---
 
