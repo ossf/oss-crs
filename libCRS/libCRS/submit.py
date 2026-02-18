@@ -19,6 +19,10 @@ class NewFileHandler(FileSystemEventHandler):
         if not event.is_directory:
             self.callback(Path(event.src_path))
 
+    def on_modified(self, event) -> None:
+        if not event.is_directory:
+            self.callback(Path(event.src_path))
+
     def on_moved(self, event: FileMovedEvent) -> None:
         if not event.is_directory:
             self.callback(Path(event.dest_path))
@@ -38,7 +42,12 @@ class SubmitHelper:
         self._last_flush_time = time.time()
 
     def __enqueue_file(self, file_path: Path) -> None:
-        hash = file_hash(file_path)
+        try:
+            if file_path.stat().st_size == 0:
+                return
+            hash = file_hash(file_path)
+        except OSError:
+            return
         with self.queue_lock:
             if hash in self.submitted:
                 return
