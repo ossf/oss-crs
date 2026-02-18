@@ -718,6 +718,18 @@ class MultiTaskProgress:
             info_text="Bringing up services with docker-compose",
         )
 
+        # Explicitly stop all containers after compose up exits.
+        # --abort-on-container-exit may not stop containers with restart policies
+        # or services with attach: false.
+        try:
+            subprocess.run(
+                ["docker", "compose", "-p", project_name, "-f",
+                 str(docker_compose_path), "stop"],
+                capture_output=True, timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
         # If compose returned success, double-check no containers failed
         if result.success:
             check_result = self._check_failed_containers(

@@ -89,6 +89,7 @@ services:
       - {{ crs.get_exchange_dir(target) }}:/OSS_CRS_EXCHANGE_DIR:rw
 {%- endif %}
 {%- if module_config.use_snapshot or crs.config.is_builder %}
+    attach: false
     shm_size: "2g"
     restart: on-failure:3
     healthcheck:
@@ -115,7 +116,8 @@ services:
   # OSS-CRS-LITELLM
   ###########################################
   oss-crs-litellm:
-    image: ghcr.io/berriai/litellm-database:main-stable 
+    image: ghcr.io/berriai/litellm-database:main-stable
+    attach: false
     depends_on:
       oss-crs-postgres:
         condition: service_healthy
@@ -156,6 +158,7 @@ services:
           - postgres.oss-crs-infra-only
   oss-crs-litellm-key-gen:
     image: oss-crs-litellm-key-gen:latest
+    attach: false
     build:
       context: {{ oss_crs_infra_root_path }}/litellm-key-gen
       dockerfile: {{ oss_crs_infra_root_path }}/litellm-key-gen/Dockerfile
