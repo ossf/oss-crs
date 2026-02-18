@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import questionary
 from ..crs_compose import CRSCompose
 from ..target import Target
-from ..utils import generate_run_id, normalize_run_id
+from ..utils import normalize_run_id
 from ..config.artifacts import ArtifactsOutput, CRSArtifacts
 
 
@@ -299,18 +299,16 @@ def cli() -> bool:
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
-        build_id = normalize_run_id(args.build_id)
-        if not crs_compose.build_target(target, build_id=build_id):
+        # Library normalizes build_id internally
+        if not crs_compose.build_target(target, build_id=args.build_id):
             return False
     elif args.command == "run":
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
 
-        build_id = normalize_run_id(args.build_id)
-        run_id = normalize_run_id(args.run_id) if args.run_id else generate_run_id()
-        print(f"Using build-id: {build_id}, run-id: {run_id}")
-        if not crs_compose.run(target, run_id=run_id, build_id=build_id):
+        # Library normalizes IDs internally
+        if not crs_compose.run(target, run_id=args.run_id, build_id=args.build_id):
             return False
     elif args.command == "artifacts":
         return _handle_artifacts(args, crs_compose)

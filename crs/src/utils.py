@@ -53,11 +53,8 @@ class TmpDockerCompose:
 
     def __enter__(self) -> "TmpDockerCompose":
         # Create a temporary docker-compose YAML file
-        run_id = (
-            normalize_run_id(self._requested_run_id)
-            if self._requested_run_id
-            else generate_random_name(10)
-        )
+        # Note: run_id should already be normalized by the caller (CLI)
+        run_id = self._requested_run_id if self._requested_run_id else generate_random_name(10)
         tmp_name = generate_random_name(10)
         self.dir = Path(f"/tmp/{tmp_name}")
         self.dir.mkdir(parents=True, exist_ok=True)

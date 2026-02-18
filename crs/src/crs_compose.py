@@ -6,7 +6,7 @@ from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target
 from .templates import renderer
-from .utils import TmpDockerCompose
+from .utils import TmpDockerCompose, normalize_run_id, generate_run_id
 
 
 class CRSCompose:
@@ -102,7 +102,10 @@ class CRSCompose:
 
         return True
 
-    def build_target(self, target: Target, build_id: str) -> bool:
+    def build_target(self, target: Target, build_id: str | None = None) -> bool:
+        # Normalize build_id at library boundary
+        build_id = normalize_run_id(build_id) if build_id else normalize_run_id("default")
+
         target_base_image = target.build_docker_image()
         if target_base_image is None:
             return False
@@ -125,23 +128,24 @@ class CRSCompose:
 
         return True
 
-    def run(self, target: Target, run_id: str, build_id: str | None = None) -> bool:
+    def run(self, target: Target, run_id: str | None = None, build_id: str | None = None) -> bool:
         """
         Run the CRS compose.
 
         Args:
             target: The target to run.
             run_id: Run identifier for this run (used for SUBMIT_DIR, FETCH_DIR, SHARED_DIR).
+                    If None, generates a timestamp-based ID.
             build_id: Build identifier (used for BUILD_OUT_DIR). If None, uses "default"
                       and will trigger build if needed.
         """
+        # Normalize IDs at library boundary
+        run_id = normalize_run_id(run_id) if run_id else generate_run_id()
+        build_id = normalize_run_id(build_id) if build_id else normalize_run_id("default")
+
         if not self.__validate_before_run(target):
             return False
         target.init_repo()
-
-        # If build_id not provided, use "default"
-        if build_id is None:
-            build_id = "default"
 
         # Check if build exists, build if needed
         if not self.__check_target_built(target, build_id):
@@ -231,15 +235,15 @@ class CRSCompose:
                 progress.add_tasks(tasks)
                 ret = progress.run_added_tasks()
                 if ret.success or ret.interrupted:
-                    self.__show_result_local(target, progress)
+                    self.__show_result_local(target, actual_run_id, progress)
                     return ret.success
                 return False
 
         return False
 
-    def __show_result_local(self, target: Target, progress: MultiTaskProgress) -> None:
+    def __show_result_local(self, target: Target, run_id: str, progress: MultiTaskProgress) -> None:
         crs_results = [
-            {"name": crs.name, "submit_dir": crs.get_submit_dir(target)}
+            {"name": crs.name, "submit_dir": crs.get_submit_dir(target, run_id=run_id)}
             for crs in self.crs_list
         ]
         return progress.show_run_result(crs_results)
