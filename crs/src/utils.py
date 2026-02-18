@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import subprocess
 import random
@@ -24,12 +25,15 @@ def generate_run_id() -> str:
 
 
 def normalize_run_id(run_id: str) -> str:
+    """Normalize run_id to filesystem-safe string, appending hash to avoid collisions."""
     normalized = run_id.strip().lower()
     normalized = re.sub(r"[^a-z0-9_-]+", "-", normalized)
     normalized = re.sub(r"-{2,}", "-", normalized).strip("-_")
     if not normalized:
         raise ValueError("run_id must contain at least one alphanumeric character")
-    return normalized
+    # Append short hash of original string to avoid collisions
+    original_hash = hashlib.sha256(run_id.encode()).hexdigest()[:6]
+    return f"{normalized}-{original_hash}"
 
 
 class TmpDockerCompose:
