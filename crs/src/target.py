@@ -8,7 +8,7 @@ import git
 
 from .config.target import TargetConfig
 from .ui import MultiTaskProgress, TaskResult
-from .utils import generate_random_name
+from .utils import generate_random_name, rm_with_docker
 from . import ui
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -334,10 +334,11 @@ class Target:
 
         container_name = f"{self.name}-snapshot-{sanitizer}-{generate_random_name(8)}"
 
-        # Clean and create output directory (exclude fuzzer binaries from snapshot)
+        # Clean and create output directory (exclude fuzzer binaries from snapshot).
+        # Use docker to remove root-owned files from previous snapshot builds.
         out_dir = self.work_dir / f"snapshot-out-{sanitizer}"
         if out_dir.exists():
-            shutil.rmtree(out_dir)
+            rm_with_docker(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         target_env = self.get_target_env()
