@@ -19,8 +19,15 @@ def get_env(key: str, allow_none: bool = False) -> str:
     return value
 
 
-OSS_CRS_RUN_ENV_TYPE = EnvType(get_env("OSS_CRS_RUN_ENV_TYPE"))
-CRS_NAME = get_env("OSS_CRS_NAME", allow_none=True) or "CRS_NONAMED"
+_OSS_CRS_RUN_ENV_TYPE = None
+
+
+def get_run_env_type() -> EnvType:
+    """Lazy-load OSS_CRS_RUN_ENV_TYPE (not available during Docker build)."""
+    global _OSS_CRS_RUN_ENV_TYPE
+    if _OSS_CRS_RUN_ENV_TYPE is None:
+        _OSS_CRS_RUN_ENV_TYPE = EnvType(get_env("OSS_CRS_RUN_ENV_TYPE"))
+    return _OSS_CRS_RUN_ENV_TYPE
 
 
 def rsync_copy(src: Path, dst: Path) -> None:

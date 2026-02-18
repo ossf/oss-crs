@@ -4,15 +4,16 @@ import argparse
 from pathlib import Path
 from ..base import DataType, CRSUtils
 from ..local import LocalCRSUtils
-from ..common import OSS_CRS_RUN_ENV_TYPE, EnvType
+from ..common import get_run_env_type, EnvType
 
 
 def init_crs_utils() -> CRSUtils:
-    if OSS_CRS_RUN_ENV_TYPE == EnvType.LOCAL:
+    env_type = get_run_env_type()
+    if env_type == EnvType.LOCAL:
         return LocalCRSUtils()
     else:
         raise NotImplementedError(
-            f"CRSUtils not implemented for run environment: {OSS_CRS_RUN_ENV_TYPE}"
+            f"CRSUtils not implemented for run environment: {env_type}"
         )
 
 
