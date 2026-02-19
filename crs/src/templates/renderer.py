@@ -159,7 +159,7 @@ def render_run_crs_compose_docker_compose(
     exchange_dir = None
     for crs in crs_compose.crs_list:
         if not crs.config.is_builder:
-            exchange_dir = str(crs.get_exchange_dir(target))
+            exchange_dir = str(crs.get_exchange_dir(target, run_id))
             break
 
     context = {

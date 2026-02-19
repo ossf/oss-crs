@@ -181,7 +181,7 @@ class CRSCompose:
         self,
         target: Target,
         run_id: str | None = None,
-        build_id: str | None = None
+        build_id: str | None = None,
         pov: Optional[Path] = None,
         pov_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
@@ -359,7 +359,7 @@ class CRSCompose:
         def cleanup_exchange_dir(progress: MultiTaskProgress) -> TaskResult:
             # Exchange dir is shared across all CRSs — use any CRS to get the path
             if self.crs_list:
-                exchange_dir = self.crs_list[0].get_exchange_dir(target)
+                exchange_dir = self.crs_list[0].get_exchange_dir(target, run_id)
                 rm_with_docker(exchange_dir)
             return TaskResult(success=True)
 
@@ -377,7 +377,7 @@ class CRSCompose:
             # All CRSs share the same exchange dir — use the first non-builder CRS
             for crs in self.crs_list:
                 if not crs.config.is_builder:
-                    return crs.get_exchange_dir(target)
+                    return crs.get_exchange_dir(target, run_id)
             raise ValueError("No non-builder CRS found")
 
         def copy_povs(progress: MultiTaskProgress) -> TaskResult:
