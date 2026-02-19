@@ -27,7 +27,8 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 (
                     "Git Fetch",
                     lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "fetch", "origin", branch], cwd=dest_path
+                    cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
+                        cwd=dest_path
                     ),
                 ),
                 (
@@ -43,7 +44,15 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 (
                     "Cloning CRS repository",
                     lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "clone", "--branch", branch, repo_url, str(dest_path)]
+                        cmd=[
+                            "git",
+                            "clone",
+                            "--recurse-submodules",
+                            "--branch",
+                            branch,
+                            repo_url,
+                            str(dest_path),
+                        ]
                     ),
                 ),
             ]
