@@ -151,7 +151,7 @@ class Target:
             return progress.run_added_tasks().success
 
     def __fetch_repo(self, progress: MultiTaskProgress) -> "TaskResult":
-        cmd = ["git", "fetch", "origin"]
+        cmd = ["git", "fetch", "--recurse-submodules", "origin"]
         return progress.run_command_with_streaming_output(
             cmd=cmd,
             cwd=self.repo_path,
@@ -165,7 +165,13 @@ class Target:
         )
 
     def __clone(self, progress: MultiTaskProgress) -> "TaskResult":
-        cmd = ["git", "clone", self.config.main_repo, str(self.repo_path)]
+        cmd = [
+            "git",
+            "clone",
+            "--recurse-submodules",
+            self.config.main_repo,
+            str(self.repo_path),
+        ]
         return progress.run_command_with_streaming_output(
             cmd=cmd,
             cwd=self.repo_path.parent,
