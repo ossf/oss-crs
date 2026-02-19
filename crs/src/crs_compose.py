@@ -57,18 +57,18 @@ class CRSCompose:
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
 
-    def get_latest_build_run_id(self, target: Target) -> str | None:
-        """Find the latest build run-id (by unix timestamp) for the given target.
+    def get_latest_build_id(self, target: Target, sanitizer: str) -> str | None:
+        """Find the latest build-id (by unix timestamp) for the given target and sanitizer.
 
-        New structure: builds/<build-id>/crs/<crs-name>/<target>/BUILD_OUT_DIR/
+        Structure: <sanitizer>/builds/<build-id>/crs/<crs-name>/<target>/BUILD_OUT_DIR/
         """
         import re
         target_base_image = target.get_docker_image_name()
         target_key = target_base_image.replace(":", "_")
-        latest_run_id = None
+        latest_build_id = None
         latest_ts = 0
 
-        builds_dir = self.work_dir / "builds"
+        builds_dir = self.work_dir / sanitizer / "builds"
         if not builds_dir.exists():
             return None
 
@@ -86,9 +86,19 @@ class CRSCompose:
                         ts = int(match.group())
                         if ts > latest_ts:
                             latest_ts = ts
-                            latest_run_id = build_id
+                            latest_build_id = build_id
                     break  # Found at least one CRS with this build, no need to check others
-        return latest_run_id
+        return latest_build_id
+
+    def get_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:
+        """Get the build-id that was used for a specific run.
+
+        Reads from: <sanitizer>/runs/<run-id>/BUILD_ID
+        """
+        build_id_file = self.work_dir / sanitizer / "runs" / run_id / "BUILD_ID"
+        if build_id_file.exists():
+            return build_id_file.read_text().strip()
+        return None
 
     def __prepare_oss_crs_infra(
         self, publish: bool = False, docker_registry: str = None
@@ -127,8 +137,8 @@ class CRSCompose:
         return True
 
     def build_target(self, target: Target, build_id: str | None = None, sanitizer: str | None = None) -> bool:
-        # Normalize build_id at library boundary
-        build_id = normalize_run_id(build_id) if build_id else normalize_run_id("default")
+        # Normalize build_id at library boundary; generate timestamp-based ID if not provided
+        build_id = normalize_run_id(build_id) if build_id else generate_run_id()
         sanitizer = sanitizer if sanitizer else self._get_sanitizer(target)
 
         target_base_image = target.build_docker_image()
@@ -190,8 +200,15 @@ class CRSCompose:
     ) -> bool:
         # Normalize IDs at library boundary
         run_id = normalize_run_id(run_id) if run_id else generate_run_id()
-        build_id = normalize_run_id(build_id) if build_id else normalize_run_id("default")
         sanitizer = sanitizer if sanitizer else self._get_sanitizer(target)
+
+        # Determine build_id: use provided, find latest, or generate new
+        if build_id:
+            build_id = normalize_run_id(build_id)
+        else:
+            # Look for latest existing build for this target/sanitizer
+            build_id = self.get_latest_build_id(target, sanitizer)
+            # build_id may be None if no builds exist yet
 
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
@@ -202,7 +219,12 @@ class CRSCompose:
         if not self.__validate_before_run(target):
             return False
         target.init_repo()
-        need_build = not self.__check_target_built(target, build_id, sanitizer)
+
+        # Check if we need to build
+        if build_id:
+            need_build = not self.__check_target_built(target, build_id, sanitizer)
+        else:
+            need_build = True  # No builds exist yet
 
         # Also check if snapshot image exists when any CRS needs a snapshot
         if not need_build and self._any_needs_snapshot:
@@ -215,6 +237,9 @@ class CRSCompose:
                 need_build = True
 
         if need_build:
+            # Generate new build_id if we don't have one
+            if not build_id:
+                build_id = generate_run_id()
             if not self.build_target(target, build_id, sanitizer):
                 return False
 
@@ -229,6 +254,14 @@ class CRSCompose:
             pov_files.append(pov)
         if pov_dir is not None:
             pov_files.extend(f for f in pov_dir.iterdir() if f.is_file())
+
+        # build_id is guaranteed to be set at this point (either found or generated)
+        assert build_id is not None
+
+        # Write build_id to run directory for later retrieval (e.g., by artifacts command)
+        run_dir = self.work_dir / sanitizer / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "BUILD_ID").write_text(build_id)
 
         return self.__run(target, run_id=run_id, build_id=build_id, sanitizer=sanitizer, pov_files=pov_files, diff_path=diff, corpus_dir=corpus_dir)
 

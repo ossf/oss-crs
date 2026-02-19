@@ -76,8 +76,8 @@ def add_build_target_command(subparsers):
     build_target.add_argument(
         "--build-id",
         type=str,
-        default="default",
-        help="Build identifier used to isolate parallel builds (default: 'default').",
+        default=None,
+        help="Build identifier used to isolate parallel builds (default: generates timestamp-based ID).",
     )
     build_target.add_argument(
         "--sanitizer",
@@ -108,8 +108,8 @@ def add_run_command(subparsers):
     run.add_argument(
         "--build-id",
         type=str,
-        default="default",
-        help="Build identifier to use (default: 'default').",
+        default=None,
+        help="Build identifier to use (default: uses latest build, or generates new if none exists).",
     )
     run.add_argument(
         "--sanitizer",
@@ -164,8 +164,8 @@ def add_artifacts_command(subparsers):
     artifacts.add_argument(
         "--build-id",
         type=str,
-        default="default",
-        help="Build identifier (default: 'default').",
+        default=None,
+        help="Build identifier (default: uses latest build).",
     )
     artifacts.add_argument(
         "--sanitizer",
@@ -267,6 +267,19 @@ def _handle_artifacts(args, crs_compose) -> bool:
     else:
         run_id = _select_run_id_interactively(crs_compose, target, harness, sanitizer)
         if run_id is None:
+            return False
+
+    # build_id for BUILD_OUT_DIR - use provided, read from run, or find latest
+    if args.build_id:
+        build_id = normalize_run_id(args.build_id)
+    else:
+        # Try to get build_id from the run directory first
+        build_id = crs_compose.get_build_id_for_run(run_id, sanitizer)
+        if build_id is None:
+            # Fall back to latest build
+            build_id = crs_compose.get_latest_build_id(target, sanitizer)
+        if build_id is None:
+            print("No builds found for this target/sanitizer.", file=sys.stderr)
             return False
 
     # Build structured result
