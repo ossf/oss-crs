@@ -161,7 +161,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 2. The daemon uses `watchdog` to monitor the directory for new data files (dotfiles are ignored).
 3. New files are deduplicated by MD5 hash and queued for submission.
 4. Queued files are flushed in batches (every 10 seconds or when 100 files accumulate).
-5. Flushed files are copied to SUBMIT_DIR (host-visible, per-CRS). The exchange sidecar handles copying to EXCHANGE_DIR.
+5. Flushed files are copied to `SUBMIT_DIR/<type_dir>/` (host-visible, per-CRS). The exchange sidecar handles copying to EXCHANGE_DIR.
 
 **Example:**
 ```bash
@@ -212,8 +212,8 @@ $ libCRS register-fetch-dir [--log <log_path>] <type> <path>
 
 **How it works:**
 1. A daemon process is forked into the background.
-2. The daemon performs an initial sync: copies existing files from `FETCH_DIR/<type>/` (bootup data + inter-CRS data) into the local path.
-3. The daemon periodically polls `FETCH_DIR/<type>/` for new files via `InfraClient.fetch_new()`.
+2. The daemon performs an initial sync: copies existing files from `FETCH_DIR/<type_dir>/` (bootup data + inter-CRS data) into the local path.
+3. The daemon periodically polls `FETCH_DIR/<type_dir>/` for new files via `InfraClient.fetch_new()`.
 4. Files are deduplicated by name (hash-based names from `submit` provide natural content dedup).
 
 **Example:**
@@ -260,7 +260,7 @@ $ libCRS fetch <type> <dst_dir_path>
 | `dst_dir_path` | Local directory to download files into |
 
 **How it works:**
-1. Scans `FETCH_DIR/<type>/` for all available data (bootup data + inter-CRS data).
+1. Scans `FETCH_DIR/<type_dir>/` for all available data (bootup data + inter-CRS data).
 2. Copies only files not already present in the destination directory.
 3. Returns the list of newly copied file names.
 

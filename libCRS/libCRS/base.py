@@ -15,6 +15,17 @@ class DataType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
+    @property
+    def dir_name(self) -> str:
+        _DIR_NAMES = {
+            "pov": "povs",
+            "seed": "seeds",
+            "bug-candidate": "bug-candidates",
+            "patch": "patches",
+            "diff": "diffs",
+        }
+        return _DIR_NAMES[self.value]
+
 
 class CRSUtils(ABC):
     def __init__(self):

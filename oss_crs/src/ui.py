@@ -625,9 +625,9 @@ class MultiTaskProgress:
         lines = Text()
         for i, entry in enumerate(crs_results):
             submit_dir = entry["submit_dir"]
-            pov_dir = submit_dir / "pov"
-            seed_dir = submit_dir / "seed"
-            patch_dir = submit_dir / "patch"
+            pov_dir = submit_dir / "povs"
+            seed_dir = submit_dir / "seeds"
+            patch_dir = submit_dir / "patches"
 
             pov_count = _count_files(pov_dir)
             seed_count = _count_files(seed_dir)
