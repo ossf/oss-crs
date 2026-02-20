@@ -9,7 +9,7 @@ import questionary
 from ..crs_compose import CRSCompose
 from ..target import Target
 from ..utils import normalize_run_id
-from ..config.artifacts import ArtifactsOutput, CRSArtifacts
+from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -146,8 +146,31 @@ def add_artifacts_command(subparsers):
     artifacts = subparsers.add_parser(
         "artifacts", help="Show directories for run artifacts (JSON output)"
     )
-    add_common_arguments(artifacts)
-    add_target_arguments(artifacts)
+    artifacts.add_argument(
+        "--compose-file",
+        type=Path,
+        default=None,
+        help="Path to the CRS Compose file (enables path resolution mode)",
+    )
+    artifacts.add_argument(
+        "--work-dir",
+        type=Path,
+        default=DEFAULT_WORK_DIR,
+        help="Working directory for CRS Compose operations",
+    )
+    artifacts.add_argument(
+        "--target-proj-path",
+        type=Path,
+        default=None,
+        help="Target Project Path (required for path resolution mode)",
+    )
+    artifacts.add_argument(
+        "--target-repo-path",
+        type=Path,
+        required=False,
+        default=None,
+        help="Local path to the target repository",
+    )
     artifacts.add_argument(
         "--target-harness",
         type=str,
@@ -250,6 +273,9 @@ def _select_run_id_interactively(crs_compose, target, harness: str | None, sanit
 
 
 def _handle_artifacts(args, crs_compose) -> bool:
+    if args.target_proj_path is None:
+        print("--target-proj-path is required when using --compose-file", file=sys.stderr)
+        return False
     target = init_target_from_args(args)
     harness = target.target_harness
     sanitizer = args.sanitizer
@@ -265,47 +291,200 @@ def _handle_artifacts(args, crs_compose) -> bool:
     # build_id for BUILD_OUT_DIR - use provided, read from run, or find latest
     if args.build_id:
         build_id = normalize_run_id(args.build_id)
+        # Explicit --build-id must exist on disk
+        builds_dir = crs_compose.work_dir / sanitizer / "builds" / build_id
+        if not builds_dir.exists():
+            print(f"Build '{args.build_id}' not found.", file=sys.stderr)
+            return False
     else:
         # Try to get build_id from the run directory first
         build_id = crs_compose.get_build_id_for_run(run_id, sanitizer)
         if build_id is None:
             # Fall back to latest build
             build_id = crs_compose.get_latest_build_id(target, sanitizer)
-        if build_id is None:
-            print("No builds found for this target/sanitizer.", file=sys.stderr)
-            return False
 
-    # Build structured result
-    output = ArtifactsOutput(build_id=build_id, run_id=run_id)
+    # Build structured result — always return computed paths (path resolver mode)
+    output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
+
+    # exchange_dir is shared across all CRSs — compute once from the first CRS
+    if harness and crs_compose.crs_list:
+        exchange_path = crs_compose.crs_list[0].get_exchange_dir(
+            target, run_id=run_id, sanitizer=sanitizer, create=False
+        )
+        output.exchange_dir = ExchangeDir(
+            base=str(exchange_path),
+            pov=str(exchange_path / "povs"),
+            seed=str(exchange_path / "seeds"),
+            bug_candidate=str(exchange_path / "bug-candidates"),
+            patch=str(exchange_path / "patches"),
+            diff=str(exchange_path / "diffs"),
+        )
 
     for crs in crs_compose.crs_list:
-        # Build output uses build_id (don't create directories when just checking)
-        build_path = crs.get_build_output_dir(target, build_id=build_id, sanitizer=sanitizer, create=False)
+        crs_artifacts = CRSArtifacts()
 
-        crs_artifacts = CRSArtifacts(
-            build=str(build_path) if build_path.exists() else None
-        )
+        # Build output uses build_id
+        if build_id:
+            build_path = crs.get_build_output_dir(target, build_id=build_id, sanitizer=sanitizer, create=False)
+            crs_artifacts.build = str(build_path)
 
         # Per-harness artifacts use run_id
         if harness:
             submit_path = crs.get_submit_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
-            if submit_path.exists():
-                pov_path = submit_path / "povs"
-                seed_path = submit_path / "seeds"
-                crs_artifacts.pov = str(pov_path) if pov_path.exists() else None
-                crs_artifacts.seed = str(seed_path) if seed_path.exists() else None
+            crs_artifacts.submit_dir = str(submit_path)
+            crs_artifacts.pov = str(submit_path / "povs")
+            crs_artifacts.seed = str(submit_path / "seeds")
+            crs_artifacts.bug_candidate = str(submit_path / "bug-candidates")
+            crs_artifacts.patch = str(submit_path / "patches")
 
-            # Exchange dir is shared across all CRSs
-            exchange_path = crs.get_exchange_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
-            crs_artifacts.fetch = str(exchange_path) if exchange_path.exists() else None
+            crs_artifacts.fetch = output.exchange_dir.base if output.exchange_dir else None
 
             shared_path = crs.get_shared_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
-            crs_artifacts.shared = str(shared_path) if shared_path.exists() else None
+            crs_artifacts.shared = str(shared_path)
 
         output.crs[crs.name] = crs_artifacts
 
     print(output.to_json())
     return True
+
+
+def _handle_artifacts_scan(args) -> bool:
+    """Filesystem scanning mode: discover artifacts without a compose file.
+
+    Walks {work_dir}/crs_compose/*/  to find matching run-id directories
+    and reconstructs the ArtifactsOutput from the directory tree.
+
+    Structure under each hash dir:
+      {sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/
+      {sanitizer}/runs/{run-id}/EXCHANGE_DIR/{target}/{harness}/
+      {sanitizer}/builds/{build-id}/crs/{crs-name}/{target}/BUILD_OUT_DIR/
+    """
+    sanitizer = args.sanitizer
+    harness_filter = args.target_harness
+    run_id = args.run_id
+    if run_id is None:
+        print("--run-id is required for filesystem scanning mode.", file=sys.stderr)
+        return False
+
+    # Normalize to match on-disk directory names created by `oss-crs run`,
+    # which also normalizes run-ids to be filesystem-safe and Docker-safe.
+    run_id = normalize_run_id(run_id)
+    crs_compose_root = args.work_dir / "crs_compose"
+    if not crs_compose_root.exists():
+        print(f"No crs_compose directory found under {args.work_dir}", file=sys.stderr)
+        return False
+
+    # Scan all hash directories for the given run-id
+    for hash_dir in sorted(crs_compose_root.iterdir()):
+        if not hash_dir.is_dir():
+            continue
+
+        run_dir = hash_dir / sanitizer / "runs" / run_id
+        if not run_dir.is_dir():
+            continue
+
+        # build_id: use CLI override, or read from the run's BUILD_ID file
+        if args.build_id:
+            build_id = normalize_run_id(args.build_id)
+            # Explicit --build-id must exist on disk
+            builds_dir = hash_dir / sanitizer / "builds" / build_id
+            if not builds_dir.exists():
+                print(f"Build '{args.build_id}' not found.", file=sys.stderr)
+                return False
+        else:
+            build_id = None
+            build_id_file = run_dir / "BUILD_ID"
+            if build_id_file.exists():
+                build_id = build_id_file.read_text().strip()
+
+        output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
+
+        # Discover CRS names from {run_dir}/crs/*/
+        crs_base = run_dir / "crs"
+        if crs_base.is_dir():
+            for crs_dir in sorted(crs_base.iterdir()):
+                if not crs_dir.is_dir():
+                    continue
+                crs_name = crs_dir.name
+                crs_artifacts = CRSArtifacts()
+
+                # Walk target dirs under this CRS
+                for target_dir in sorted(crs_dir.iterdir()):
+                    if not target_dir.is_dir():
+                        continue
+                    submit_base = target_dir / "SUBMIT_DIR"
+                    if submit_base.is_dir():
+                        for harness_dir in sorted(submit_base.iterdir()):
+                            if not harness_dir.is_dir():
+                                continue
+                            if harness_filter and harness_dir.name != harness_filter:
+                                continue
+                            crs_artifacts.submit_dir = str(harness_dir)
+                            pov_path = harness_dir / "povs"
+                            seed_path = harness_dir / "seeds"
+                            bug_candidate_path = harness_dir / "bug-candidates"
+                            patch_path = harness_dir / "patches"
+                            crs_artifacts.pov = str(pov_path) if pov_path.exists() else None
+                            crs_artifacts.seed = str(seed_path) if seed_path.exists() else None
+                            crs_artifacts.bug_candidate = str(bug_candidate_path) if bug_candidate_path.exists() else None
+                            crs_artifacts.patch = str(patch_path) if patch_path.exists() else None
+                            break  # one harness per CRSArtifacts entry
+
+                    shared_base = target_dir / "SHARED_DIR"
+                    if shared_base.is_dir():
+                        for harness_dir in sorted(shared_base.iterdir()):
+                            if not harness_dir.is_dir():
+                                continue
+                            if harness_filter and harness_dir.name != harness_filter:
+                                continue
+                            crs_artifacts.shared = str(harness_dir)
+                            break  # one harness per CRSArtifacts entry
+
+                # Build output (if build_id is known)
+                if build_id:
+                    builds_base = hash_dir / sanitizer / "builds" / build_id / "crs" / crs_name
+                    if builds_base.is_dir():
+                        for target_dir in sorted(builds_base.iterdir()):
+                            build_out = target_dir / "BUILD_OUT_DIR"
+                            if build_out.is_dir():
+                                crs_artifacts.build = str(build_out)
+
+                output.crs[crs_name] = crs_artifacts
+
+        # Discover exchange dirs: {run_dir}/EXCHANGE_DIR/{target}/{harness}/
+        exchange_base = run_dir / "EXCHANGE_DIR"
+        if exchange_base.is_dir():
+            for target_dir in sorted(exchange_base.iterdir()):
+                if not target_dir.is_dir():
+                    continue
+                for harness_dir in sorted(target_dir.iterdir()):
+                    if not harness_dir.is_dir():
+                        continue
+                    if harness_filter and harness_dir.name != harness_filter:
+                        continue
+                    # Exchange is shared — set at top level and on all CRS entries
+                    pov_path = harness_dir / "povs"
+                    seed_path = harness_dir / "seeds"
+                    bug_candidate_path = harness_dir / "bug-candidates"
+                    patch_path = harness_dir / "patches"
+                    diff_path = harness_dir / "diffs"
+                    output.exchange_dir = ExchangeDir(
+                        base=str(harness_dir),
+                        pov=str(pov_path) if pov_path.exists() else None,
+                        seed=str(seed_path) if seed_path.exists() else None,
+                        bug_candidate=str(bug_candidate_path) if bug_candidate_path.exists() else None,
+                        patch=str(patch_path) if patch_path.exists() else None,
+                        diff=str(diff_path) if diff_path.exists() else None,
+                    )
+                    for crs_name in output.crs:
+                        output.crs[crs_name].fetch = str(harness_dir)
+                    break  # one harness per CRSArtifacts entry
+
+        print(output.to_json())
+        return True
+
+    print(f"No run '{run_id}' found under {crs_compose_root}", file=sys.stderr)
+    return False
 
 
 def _sigterm_handler(signum, frame):
@@ -336,6 +515,14 @@ def cli() -> bool:
     for key, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, key, value.expanduser().resolve())
+
+    # Artifacts without --compose-file uses filesystem scanning mode
+    if args.command == "artifacts" and args.compose_file is None:
+        return _handle_artifacts_scan(args)
+
+    # All other commands require --compose-file
+    if args.compose_file is None:
+        parser.error("--compose-file is required for this command")
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command == "artifacts"

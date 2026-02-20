@@ -69,20 +69,27 @@ Run artifacts are stored at:
 {work_dir}/{sanitizer}/runs/{run-id}/BUILD_ID                              # records which build was used
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/povs/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/seeds/
+{work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/bug-candidates/
+{work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/patches/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SHARED_DIR/{harness}/
 {work_dir}/{sanitizer}/runs/{run-id}/EXCHANGE_DIR/{target}/{harness}/      # shared across all CRSs
 ```
 
 ## Artifacts Command
 
-Query artifact directories for a specific build and run.
+The `artifacts` command operates in two modes:
+
+### Path Resolution Mode (with `--compose-file`)
+
+Computes all artifact paths deterministically from the compose file. No filesystem existence checks — paths are returned even if the run hasn't started yet. Use this **before** a run to pre-resolve EXCHANGE_DIR, SUBMIT_DIR, etc.
 
 ```bash
-uv run oss-crs artifacts \
+# Pre-resolve paths before a run starts (CRSBench use case)
+oss-crs artifacts \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
-  --run-id 1739819274ab
+  --run-id my-new-run
 ```
 
 **Default behavior:**
@@ -90,28 +97,51 @@ uv run oss-crs artifacts \
 - `--build-id`: Reads from the run's `BUILD_ID` file, falls back to latest build
 - `--sanitizer`: Defaults to `address`
 
-### Interactive Run Selection
+#### Interactive Run Selection
 
 If `--run-id` is omitted, an interactive prompt lists available runs sorted by timestamp:
 
 ```
 ? Select run-id:
-❯ 2025-02-17 16:01:57  (1739819274ab)
+> 2025-02-17 16:01:57  (1739819274ab)
   2025-02-17 15:58:30  (test-explicit)
   2025-02-17 15:55:00  (experiment-1)
 ```
 
+### Filesystem Scanning Mode (without `--compose-file`)
+
+Discovers artifacts by scanning the work directory. Used post-hoc or by humans to inspect completed runs. Requires `--run-id`.
+
+```bash
+# Discover artifacts from a completed run
+oss-crs artifacts --work-dir /path/to/workdir --run-id 1739819274ab
+```
+
 ### Output Format
+
+Both modes return the same JSON structure:
 
 ```json
 {
   "build_id": "1739819200cd",
   "run_id": "1739819274ab",
+  "sanitizer": "address",
+  "exchange_dir": {
+    "base": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml",
+    "pov": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/povs",
+    "seed": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/seeds",
+    "bug_candidate": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/bug-candidates",
+    "patch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/patches",
+    "diff": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/diffs"
+  },
   "crs": {
     "crs-libfuzzer": {
       "build": "/path/to/address/builds/1739819200cd/crs/crs-libfuzzer/target/BUILD_OUT_DIR",
+      "submit_dir": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml",
       "pov": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/povs",
       "seed": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/seeds",
+      "bug_candidate": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/bug-candidates",
+      "patch": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/patches",
       "fetch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml",
       "shared": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SHARED_DIR/xml"
     }
@@ -119,4 +149,7 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
 }
 ```
 
-Fields are omitted if the directory does not exist. If `--target-harness` is not provided, only `build` is returned.
+- In path resolution mode, all computed paths are returned regardless of existence
+- In filesystem scanning mode, `null` fields indicate directories not found on disk
+- `build_id` is `null` if no build is associated with the run
+- If `--target-harness` is not provided in path resolution mode, only `build` is returned
