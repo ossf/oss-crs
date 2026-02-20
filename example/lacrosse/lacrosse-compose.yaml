@@ -1,0 +1,17 @@
+run_env: local
+docker_registry: ghcr.io/team-atlanta/test
+
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+lacrosse-seedgen:
+  source:
+    url: ssh://git@github.com/sslab-gatech/lacrosse-afc-crs
+    ref: oss-crs
+  cpuset: "4-7"
+  memory: "16G"
+  llm_budget: 100
+
+llm_config:
+  litellm_config: ./example/lacrosse/litellm-config.yaml
