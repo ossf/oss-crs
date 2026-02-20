@@ -5,7 +5,7 @@ oss_crs_infra:
   cpuset: "0-3"
   memory: "16G"
 
-lacrosse-seedgen:
+lacrosse-seed-gen:
   source:
     url: https://github.com/Team-Atlanta/lacrosse-seed-gen
     ref: main
@@ -14,4 +14,4 @@ lacrosse-seedgen:
   llm_budget: 100
 
 llm_config:
-  litellm_config: ./example/lacrosse/litellm-config.yaml
+  litellm_config: ./example/lacrosse-seed-gen/litellm-config.yaml
