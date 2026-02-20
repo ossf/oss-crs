@@ -10,6 +10,7 @@ from ..crs_compose import CRSCompose
 from ..target import Target
 from ..utils import normalize_run_id
 from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir
+from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -180,6 +181,31 @@ def add_check_command(subparsers):
     pass
 
 
+def add_gen_compose_command(subparsers):
+    gen_compose = subparsers.add_parser(
+        "gen-compose",
+        help="Generate a compose file with mapped CPU sets"
+    )
+    gen_compose.add_argument(
+        "--compose-template",
+        type=Path,
+        required=True,
+        help="Path to the template CRS Compose file",
+    )
+    gen_compose.add_argument(
+        "--cpus",
+        type=str,
+        required=True,
+        help="Real CPU pool to map virtual cpusets to (e.g., '20-31' or '1-3,5,8-11')",
+    )
+    gen_compose.add_argument(
+        "--compose-output",
+        type=Path,
+        required=True,
+        help="Path to write the generated compose file",
+    )
+
+
 def init_target_from_args(args) -> Target:
     target_harness = args.target_harness if hasattr(args, "target_harness") else None
     return Target(
@@ -322,6 +348,80 @@ def _handle_artifacts(args, crs_compose) -> bool:
     return True
 
 
+def _handle_gen_compose(args) -> bool:
+    """Handle the gen-compose subcommand.
+
+    Generates a new compose file with virtual cpusets mapped to real CPUs.
+    """
+    import yaml
+
+    template_path = args.compose_template
+    cpus_pool = args.cpus
+    output_path = args.compose_output
+
+    # Validate input file exists
+    if not template_path.exists():
+        print(f"Error: Template file not found: {template_path}", file=sys.stderr)
+        return False
+
+    # Validate cpus format
+    try:
+        parse_cpuset(cpus_pool)
+    except ValueError as e:
+        print(f"Error: Invalid --cpus format: {e}", file=sys.stderr)
+        return False
+
+    # Load the template YAML
+    with open(template_path) as f:
+        data = yaml.safe_load(f)
+
+    # Identify all cpuset fields
+    # Reserved keys that may have cpuset
+    OSS_CRS_INFRA = "oss_crs_infra"
+    RESERVED_KEYS = {"run_env", "docker_registry", OSS_CRS_INFRA, "llm_config"}
+
+    all_cpusets = []
+
+    # Collect cpuset from oss_crs_infra
+    if OSS_CRS_INFRA in data and "cpuset" in data[OSS_CRS_INFRA]:
+        all_cpusets.append(data[OSS_CRS_INFRA]["cpuset"])
+
+    # Collect cpusets from CRS entries
+    crs_entries = {k: v for k, v in data.items() if k not in RESERVED_KEYS}
+    for crs_name, crs_config in crs_entries.items():
+        if isinstance(crs_config, dict) and "cpuset" in crs_config:
+            all_cpusets.append(crs_config["cpuset"])
+
+    if not all_cpusets:
+        print("Error: No cpuset fields found in template", file=sys.stderr)
+        return False
+
+    # Create CPU mapping
+    try:
+        cpu_mapping = create_cpu_mapping(all_cpusets, cpus_pool)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return False
+
+    # Apply mapping to all cpuset fields
+    if OSS_CRS_INFRA in data and "cpuset" in data[OSS_CRS_INFRA]:
+        original = data[OSS_CRS_INFRA]["cpuset"]
+        data[OSS_CRS_INFRA]["cpuset"] = map_cpuset(original, cpu_mapping)
+
+    for crs_name, crs_config in crs_entries.items():
+        if isinstance(crs_config, dict) and "cpuset" in crs_config:
+            original = crs_config["cpuset"]
+            crs_config["cpuset"] = map_cpuset(original, cpu_mapping)
+
+    # Write output file
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    print(f"Generated compose file: {output_path}")
+    return True
+
+
 def _sigterm_handler(signum, frame):
     """Convert SIGTERM into KeyboardInterrupt so cleanup tasks can run."""
     raise KeyboardInterrupt("SIGTERM received")
@@ -342,6 +442,7 @@ def cli() -> bool:
     add_run_command(subparsers)
     add_artifacts_command(subparsers)
     add_check_command(subparsers)
+    add_gen_compose_command(subparsers)
 
     args = parser.parse_args()
 
@@ -350,6 +451,10 @@ def cli() -> bool:
     for key, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, key, value.expanduser().resolve())
+
+    # Handle gen-compose early - it doesn't need CRSCompose initialization
+    if args.command == "gen-compose":
+        return _handle_gen_compose(args)
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command == "artifacts"
@@ -360,7 +465,6 @@ def cli() -> bool:
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
-        # Library normalizes build_id internally
         if not crs_compose.build_target(target, build_id=args.build_id, sanitizer=args.sanitizer):
             return False
     elif args.command == "run":
