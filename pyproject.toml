@@ -36,14 +36,11 @@ dev = [
     "watchdog>=4.0.0",
 ]
 
-[tool.setuptools]
-packages = [
-    "crs", "crs.src",
-    "registry"
-]
+[tool.setuptools.packages.find]
+include = ["crs*"]
 
 [tool.setuptools.package-data]
-"registry" = ["*/*.yaml"]
+"crs.src.templates" = ["*.j2", "*.py"]
 
 [dependency-groups]
 dev = [
