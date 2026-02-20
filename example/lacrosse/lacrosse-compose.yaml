@@ -7,8 +7,8 @@ oss_crs_infra:
 
 lacrosse-seedgen:
   source:
-    url: ssh://git@github.com/sslab-gatech/lacrosse-afc-crs
-    ref: oss-crs
+    url: https://github.com/Team-Atlanta/lacrosse-seed-gen
+    ref: main
   cpuset: "4-7"
   memory: "16G"
   llm_budget: 100
