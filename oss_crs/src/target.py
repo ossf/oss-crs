@@ -98,6 +98,11 @@ class Target:
         self.target_harness = target_harness
         self.snapshot_image_tag: Optional[str] = None
 
+    @property
+    def _has_repo(self) -> bool:
+        """Whether a repo path was explicitly provided via --target-repo-path."""
+        return self._user_provided_repo
+
     def _compute_repo_key(self) -> str:
         """Compute a short hash key from repo URL (and ref if specified)."""
         # TODO: Include ref when we add ref support to TargetConfig
@@ -109,7 +114,7 @@ class Target:
         return f"{self.name}:{repo_hash}"
 
     def build_docker_image(self) -> str | None:
-        if not self.init_repo():
+        if self._has_repo and not self.init_repo():
             return None
         repo_hash = self.__get_repo_hash()
         image_tag = self.get_docker_image_name()
@@ -122,35 +127,47 @@ class Target:
         if check.returncode == 0:
             return image_tag
 
-        tasks = [
-            (
-                "Build docker image with the given repo",
-                lambda progress: self.__build_docker_image_with_repo(
-                    image_tag, progress
+        if self._has_repo:
+            task_label = "Build docker image with the given repo"
+            task_fn = lambda progress: self.__build_docker_image_with_repo(
+                image_tag, progress
+            )
+            head_items = [
+                ui.bold(
+                    f"Repo hash: {repo_hash} (calculated from {self.repo_path})"
                 ),
-            ),
-        ]
+                ui.bold(f"Image tag: {image_tag}"),
+                ui.yellow(
+                    f"Note: /src/ will have contents in {self.repo_path}",
+                    True,
+                ),
+            ]
+        else:
+            task_label = "Build docker image (plain)"
+            task_fn = lambda progress: self.__build_docker_image_plain(
+                image_tag, progress
+            )
+            head_items = [
+                ui.bold(
+                    f"Proj hash: {repo_hash} (calculated from {self.proj_path})"
+                ),
+                ui.bold(f"Image tag: {image_tag}"),
+            ]
+
+        tasks = [(task_label, task_fn)]
 
         with MultiTaskProgress(
             tasks, title=f"Building {self.name} docker image"
         ) as progress:
-            progress.add_items_to_head(
-                [
-                    ui.bold(
-                        f"Repo hash: {repo_hash} (calculated from {self.repo_path})"
-                    ),
-                    ui.bold(f"Image tag: {image_tag}"),
-                    ui.yellow(
-                        f"Note: /src/ will have contents from {self.repo_path}",
-                        True,
-                    ),
-                ]
-            )
+            progress.add_items_to_head(head_items)
             if progress.run_added_tasks().success:
                 return image_tag
         return None
 
     def init_repo(self) -> bool:
+        if not self._has_repo:
+            return True
+
         # Use file lock to prevent race conditions when multiple runs access same repo
         lock_path = self.repo_path.parent / ".repo.lock"
         with file_lock(lock_path):
@@ -200,15 +217,31 @@ class Target:
             cwd=self.repo_path.parent,
         )
 
+    def __get_proj_hash(self) -> str:
+        """Content hash of Dockerfile + build.sh + test.sh for plain-build tagging."""
+        hasher = hashlib.sha256()
+        for name in ("Dockerfile", "build.sh", "test.sh"):
+            fp = self.proj_path / name
+            if fp.exists():
+                hasher.update(f"\n--- {name}\n".encode())
+                hasher.update(fp.read_bytes())
+        return hasher.hexdigest()[:12]
+
     def __get_repo_hash(self) -> str:
         """
         Get a hash representing the current state of the repository.
 
         If the working directory is clean, returns the current commit hash.
         Otherwise, returns a hash combining the commit hash and the diff of changes.
+        When no repo is available, delegates to __get_proj_hash().
         """
         if self.repo_hash is not None:
             return self.repo_hash
+
+        if not self._has_repo:
+            self.repo_hash = self.__get_proj_hash()
+            return self.repo_hash
+
         repo = git.Repo(self.repo_path)
         commit_hash = repo.head.commit.hexsha
 
@@ -290,6 +323,39 @@ class Target:
                 "build",
                 "--build-context",
                 f"repo_path={self.repo_path}",
+                "-t",
+                image_tag,
+                "-f",
+                tmp_dockerfile.name,
+                str(self.proj_path),
+            ]
+            return progress.run_command_with_streaming_output(
+                cmd=cmd,
+                cwd=self.work_dir,
+            )
+
+    def __build_docker_image_plain(
+        self, image_tag: str, progress: MultiTaskProgress
+    ) -> "TaskResult":
+        """Build docker image without a repo overlay.
+
+        Uses self.proj_path as Docker context directly. The Dockerfile is
+        extended with ``COPY . /project_dir`` so that build.sh, test.sh,
+        and other project files are available inside the image.
+        """
+        with tempfile.NamedTemporaryFile(
+            mode="wb", suffix=".Dockerfile", delete=True
+        ) as tmp_dockerfile:
+            added_dockerfile = (self.proj_path / "Dockerfile").read_bytes()
+            added_dockerfile += b"\n# Added by CRS Target build (plain)\n"
+            added_dockerfile += b"COPY . /project_dir\n"
+            tmp_dockerfile.write(added_dockerfile)
+            tmp_dockerfile.flush()
+
+            cmd = [
+                "docker",
+                "buildx",
+                "build",
                 "-t",
                 image_tag,
                 "-f",
