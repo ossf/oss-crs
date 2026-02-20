@@ -277,7 +277,7 @@ def _handle_artifacts(args, crs_compose) -> bool:
             # Fall back to latest build
             build_id = crs_compose.get_latest_build_id(target, sanitizer)
 
-    # Build structured result — always return computed paths (path resolver mode)
+    # Build structured result — always return computed paths
     output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
 
     # exchange_dir is shared across all CRSs — compute once from the first CRS
