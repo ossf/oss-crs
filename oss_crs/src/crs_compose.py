@@ -196,7 +196,7 @@ class CRSCompose:
         pov: Optional[Path] = None,
         pov_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
-        corpus_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
     ) -> bool:
         # Normalize IDs at library boundary
         run_id = normalize_run_id(run_id) if run_id else generate_run_id()
@@ -213,8 +213,8 @@ class CRSCompose:
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
             return False
-        if corpus_dir is not None and not corpus_dir.is_dir():
-            print(f"Error: Corpus directory does not exist: {corpus_dir}")
+        if seed_dir is not None and not seed_dir.is_dir():
+            print(f"Error: Seed directory does not exist: {seed_dir}")
             return False
         if not self.__validate_before_run(target):
             return False
@@ -263,7 +263,7 @@ class CRSCompose:
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "BUILD_ID").write_text(build_id)
 
-        return self.__run(target, run_id=run_id, build_id=build_id, sanitizer=sanitizer, pov_files=pov_files, diff_path=diff, corpus_dir=corpus_dir)
+        return self.__run(target, run_id=run_id, build_id=build_id, sanitizer=sanitizer, pov_files=pov_files, diff_path=diff, seed_dir=seed_dir)
 
     def __validate_before_run(self, target: Target) -> bool:
         tasks = [
@@ -304,7 +304,7 @@ class CRSCompose:
 
         return True
 
-    def __run(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, corpus_dir: Optional[Path] = None) -> bool:
+    def __run(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, seed_dir: Optional[Path] = None) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
                 target,
@@ -313,13 +313,13 @@ class CRSCompose:
                 sanitizer=sanitizer,
                 pov_files=pov_files or [],
                 diff_path=diff_path,
-                corpus_dir=corpus_dir
+                seed_dir=seed_dir
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
             return False
 
-    def __run_local(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, corpus_dir: Optional[Path] = None) -> bool:
+    def __run_local(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, seed_dir: Optional[Path] = None) -> bool:
         with MultiTaskProgress(
             tasks=[],
             title="CRS Compose Run",
@@ -340,7 +340,7 @@ class CRSCompose:
                             actual_run_id, build_id, sanitizer, progress,
                             pov_files=pov_files or [],
                             diff_path=diff_path,
-                            corpus_dir=corpus_dir,
+                            seed_dir=seed_dir,
                         ),
                     ),
                     (
@@ -377,7 +377,7 @@ class CRSCompose:
         progress: MultiTaskProgress,
         pov_files: list[Path] | None = None,
         diff_path: Optional[Path] = None,
-        corpus_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
     ) -> TaskResult:
         def prepare_docker_compose(progress: MultiTaskProgress) -> TaskResult:
             content = renderer.render_run_crs_compose_docker_compose(
@@ -417,22 +417,22 @@ class CRSCompose:
             raise ValueError("No non-builder CRS found")
 
         def copy_povs(progress: MultiTaskProgress) -> TaskResult:
-            pov_subdir = _get_exchange_dir() / "pov"
+            pov_subdir = _get_exchange_dir() / "povs"
             pov_subdir.mkdir(parents=True, exist_ok=True)
             for f in pov_files:
                 shutil.copy2(f, pov_subdir / f.name)
             return TaskResult(success=True)
 
         def copy_diff(progress: MultiTaskProgress) -> TaskResult:
-            diff_subdir = _get_exchange_dir() / "diff"
+            diff_subdir = _get_exchange_dir() / "diffs"
             diff_subdir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(diff_path, diff_subdir / "ref.diff")
             return TaskResult(success=True)
 
-        def copy_corpus(progress: MultiTaskProgress) -> TaskResult:
-            seed_subdir = _get_exchange_dir() / "seed"
+        def copy_seeds(progress: MultiTaskProgress) -> TaskResult:
+            seed_subdir = _get_exchange_dir() / "seeds"
             seed_subdir.mkdir(parents=True, exist_ok=True)
-            for f in corpus_dir.iterdir():
+            for f in seed_dir.iterdir():
                 if f.is_file():
                     shutil.copy2(f, seed_subdir / f.name)
             return TaskResult(success=True)
@@ -446,8 +446,8 @@ class CRSCompose:
         if diff_path:
             progress.add_task("Copy diff file to exchange dir", copy_diff)
 
-        if corpus_dir:
-            progress.add_task("Copy corpus files to exchange dir", copy_corpus)
+        if seed_dir:
+            progress.add_task("Copy seed files to exchange dir", copy_seeds)
 
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose

@@ -398,14 +398,14 @@ uv run oss-crs artifacts \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 
-# Optional: pass POVs, diffs, or corpus files to CRS containers
+# Optional: pass POVs, diffs, or seed files to CRS containers
 uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --pov-dir ./povs \
   --diff ./ref.diff \
-  --corpus ./seeds
+  --seed-dir ./seeds
 ```
 
 ### Debugging Tips
@@ -742,15 +742,15 @@ Your CRS should submit findings through libCRS:
 
 CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to all non-builder containers. Data arrives from two sources:
 
-1. **Bootup data** — Files passed via `oss-crs run` flags (`--pov-dir`, `--diff`, `--corpus`), pre-populated by the host before containers start.
+1. **Bootup data** — Files passed via `oss-crs run` flags (`--pov-dir`, `--diff`, `--seed-dir`), pre-populated by the host before containers start.
 2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
 
 ### Bootup Data (oss-crs run flags)
 
 The operator passes data via `oss-crs run`:
-- `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/pov/`
-- `--diff <file>` — Reference diff → `FETCH_DIR/diff/ref.diff`
-- `--corpus <dir>` — Seed corpus files → `FETCH_DIR/seed/`
+- `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/povs/`
+- `--diff <file>` — Reference diff → `FETCH_DIR/diffs/ref.diff`
+- `--seed-dir <dir>` — Seed files → `FETCH_DIR/seeds/`
 
 ### Using register-fetch-dir (Daemon Poller)
 
@@ -763,8 +763,8 @@ libCRS register-fetch-dir seed /my-seeds &
 ```
 
 The daemon:
-1. Copies existing files from `FETCH_DIR/<type>/` into the local directory.
-2. Polls `FETCH_DIR/<type>/` periodically for new files and copies them as they arrive.
+1. Copies existing files from `FETCH_DIR/<type_dir>/` into the local directory.
+2. Polls `FETCH_DIR/<type_dir>/` periodically for new files and copies them as they arrive.
 
 ### Using fetch (One-Shot)
 
@@ -783,9 +783,9 @@ NEW_FILES=$(libCRS fetch pov /my-povs)
 
 | CLI Flag | Data Type | FETCH_DIR Subdirectory |
 |---|---|---|
-| `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/pov/` |
-| `--diff` | `diff` | `FETCH_DIR/diff/` |
-| `--corpus` | `seed` | `FETCH_DIR/seed/` |
+| `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/povs/` |
+| `--diff` | `diff` | `FETCH_DIR/diffs/` |
+| `--seed-dir` | `seed` | `FETCH_DIR/seeds/` |
 
 ---
 

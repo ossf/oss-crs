@@ -136,10 +136,10 @@ def add_run_command(subparsers):
         help="Diff file for delta-mode analysis, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch diff <local_path>",
     )
     run.add_argument(
-        "--corpus",
+        "--seed-dir",
         type=Path,
         default=None,
-        help="Directory of initial corpus/seed files, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch seed <local_path>",
+        help="Directory of initial seed files, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch seed <local_path>",
     )
 
 def add_artifacts_command(subparsers):
@@ -290,8 +290,8 @@ def _handle_artifacts(args, crs_compose) -> bool:
         if harness:
             submit_path = crs.get_submit_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
             if submit_path.exists():
-                pov_path = submit_path / "pov"
-                seed_path = submit_path / "seed"
+                pov_path = submit_path / "povs"
+                seed_path = submit_path / "seeds"
                 crs_artifacts.pov = str(pov_path) if pov_path.exists() else None
                 crs_artifacts.seed = str(seed_path) if seed_path.exists() else None
 
@@ -353,7 +353,7 @@ def cli() -> bool:
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
-        if not crs_compose.run(target, run_id=args.run_id, build_id=args.build_id, sanitizer=args.sanitizer, pov=args.pov, pov_dir=args.pov_dir, diff=args.diff, corpus_dir=args.corpus):
+        if not crs_compose.run(target, run_id=args.run_id, build_id=args.build_id, sanitizer=args.sanitizer, pov=args.pov, pov_dir=args.pov_dir, diff=args.diff, seed_dir=args.seed_dir):
             return False
     elif args.command == "artifacts":
         return _handle_artifacts(args, crs_compose)

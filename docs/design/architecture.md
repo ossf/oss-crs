@@ -159,7 +159,7 @@ $ libCRS register-fetch-dir seed /shared-seeds
 $ libCRS fetch pov /shared-povs
 $ libCRS fetch diff /shared-diffs
 
-# FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by oss-crs via --pov/--pov-dir, --diff, --corpus flags
+# FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by oss-crs via --pov/--pov-dir, --diff, --seed-dir flags
 # An exchange sidecar copies submissions from SUBMIT_DIR to EXCHANGE_DIR (CRS containers do not write to EXCHANGE_DIR directly)
 ```
 

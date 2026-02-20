@@ -1,9 +1,10 @@
 """Exchange sidecar: polls SUBMIT_DIR trees and copies new files to EXCHANGE_DIR.
 
 Layout expected:
-  /submit/<crs_name>/<data_type>/<hash_file>
-  /exchange/<data_type>/<hash_file>
+  /submit/<crs_name>/<data_type_dir>/<hash_file>
+  /exchange/<data_type_dir>/<hash_file>
 
+Directory names are plural (povs, seeds, bug-candidates, patches, diffs).
 Files are already hash-named, so dedup is by filename.
 
 Uses polling (not inotify) because inotify does not work reliably
@@ -23,7 +24,7 @@ SUBMIT_ROOT = Path("/submit")
 EXCHANGE_ROOT = Path("/exchange")
 POLL_INTERVAL = 2  # seconds
 
-ALLOWED_DATA_TYPES = {"pov", "seed", "bug-candidate", "patch", "diff"}
+ALLOWED_DATA_TYPES = {"povs", "seeds", "bug-candidates", "patches", "diffs"}
 
 logging.basicConfig(
     level=logging.INFO,

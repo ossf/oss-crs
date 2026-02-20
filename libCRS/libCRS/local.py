@@ -25,7 +25,7 @@ class LocalCRSUtils(CRSUtils):
 
     def __init_submit_helper(self, data_type: DataType) -> SubmitHelper:
         OSS_CRS_SUBMIT_DIR = Path(get_env("OSS_CRS_SUBMIT_DIR"))
-        shared_fs_dir = OSS_CRS_SUBMIT_DIR / data_type.value
+        shared_fs_dir = OSS_CRS_SUBMIT_DIR / data_type.dir_name
         shared_fs_dir.mkdir(parents=True, exist_ok=True)
         return SubmitHelper(shared_fs_dir)
 
