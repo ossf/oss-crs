@@ -39,7 +39,7 @@ This document tracks the current state of OSS-CRS, upcoming features, and the lo
 - [x] `crs-libfuzzer` — lightweight libFuzzer-based CRS example
 - [x] `atlantis-multilang-wo-concolic` — LLM-powered multi-language CRS
 - [x] Ensemble composition example (both CRSs running simultaneously)
-- [x] CRS registry format (`registry/<name>/pkg.yaml`)
+- [x] CRS registry format (`registry/<name>.yaml`) with auto-resolution from compose
 
 ---
 
@@ -116,7 +116,7 @@ Features that will significantly improve the platform's utility for real-world c
 
 | Item | Status | Notes |
 |---|---|---|
-| `crs` CLI | Stub only | Standalone CRS management outside of `crs-compose` (e.g., build, test, publish a single CRS) |
+| `crs` CLI | Stub only | Standalone CRS management outside of `oss-crs` (e.g., build, test, publish a single CRS) |
 
 ### InfraClient Integration
 

@@ -93,6 +93,7 @@ def sync_once(created_dirs: set[str], warned_types: set[str]) -> None:
                     with fsrc, open(tmp_path, "wb") as fdst:
                         shutil.copyfileobj(fsrc, fdst)
                     os.rename(tmp_path, str(dst))
+                    os.chmod(str(dst), 0o644)
                     log.info("copied %s/%s", data_type, f_entry.name)
                 except OSError as exc:
                     log.warning("copy failed %s: %s", f_entry.path, exc)

@@ -39,11 +39,11 @@ For a quick introduction and setup instructions, see the [project README](../REA
 
 ### CRS Lifecycle
 
-Every CRS campaign follows three phases managed by `crs-compose`:
+Every CRS campaign follows three phases managed by `oss-crs`:
 
-1. **Prepare** — Pull CRS source repositories and build Docker images (`crs-compose prepare`)
-2. **Build Target** — Compile the target project and run each CRS's target build pipeline (`crs-compose build-target`)
-3. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`crs-compose run`)
+1. **Prepare** — Pull CRS source repositories and build Docker images (`oss-crs prepare`)
+2. **Build Target** — Compile the target project and run each CRS's target build pipeline (`oss-crs build-target`)
+3. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`oss-crs run`)
 
 ### CRS Isolation
 

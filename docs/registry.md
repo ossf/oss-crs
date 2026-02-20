@@ -1,10 +1,10 @@
 # CRS Registry
 
-The **CRS Registry** is a curated catalog of certified open-source Cyber Reasoning Systems that are compatible with the OSS-CRS framework. Each registered CRS has been verified to follow the [CRS Development Guide](crs-development-guide.md) and can be used out of the box with `crs-compose`.
+The **CRS Registry** is a curated catalog of certified open-source Cyber Reasoning Systems that are compatible with the OSS-CRS framework. Each registered CRS has been verified to follow the [CRS Development Guide](crs-development-guide.md) and can be used out of the box with `oss-crs`.
 
 ## Registry Structure
 
-Each CRS in the registry is defined by a `pkg.yaml` manifest located under `registry/<crs-name>/`. The manifest describes the CRS metadata and where to fetch its source:
+Each CRS in the registry is defined by a YAML file at `registry/<crs-name>.yaml`. The manifest describes the CRS metadata and where to fetch its source:
 
 ```yaml
 name: <crs-name>
@@ -21,6 +21,18 @@ source:
 | `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, or both |
 | `source.url` | Git repository URL containing the CRS implementation |
 | `source.ref` | Git branch or tag to use |
+
+### Registry as Source of Truth
+
+When a CRS entry in a compose file omits `source`, `oss-crs` automatically resolves it from the registry. This means registered CRSs can be used with minimal configuration:
+
+```yaml
+crs-libfuzzer:
+  cpuset: "2-7"
+  memory: "16G"
+```
+
+The `source` field in compose is only needed to **override** the registry (e.g., for local development with `local_path`).
 
 ## Available CRSs
 
@@ -57,13 +69,13 @@ To use a CRS from the registry, reference it in your [compose file](config/crs-c
 
 ```bash
 # Prepare the CRS
-uv run crs-compose prepare --compose-file <compose-file>
+uv run oss-crs prepare --compose-file <compose-file>
 
 # Build the target
-uv run crs-compose build-target --compose-file <compose-file> --target-proj-path <target-path>
+uv run oss-crs build-target --compose-file <compose-file> --target-proj-path <target-path>
 
 # Run the CRS
-uv run crs-compose run --compose-file <compose-file> --target-proj-path <target-path> --target-harness <harness>
+uv run oss-crs run --compose-file <compose-file> --target-proj-path <target-path> --target-harness <harness>
 ```
 
 See the [Quick Start](../README.md#quick-start) for a complete walkthrough.
@@ -73,8 +85,7 @@ See the [Quick Start](../README.md#quick-start) for a complete walkthrough.
 To register a new CRS:
 
 1. Ensure your CRS follows the [CRS Development Guide](crs-development-guide.md).
-2. Create a directory under `registry/` with your CRS name.
-3. Add a `pkg.yaml` manifest with the required fields.
-4. Submit a pull request for review.
+2. Create `registry/<crs-name>.yaml` with the required fields.
+3. Submit a pull request for review.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.

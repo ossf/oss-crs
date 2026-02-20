@@ -1,5 +1,7 @@
 from enum import Enum
 from pathlib import Path
+from typing import Optional
+
 import yaml
 
 from pydantic import BaseModel, Field
@@ -51,8 +53,8 @@ class TargetConfig(BaseModel):
         description="Programming language the project is written in.",
     )
 
-    main_repo: str = Field(
-        ...,
+    main_repo: Optional[str] = Field(
+        default=None,
         description="Path to source code repository hosting the code, e.g. https://path/to/main/repo.git",
     )
 

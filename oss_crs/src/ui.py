@@ -627,11 +627,17 @@ class MultiTaskProgress:
             submit_dir = entry["submit_dir"]
             pov_dir = submit_dir / "pov"
             seed_dir = submit_dir / "seed"
+            patch_dir = submit_dir / "patch"
 
             pov_count = _count_files(pov_dir)
             seed_count = _count_files(seed_dir)
+            patch_count = _count_files(patch_dir)
 
             lines.append(f"{entry['name']}:\n", style="bold cyan")
+            lines.append("  - Patches: ", style="bold")
+            lines.append(f"{patch_count}\n", style="yellow")
+            lines.append("       - Directory: ", style="dim")
+            lines.append(f"{patch_dir}\n" if patch_dir.exists() else "-\n", style="dim")
             lines.append("  - POVs: ", style="bold")
             lines.append(f"{pov_count}\n", style="red")
             lines.append("       - Directory: ", style="dim")

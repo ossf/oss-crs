@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for crs-codex (bug-fixing)                            #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-codex) -------------------------------------------------------
+# Builder sidecar is declared in crs.yaml (inc-builder-asan with run_snapshot: true).
+# No separate oss-crs-builder compose entry needed.
+crs-codex:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here.
+    # Pinned snapshots (as of 2026-02-16):
+    #   gpt-5-2025-08-07, gpt-5-mini-2025-08-07, gpt-5-pro-2025-10-06,
+    #   gpt-5.1-2025-11-13, gpt-5.2-2025-12-11
+    # Codex models (canonical IDs):
+    #   gpt-5-codex, gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.2-codex
+    CRS_AGENT: codex
+    CODEX_MODEL: gpt-5.2-codex
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/crs-codex/litellm-config.yaml

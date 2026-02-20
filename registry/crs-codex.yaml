@@ -1,0 +1,6 @@
+name: crs-codex
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-codex.git
+  ref: main

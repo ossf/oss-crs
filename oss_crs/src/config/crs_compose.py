@@ -31,6 +31,28 @@ class CRSSource(BaseModel):
         return self
 
 
+def resolve_source_from_registry(crs_name: str) -> CRSSource:
+    """Resolve CRS source from the registry directory.
+
+    Looks up registry/<crs-name>.yaml and returns a CRSSource.
+    """
+    registry_dir = Path(__file__).resolve().parents[3] / "registry"
+    registry_file = registry_dir / f"{crs_name}.yaml"
+    if not registry_file.exists():
+        raise ValueError(
+            f"CRS '{crs_name}' has no 'source' and is not in the registry. "
+            f"Expected registry file: {registry_file}"
+        )
+    with open(registry_file) as f:
+        data = yaml.safe_load(f)
+    source_data = data.get("source")
+    if source_data is None:
+        raise ValueError(
+            f"Registry file {registry_file} is missing 'source' field"
+        )
+    return CRSSource(**source_data)
+
+
 class ResourceConfig(BaseModel):
     """Base resource configuration with cpuset and memory."""
 
@@ -64,9 +86,13 @@ class ResourceConfig(BaseModel):
 
 
 class CRSEntry(ResourceConfig):
-    """Configuration for a single CRS entry."""
+    """Configuration for a single CRS entry.
 
-    source: CRSSource
+    When 'source' is omitted, it will be resolved from the registry
+    during CRSComposeConfig.from_dict() using the CRS entry name.
+    """
+
+    source: Optional[CRSSource] = None
     additional_env: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("additional_env", mode="before")
@@ -151,13 +177,20 @@ class CRSComposeConfig(BaseModel):
             key: value for key, value in data.items() if key not in reserved_keys
         }
 
-        return cls(
+        config = cls(
             run_env=run_env,  # Pydantic will convert string to enum automatically
             docker_registry=docker_registry,
             oss_crs_infra=oss_crs_infra,
             crs_entries=crs_entries,
             llm_config=llm_config,
         )
+
+        # Resolve missing sources from registry
+        for name, entry in config.crs_entries.items():
+            if entry.source is None:
+                entry.source = resolve_source_from_registry(name)
+
+        return config
 
     def md5_hash(self) -> str:
         """Compute MD5 hash of the configuration."""

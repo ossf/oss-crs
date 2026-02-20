@@ -1,0 +1,6 @@
+name: crs-gemini-cli
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-gemini-cli.git
+  ref: main

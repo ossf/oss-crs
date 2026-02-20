@@ -373,7 +373,7 @@ $ libCRS run-test /tmp/test-result --build-id abc123 --builder builder-asan
 
 ```bash
 #!/bin/bash
-# build.sh — executed during crs-compose build-target
+# build.sh — executed during oss-crs build-target
 
 # Compile the target with custom instrumentation
 cd /src && make CC=afl-clang-fast
@@ -389,7 +389,7 @@ libCRS skip-build-output /optional-target
 
 ```bash
 #!/bin/bash
-# run.sh — executed during crs-compose run
+# run.sh — executed during oss-crs run
 
 # Retrieve build outputs
 libCRS download-build-output /target /opt/target

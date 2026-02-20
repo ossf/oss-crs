@@ -79,9 +79,9 @@ CRS Compose is the top-level orchestrator that manages the entire lifecycle of a
 
 | Phase | Command | Description |
 |---|---|---|
-| **Prepare** | `crs-compose prepare` | Pulls CRS source repositories, builds Docker images using `docker buildx bake` |
-| **Build Target** | `crs-compose build-target` | Builds the target project (OSS-Fuzz format) and runs each CRS's target build pipeline |
-| **Run** | `crs-compose run` | Launches all CRSs and infrastructure via Docker Compose |
+| **Prepare** | `oss-crs prepare` | Pulls CRS source repositories, builds Docker images using `docker buildx bake` |
+| **Build Target** | `oss-crs build-target` | Builds the target project (OSS-Fuzz format) and runs each CRS's target build pipeline |
+| **Run** | `oss-crs run` | Launches all CRSs and infrastructure via Docker Compose |
 
 **Configuration (`crs-compose.yaml`)** file declares:
 - `run_env` — Execution environment (`local`, with `azure` planned)
@@ -159,7 +159,7 @@ $ libCRS register-fetch-dir seed /shared-seeds
 $ libCRS fetch pov /shared-povs
 $ libCRS fetch diff /shared-diffs
 
-# FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by crs-compose via --pov/--pov-dir, --diff, --corpus flags
+# FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by oss-crs via --pov/--pov-dir, --diff, --corpus flags
 # An exchange sidecar copies submissions from SUBMIT_DIR to EXCHANGE_DIR (CRS containers do not write to EXCHANGE_DIR directly)
 ```
 
@@ -188,7 +188,7 @@ The LLM subsystem uses [LiteLLM](https://github.com/BerriAI/litellm) as a proxy:
 - **Budget Enforcement**: Dollar-denominated limits per CRS, tracked in PostgreSQL
 - **Model Routing**: Logical model names are mapped to provider-specific models via LiteLLM config
 
-LLM setup flow during `crs-compose run`:
+LLM setup flow during `oss-crs run`:
 
 1. CRS Compose generates per-CRS API keys
 2. The `litellm-key-gen` service registers keys and budgets in LiteLLM

@@ -7,7 +7,7 @@ name = "oss-crs"
 version = "0.1.0"
 description = "Cyber Reasoning System (CRS) build and run tools for bug finding and fixing"
 requires-python = ">=3.10"
-license = {text = "Apache-2.0"}
+license = "MIT"
 authors = [
     {name = "Team Atlanta"}
 ]
@@ -26,8 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-crs-compose = "crs.src.cli.crs_compose:main"
-crs = "crs.src.cli.crs:main"
+oss-crs = "oss_crs.src.cli.crs_compose:main"
 
 [project.optional-dependencies]
 dev = [
@@ -36,14 +35,11 @@ dev = [
     "watchdog>=4.0.0",
 ]
 
-[tool.setuptools]
-packages = [
-    "crs", "crs.src",
-    "registry"
-]
+[tool.setuptools.packages.find]
+include = ["oss_crs*"]
 
 [tool.setuptools.package-data]
-"registry" = ["*/*.yaml"]
+"oss_crs.src.templates" = ["*.j2", "*.py"]
 
 [dependency-groups]
 dev = [

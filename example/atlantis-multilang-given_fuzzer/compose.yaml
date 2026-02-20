@@ -1,0 +1,19 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#         Example for atlantis-multilang-given_fuzzer (bug-finding)          #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (atlantis-multilang-given_fuzzer) ----------------------------------
+# Bug-finding fuzzer — no LLM needed.
+atlantis-multilang-given_fuzzer:
+  cpuset: "2-17"
+  memory: "24G"

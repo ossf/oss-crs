@@ -6,7 +6,7 @@ This guide walks you through building a Cyber Reasoning System (CRS) that integr
 - Run in any supported environment (local, Azure) without modification
 - Be composable with other CRSs in ensemble campaigns
 
-> **Before you start:** Check the [CRS Registry](registry.md) to see if an existing CRS already fits your needs. You can use a registered CRS directly with `crs-compose` — no development required. If you want to extend or customize an existing CRS, forking a registered one is often faster than starting from scratch. Registered CRS repositories also serve as practical references for how to structure your own CRS — studying their `oss-crs/crs.yaml`, Dockerfiles, and build scripts is a great way to learn the patterns.
+> **Before you start:** Check the [CRS Registry](registry.md) to see if an existing CRS already fits your needs. You can use a registered CRS directly with `oss-crs` — no development required. If you want to extend or customize an existing CRS, forking a registered one is often faster than starting from scratch. Registered CRS repositories also serve as practical references for how to structure your own CRS — studying their `oss-crs/crs.yaml`, Dockerfiles, and build scripts is a great way to learn the patterns.
 
 ## Prerequisites
 
@@ -149,7 +149,7 @@ target "my-crs-base" {
 }
 ```
 
-This runs during `crs-compose prepare` and builds all images your CRS needs.
+This runs during `oss-crs prepare` and builds all images your CRS needs.
 
 ---
 
@@ -377,29 +377,29 @@ my-crs:
 
 ```bash
 # 1. Prepare — build CRS Docker images
-uv run crs-compose prepare \
+uv run oss-crs prepare \
   --compose-file ./my-crs-compose.yaml
 
 # 2. Build target — compile the target with your instrumentation
-uv run crs-compose build-target \
+uv run oss-crs build-target \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2
 
 # 3. Run — launch the CRS
-uv run crs-compose run \
+uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --timeout 3600
 
 # 4. Query artifacts — find PoVs and seeds
-uv run crs-compose artifacts \
+uv run oss-crs artifacts \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 
 # Optional: pass POVs, diffs, or corpus files to CRS containers
-uv run crs-compose run \
+uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
@@ -432,7 +432,7 @@ my-crs:
 
 ### Register in the CRS Registry
 
-To make your CRS discoverable, add an entry to the [CRS Registry](registry.md) by creating a `registry/<crs-name>/pkg.yaml`:
+To make your CRS discoverable, add an entry to the [CRS Registry](registry.md) by creating `registry/<crs-name>.yaml`. Once registered, users can use your CRS without specifying `source` in their compose file:
 
 ```yaml
 name: my-crs
@@ -742,12 +742,12 @@ Your CRS should submit findings through libCRS:
 
 CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to all non-builder containers. Data arrives from two sources:
 
-1. **Bootup data** — Files passed via `crs-compose run` flags (`--pov-dir`, `--diff`, `--corpus`), pre-populated by the host before containers start.
+1. **Bootup data** — Files passed via `oss-crs run` flags (`--pov-dir`, `--diff`, `--corpus`), pre-populated by the host before containers start.
 2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
 
-### Bootup Data (crs-compose run flags)
+### Bootup Data (oss-crs run flags)
 
-The operator passes data via `crs-compose run`:
+The operator passes data via `oss-crs run`:
 - `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/pov/`
 - `--diff <file>` — Reference diff → `FETCH_DIR/diff/ref.diff`
 - `--corpus <dir>` — Seed corpus files → `FETCH_DIR/seed/`

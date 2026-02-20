@@ -1,6 +1,6 @@
 # Parallel Builds and Runs
 
-`crs-compose` supports running multiple builds and runs in parallel through build and run identifiers.
+`oss-crs` supports running multiple builds and runs in parallel through build and run identifiers.
 
 ## Build ID
 
@@ -14,12 +14,12 @@ To reuse an existing build (avoid rebuilding), explicitly specify `--build-id`:
 
 ```bash
 # Build fresh artifacts
-uv run crs-compose build-target \
+uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2
 
 # Pin to a specific build ID to reuse across invocations
-uv run crs-compose build-target \
+uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --build-id my-pinned-build
@@ -37,7 +37,7 @@ Multiple runs can share the same build by specifying the same `--build-id`.
 The `--sanitizer` flag (default: from target config, usually `address`) determines which sanitizer configuration to use. It affects the directory structure, isolating artifacts by sanitizer type.
 
 ```bash
-uv run crs-compose build-target \
+uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --sanitizer undefined
@@ -50,7 +50,7 @@ All artifacts are stored under `{work_dir}/{sanitizer}/...`.
 The `--run-id` flag isolates run artifacts (seeds, PoVs, shared state), allowing multiple experiments against the same build.
 
 ```bash
-uv run crs-compose run \
+uv run oss-crs run \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
@@ -78,7 +78,7 @@ Run artifacts are stored at:
 Query artifact directories for a specific build and run.
 
 ```bash
-uv run crs-compose artifacts \
+uv run oss-crs artifacts \
   --compose-file ./crs-compose.yaml \
   --target-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \

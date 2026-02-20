@@ -1,0 +1,28 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for ensemble (multiple CRSes)                         #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (crs-libfuzzer) ---------------------------------------------------
+crs-libfuzzer:
+  cpuset: "8-11"
+  memory: "16G"
+
+# --- CRS (atlantis-multilang-wo-concolic) -----------------------------------
+atlantis-multilang-wo-concolic:
+  cpuset: "4-7"
+  memory: "16G"
+  llm_budget: 100
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/atlantis-multilang-wo-concolic/litellm-config.yaml

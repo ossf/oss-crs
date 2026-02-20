@@ -461,10 +461,14 @@ class CRS:
 
             if build_cache_path.exists():
                 if build_cache_path.read_text() == image_hash:
+                    if self.__check_outputs(build_config, build_out_dir).success:
+                        progress.add_note(
+                            "Build cache is up-to-date. Skipping target build."
+                        )
+                        return TaskResult(success=True)
                     progress.add_note(
-                        "Build cache is up-to-date. Skipping target build."
+                        "Build cache hit but outputs missing. Rebuilding."
                     )
-                    return TaskResult(success=True)
             ret = progress.docker_compose_run(
                 project_name, tmp_docker_compose.docker_compose, "target_builder"
             )

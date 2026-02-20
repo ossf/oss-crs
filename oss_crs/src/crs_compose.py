@@ -472,5 +472,5 @@ class CRSCompose:
         )
         if ret.success:
             return ret
-        ret.error += "\n\n📝 Depending on your Dockerfile, You might need to run `uv run crs-compose prepare` to apply your changes."
+        ret.error += "\n\n📝 Depending on your Dockerfile, You might need to run `uv run oss-crs prepare` to apply your changes."
         return ret
