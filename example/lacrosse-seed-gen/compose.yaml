@@ -1,0 +1,23 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for lacrosse-seed-gen (bug-finding)                   #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (lacrosse-seed-gen) ------------------------------------------------
+lacrosse-seed-gen:
+  cpuset: "4-7"
+  memory: "16G"
+  llm_budget: 100
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/lacrosse-seed-gen/litellm-config.yaml
