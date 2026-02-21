@@ -173,7 +173,7 @@ class CRSComposeConfig(BaseModel):
         """
         # Restructure flat YAML format into model schema:
         # Non-reserved top-level keys become crs_entries
-        reserved = {"run_env", "docker_registry", "oss_crs_infra", "llm_config"}
+        reserved = set(cls.model_fields.keys()) - {"crs_entries"}
         model_data = {k: v for k, v in data.items() if k in reserved}
         model_data["crs_entries"] = {k: v for k, v in data.items() if k not in reserved}
 
