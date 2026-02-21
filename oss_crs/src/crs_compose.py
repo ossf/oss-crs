@@ -1,10 +1,13 @@
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
+import yaml
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .llm import LLM
 from .crs import CRS
+from .cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target
 from .templates import renderer
@@ -16,6 +19,80 @@ class CRSCompose:
     def from_yaml_file(cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
         return cls(config, work_dir, skip_crs_init=skip_crs_init)
+
+    @staticmethod
+    def gen_compose(template_path: Path, cpus_pool: str, output_path: Path) -> bool:
+        """Generate a compose file with virtual cpusets mapped to real CPUs.
+
+        Args:
+            template_path: Path to the template CRS Compose file
+            cpus_pool: Real CPU pool to map virtual cpusets to (e.g., '20-31' or '1-3,5,8-11')
+            output_path: Path to write the generated compose file
+
+        Returns:
+            True on success, False on error
+        """
+        # Validate input file exists
+        if not template_path.exists():
+            print(f"Error: Template file not found: {template_path}", file=sys.stderr)
+            return False
+
+        # Validate cpus format
+        try:
+            parse_cpuset(cpus_pool)
+        except ValueError as e:
+            print(f"Error: Invalid --cpus format: {e}", file=sys.stderr)
+            return False
+
+        # Load the template YAML
+        with open(template_path) as f:
+            data = yaml.safe_load(f)
+
+        # Identify all cpuset fields
+        # Reserved keys that may have cpuset
+        OSS_CRS_INFRA = "oss_crs_infra"
+        RESERVED_KEYS = {"run_env", "docker_registry", OSS_CRS_INFRA, "llm_config"}
+
+        all_cpusets = []
+
+        # Collect cpuset from oss_crs_infra
+        if OSS_CRS_INFRA in data and "cpuset" in data[OSS_CRS_INFRA]:
+            all_cpusets.append(data[OSS_CRS_INFRA]["cpuset"])
+
+        # Collect cpusets from CRS entries
+        crs_entries = {k: v for k, v in data.items() if k not in RESERVED_KEYS}
+        for crs_name, crs_config in crs_entries.items():
+            if isinstance(crs_config, dict) and "cpuset" in crs_config:
+                all_cpusets.append(crs_config["cpuset"])
+
+        if not all_cpusets:
+            print("Error: No cpuset fields found in template", file=sys.stderr)
+            return False
+
+        # Create CPU mapping
+        try:
+            cpu_mapping = create_cpu_mapping(all_cpusets, cpus_pool)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return False
+
+        # Apply mapping to all cpuset fields
+        if OSS_CRS_INFRA in data and "cpuset" in data[OSS_CRS_INFRA]:
+            original = data[OSS_CRS_INFRA]["cpuset"]
+            data[OSS_CRS_INFRA]["cpuset"] = map_cpuset(original, cpu_mapping)
+
+        for crs_name, crs_config in crs_entries.items():
+            if isinstance(crs_config, dict) and "cpuset" in crs_config:
+                original = crs_config["cpuset"]
+                crs_config["cpuset"] = map_cpuset(original, cpu_mapping)
+
+        # Write output file
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+        print(f"Generated compose file: {output_path}")
+        return True
 
     def __init__(self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False):
         hash = config.md5_hash()
