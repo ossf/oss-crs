@@ -385,7 +385,11 @@ class Target:
         return None
 
     def get_target_env(self) -> dict:
-        # TODO: implement this properly
+        # NOTE: engine/sanitizer/architecture are hardcoded defaults here.
+        # project.yaml lists what the project *supports*, not what to use.
+        # The actual selection should come from the user via CLI flags.
+        # Currently only --sanitizer is exposed; engine/architecture are
+        # always libfuzzer/x86_64 until CLI flags are added for them.
         ret = {
             "name": self.name,
             "language": self.config.language.value,

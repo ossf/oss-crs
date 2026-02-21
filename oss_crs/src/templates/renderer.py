@@ -70,6 +70,7 @@ def render_build_target_docker_compose(
     build_config: "BuildConfig",
     build_out_dir: Path,
     build_id: str,
+    sanitizer: str,
 ) -> str:
     """Render the docker-compose file for building a target.
 
@@ -79,6 +80,7 @@ def render_build_target_docker_compose(
         build_config (BuildConfig): Build configuration.
         build_out_dir (Path): Output directory for the build.
         build_id (str): Build identifier.
+        sanitizer (str): Sanitizer to use (e.g., "address", "undefined").
 
     Returns:
         str: Rendered docker-compose content as a string.
@@ -86,6 +88,8 @@ def render_build_target_docker_compose(
     template_path = CUR_DIR / "build-target.docker-compose.yaml.j2"
     target_env = target.get_target_env()
     target_env["image"] = target_base_image
+    # Override sanitizer with the explicitly-passed value
+    target_env["sanitizer"] = sanitizer
     context = {
         "crs": {
             "name": crs.name,

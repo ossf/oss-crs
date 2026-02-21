@@ -431,6 +431,7 @@ class CRS:
                 build_config,
                 build_out_dir,
                 build_id,
+                sanitizer,
             )
             tmp_docker_compose.docker_compose.write_text(rendered)
             return TaskResult(success=True)

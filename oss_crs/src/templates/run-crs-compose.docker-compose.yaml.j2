@@ -41,7 +41,7 @@ services:
       - HELPER=True
       - RUN_FUZZER_MODE=interactive
       - FUZZING_ENGINE={{ target_env.engine }}
-      - SANITIZER={{ target_env.sanitizer }}
+      - SANITIZER={{ sanitizer }}
       - ARCHITECTURE={{ target_env.architecture }}
       - PROJECT_NAME={{ target_env.name }}
       - FUZZING_LANGUAGE={{ target_env.language }}
