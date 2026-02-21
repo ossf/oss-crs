@@ -213,17 +213,17 @@ class CRSComposeConfig(BaseModel):
         Flattens crs_entries back to top-level keys (inverse of from_dict).
         Uses Pydantic's model_dump for serialization, then restructures for YAML format.
         """
-        # Use Pydantic's model_dump for serialization (mode='json' converts enums to values)
-        raw = self.model_dump(exclude_none=True, mode="json")
+        # Use Pydantic's model_dump for serialization
+        # - mode='json': converts enums to values
+        # - exclude_none=True: omits None fields
+        # - exclude_defaults=True: omits fields with default values (e.g., empty additional_env)
+        raw = self.model_dump(exclude_none=True, exclude_defaults=True, mode="json")
 
         # Extract and remove crs_entries - they'll be flattened to top-level
         crs_entries = raw.pop("crs_entries", {})
 
         # Flatten CRS entries to top-level keys
         for name, entry in crs_entries.items():
-            # Remove empty additional_env dicts
-            if "additional_env" in entry and not entry["additional_env"]:
-                del entry["additional_env"]
             raw[name] = entry
 
         return raw
