@@ -211,44 +211,22 @@ class CRSComposeConfig(BaseModel):
         """Convert config to dictionary suitable for YAML output.
 
         Flattens crs_entries back to top-level keys (inverse of from_dict).
+        Uses Pydantic's model_dump for serialization, then restructures for YAML format.
         """
-        data = {
-            "run_env": self.run_env.value,
-            "docker_registry": self.docker_registry,
-            "oss_crs_infra": {
-                "cpuset": self.oss_crs_infra.cpuset,
-                "memory": self.oss_crs_infra.memory,
-            },
-        }
-        if self.oss_crs_infra.llm_budget is not None:
-            data["oss_crs_infra"]["llm_budget"] = self.oss_crs_infra.llm_budget
+        # Use Pydantic's model_dump for serialization (mode='json' converts enums to values)
+        raw = self.model_dump(exclude_none=True, mode="json")
 
-        if self.llm_config is not None:
-            data["llm_config"] = {"litellm_config": self.llm_config.litellm_config}
+        # Extract and remove crs_entries - they'll be flattened to top-level
+        crs_entries = raw.pop("crs_entries", {})
 
-        # Flatten CRS entries to top-level
-        for name, entry in self.crs_entries.items():
-            entry_dict = {
-                "cpuset": entry.cpuset,
-                "memory": entry.memory,
-            }
-            if entry.source is not None:
-                source_dict = {}
-                if entry.source.url is not None:
-                    source_dict["url"] = entry.source.url
-                if entry.source.ref is not None:
-                    source_dict["ref"] = entry.source.ref
-                if entry.source.local_path is not None:
-                    source_dict["local_path"] = entry.source.local_path
-                if source_dict:
-                    entry_dict["source"] = source_dict
-            if entry.llm_budget is not None:
-                entry_dict["llm_budget"] = entry.llm_budget
-            if entry.additional_env:
-                entry_dict["additional_env"] = entry.additional_env
-            data[name] = entry_dict
+        # Flatten CRS entries to top-level keys
+        for name, entry in crs_entries.items():
+            # Remove empty additional_env dicts
+            if "additional_env" in entry and not entry["additional_env"]:
+                del entry["additional_env"]
+            raw[name] = entry
 
-        return data
+        return raw
 
     def to_yaml(self) -> str:
         """Serialize config to YAML string."""
