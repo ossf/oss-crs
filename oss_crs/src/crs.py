@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import hashlib
 import os
 
@@ -9,6 +9,9 @@ from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
 from .utils import TmpDockerCompose, rm_with_docker
+
+if TYPE_CHECKING:
+    from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
 
@@ -62,7 +65,7 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
 
 class CRS:
     @classmethod
-    def from_yaml_file(cls, crs_path: Path, work_dir: Path) -> "CRS":
+    def from_yaml_file(cls, crs_path: Path, work_dir: "WorkDir") -> "CRS":
         config = CRSConfig.from_yaml_file(crs_path / CRS_YAML_PATH)
         return cls(config.name, crs_path, work_dir, None, None)
 
@@ -71,7 +74,7 @@ class CRS:
         cls,
         name: str,
         entry: CRSEntry,
-        work_dir: Path,
+        work_dir: "WorkDir",
         crs_compose_env: CRSComposeEnv,
         skip_init: bool = False,
     ) -> "CRS":
@@ -80,7 +83,8 @@ class CRS:
                 name, Path(entry.source.local_path), work_dir, entry, crs_compose_env
             )
         else:
-            path = work_dir / "../crs_src" / name
+            # crs_src is a sibling directory to the work_dir
+            path = work_dir.path / "../crs_src" / name
             if init_crs_repo(name, entry.source.url, entry.source.ref, path, skip_if_exists=skip_init):
                 return cls(name, path, work_dir, entry, crs_compose_env)
         raise ValueError(f"Failed to initialize CRS from entry: {name}")
@@ -89,16 +93,14 @@ class CRS:
         self,
         name: str,
         crs_path: Path,
-        work_dir: Path,
+        work_dir: "WorkDir",
         resource: Optional[CRSEntry],
         crs_compose_env: Optional[CRSComposeEnv],
     ):
         self.name = name
         self.crs_path = crs_path.expanduser().resolve()
         self.config = CRSConfig.from_yaml_file(self.crs_path / CRS_YAML_PATH)
-        # Store the compose work_dir (the <hash>/ directory) for new directory structure
-        self.compose_work_dir = work_dir
-        self.compose_work_dir.mkdir(parents=True, exist_ok=True)
+        self.work_dir = work_dir
         self.resource = resource
         self.crs_compose_env = crs_compose_env
 
@@ -212,7 +214,7 @@ class CRS:
         if not non_snapshot_builds:
             return TaskResult(success=True)
         target_key = target_base_image.replace(":", "_")
-        build_work_dir = self.compose_work_dir / sanitizer / "builds" / build_id / "crs" / self.name / target_key
+        build_work_dir = self.work_dir.get_crs_build_dir(self.name, target_key, build_id, sanitizer)
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -271,105 +273,42 @@ class CRS:
         return target.get_docker_image_name().replace(":", "_")
 
     def get_build_output_dir(self, target: Target, build_id: str, sanitizer: str, create: bool = True) -> Path:
-        """
-        New structure: <sanitizer>/builds/<build-id>/crs/<name>/<target>/BUILD_OUT_DIR/
-
-        Args:
-            target: The target to get the build output directory for.
-            build_id: Build identifier.
-            sanitizer: Sanitizer type (e.g., "address", "undefined").
-            create: If True, creates the directory if it doesn't exist.
-        """
+        """Get BUILD_OUT_DIR for this CRS."""
         target_key = self.__get_target_key(target)
-        sub_work_dir = self.compose_work_dir / sanitizer / "builds" / build_id / "crs" / self.name / target_key / "BUILD_OUT_DIR"
-        if create:
-            sub_work_dir.mkdir(parents=True, exist_ok=True)
-        return sub_work_dir
+        return self.work_dir.get_build_output_dir(
+            self.name, target_key, build_id, sanitizer, create=create
+        )
 
     def get_submit_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """
-        New structure: <sanitizer>/runs/<run-id>/crs/<name>/<target>/SUBMIT_DIR/<harness>/
-
-        Args:
-            target: The target to get the submit directory for.
-            run_id: Run identifier.
-            sanitizer: Sanitizer type (e.g., "address", "undefined").
-            create: If True, creates the directory if it doesn't exist.
-        """
-        assert target.target_harness, (
-            "target_harness must be set for submit dir"
-        )
+        """Get SUBMIT_DIR for this CRS."""
+        assert target.target_harness, "target_harness must be set for submit dir"
         target_key = self.__get_target_key(target)
-        sub_work_dir = self.compose_work_dir / sanitizer / "runs" / run_id / "crs" / self.name / target_key / "SUBMIT_DIR" / target.target_harness
-        if create:
-            sub_work_dir.mkdir(parents=True, exist_ok=True)
-        return sub_work_dir
+        return self.work_dir.get_submit_dir(
+            self.name, target_key, target.target_harness, run_id, sanitizer, create=create
+        )
 
     def get_shared_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """
-        New structure: <sanitizer>/runs/<run-id>/crs/<name>/<target>/SHARED_DIR/<harness>/
-
-        Args:
-            target: The target to get the shared directory for.
-            run_id: Run identifier.
-            sanitizer: Sanitizer type (e.g., "address", "undefined").
-            create: If True, creates the directory if it doesn't exist.
-        """
-        assert target.target_harness, (
-            "target_harness must be set for shared dir"
-        )
+        """Get SHARED_DIR for this CRS."""
+        assert target.target_harness, "target_harness must be set for shared dir"
         target_key = self.__get_target_key(target)
-        sub_work_dir = self.compose_work_dir / sanitizer / "runs" / run_id / "crs" / self.name / target_key / "SHARED_DIR" / target.target_harness
-        if create:
-            sub_work_dir.mkdir(parents=True, exist_ok=True)
-        return sub_work_dir
+        return self.work_dir.get_shared_dir(
+            self.name, target_key, target.target_harness, run_id, sanitizer, create=create
+        )
 
     def get_exchange_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get the shared exchange directory (shared across ALL CRSs).
-
-        New structure: <sanitizer>/runs/<run-id>/EXCHANGE_DIR/<target>/<harness>/
-
-        CRS containers mount this as FETCH_DIR (read-only). The exchange
-        sidecar and host-side pre-population are the only writers.
-
-        Args:
-            target: The target to get the exchange directory for.
-            run_id: Run identifier (required, no default).
-            sanitizer: Sanitizer type (e.g., "address", "undefined").
-            create: If True, creates the directory if it doesn't exist.
-        """
+        """Get the shared EXCHANGE_DIR (shared across all CRSs)."""
+        assert target.target_harness, "target_harness must be set for exchange dir"
         target_key = self.__get_target_key(target)
-        assert target.target_harness, (
-            "target_harness must be set for exchange dir"
+        return self.work_dir.get_exchange_dir(
+            target_key, target.target_harness, run_id, sanitizer, create=create
         )
-        exchange_dir = (
-            self.compose_work_dir
-            / sanitizer
-            / "runs"
-            / run_id
-            / "EXCHANGE_DIR"
-            / target_key
-            / target.target_harness
-        )
-        if create:
-            exchange_dir.mkdir(parents=True, exist_ok=True)
-        return exchange_dir
 
     def get_snapshot_dir(self, target: Target, build_id: str, sanitizer: str, create: bool = True) -> Path:
-        """
-        New structure: <sanitizer>/builds/<build-id>/targets/<target>/snapshot-out-<sanitizer>/
-
-        Args:
-            target: The target to get the snapshot directory for.
-            build_id: Build identifier.
-            sanitizer: Sanitizer type (e.g., "address", "undefined").
-            create: If True, creates the directory if it doesn't exist.
-        """
+        """Get snapshot output directory for a target."""
         target_key = self.__get_target_key(target)
-        sub_work_dir = self.compose_work_dir / sanitizer / "builds" / build_id / "targets" / target_key / f"snapshot-out-{sanitizer}"
-        if create:
-            sub_work_dir.mkdir(parents=True, exist_ok=True)
-        return sub_work_dir
+        return self.work_dir.get_snapshot_dir(
+            target_key, build_id, sanitizer, create=create
+        )
 
     def cleanup_shared_dir(self, target: Target, run_id: str, sanitizer: str) -> bool:
         dir_path = self.get_shared_dir(target, run_id, sanitizer)

@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
@@ -9,6 +10,7 @@ from .ui import MultiTaskProgress, TaskResult
 from .target import Target
 from .templates import renderer
 from .utils import TmpDockerCompose, normalize_run_id, generate_run_id, rm_with_docker
+from .workdir import WorkDir
 
 
 class CRSCompose:
@@ -21,8 +23,7 @@ class CRSCompose:
         hash = config.md5_hash()
         self.config = config
         self.llm = LLM(self.config.llm_config)
-        self.work_dir = work_dir / f"crs_compose/{hash}"
-        self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}")
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
         self.crs_list = [
             CRS.from_crs_compose_entry(
@@ -58,24 +59,24 @@ class CRSCompose:
         self.deadline = deadline
 
     # -------------------------------------------------------------------------
-    # Path helpers
+    # Path helpers (delegate to WorkDir)
     # -------------------------------------------------------------------------
 
     def get_builds_dir(self, sanitizer: str) -> Path:
         """Get the builds directory for a sanitizer."""
-        return self.work_dir / sanitizer / "builds"
+        return self.work_dir.get_builds_dir(sanitizer)
 
     def get_build_dir(self, build_id: str, sanitizer: str) -> Path:
         """Get directory for a specific build."""
-        return self.get_builds_dir(sanitizer) / build_id
+        return self.work_dir.get_build_dir(build_id, sanitizer)
 
     def get_runs_dir(self, sanitizer: str) -> Path:
         """Get the runs directory for a sanitizer."""
-        return self.work_dir / sanitizer / "runs"
+        return self.work_dir.get_runs_dir(sanitizer)
 
     def get_run_dir(self, run_id: str, sanitizer: str) -> Path:
         """Get directory for a specific run."""
-        return self.get_runs_dir(sanitizer) / run_id
+        return self.work_dir.get_run_dir(run_id, sanitizer)
 
     # -------------------------------------------------------------------------
 
@@ -84,7 +85,6 @@ class CRSCompose:
 
         Structure: <sanitizer>/builds/<build-id>/crs/<crs-name>/<target>/BUILD_OUT_DIR/
         """
-        import re
         target_base_image = target.get_docker_image_name()
         target_key = target_base_image.replace(":", "_")
         latest_build_id = None
@@ -113,14 +113,8 @@ class CRSCompose:
         return latest_build_id
 
     def get_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:
-        """Get the build-id that was used for a specific run.
-
-        Reads from: <sanitizer>/runs/<run-id>/BUILD_ID
-        """
-        build_id_file = self.get_run_dir(run_id, sanitizer) / "BUILD_ID"
-        if build_id_file.exists():
-            return build_id_file.read_text().strip()
-        return None
+        """Get the build-id that was used for a specific run."""
+        return self.work_dir.read_build_id_for_run(run_id, sanitizer)
 
     def __prepare_oss_crs_infra(
         self, publish: bool = False, docker_registry: str = None
@@ -282,9 +276,7 @@ class CRSCompose:
         assert build_id is not None
 
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
-        run_dir = self.get_run_dir(run_id, sanitizer)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "BUILD_ID").write_text(build_id)
+        self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
 
         return self.__run(target, run_id=run_id, build_id=build_id, sanitizer=sanitizer, pov_files=pov_files, diff_path=diff, seed_dir=seed_dir)
 
