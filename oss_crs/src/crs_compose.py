@@ -58,39 +58,12 @@ class CRSCompose:
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
 
-    # -------------------------------------------------------------------------
-    # Path helpers (delegate to WorkDir)
-    # -------------------------------------------------------------------------
-
-    def get_builds_dir(self, sanitizer: str) -> Path:
-        """Get the builds directory for a sanitizer."""
-        return self.work_dir.get_builds_dir(sanitizer)
-
-    def get_build_dir(self, build_id: str, sanitizer: str) -> Path:
-        """Get directory for a specific build."""
-        return self.work_dir.get_build_dir(build_id, sanitizer)
-
-    def get_runs_dir(self, sanitizer: str) -> Path:
-        """Get the runs directory for a sanitizer."""
-        return self.work_dir.get_runs_dir(sanitizer)
-
-    def get_run_dir(self, run_id: str, sanitizer: str) -> Path:
-        """Get directory for a specific run."""
-        return self.work_dir.get_run_dir(run_id, sanitizer)
-
-    # -------------------------------------------------------------------------
-
     def get_latest_build_id(self, target: Target, sanitizer: str) -> str | None:
-        """Find the latest build-id (by unix timestamp) for the given target and sanitizer.
-
-        Structure: <sanitizer>/builds/<build-id>/crs/<crs-name>/<target>/BUILD_OUT_DIR/
-        """
-        target_base_image = target.get_docker_image_name()
-        target_key = target_base_image.replace(":", "_")
+        """Find the latest build-id (by unix timestamp) for the given target and sanitizer."""
         latest_build_id = None
         latest_ts = 0
 
-        builds_dir = self.get_builds_dir(sanitizer)
+        builds_dir = self.work_dir.get_builds_dir(sanitizer)
         if not builds_dir.exists():
             return None
 
@@ -100,7 +73,9 @@ class CRSCompose:
             build_id = build_id_dir.name
             # Check if any CRS has build output for this target
             for crs in self.crs_list:
-                build_out_dir = build_id_dir / "crs" / crs.name / target_key / "BUILD_OUT_DIR"
+                build_out_dir = self.work_dir.get_build_output_dir(
+                    crs.name, target, build_id, sanitizer, create=False
+                )
                 if build_out_dir.exists():
                     # Extract first 10-digit sequence (unix timestamp) from build_id
                     match = re.search(r'\d{10}', build_id)
@@ -376,7 +351,7 @@ class CRSCompose:
 
     def __show_result_local(self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress) -> None:
         crs_results = [
-            {"name": crs.name, "submit_dir": crs.get_submit_dir(target, run_id=run_id, sanitizer=sanitizer)}
+            {"name": crs.name, "submit_dir": self.work_dir.get_submit_dir(crs.name, target, run_id, sanitizer)}
             for crs in self.crs_list
         ]
         return progress.show_run_result(crs_results)
@@ -408,28 +383,24 @@ class CRSCompose:
             return TaskResult(success=True)
 
         def cleanup_exchange_dir(progress: MultiTaskProgress) -> TaskResult:
-            # Exchange dir is shared across all CRSs — use any CRS to get the path
-            if self.crs_list:
-                exchange_dir = self.crs_list[0].get_exchange_dir(target, run_id, sanitizer)
-                rm_with_docker(exchange_dir)
+            exchange_dir = self.work_dir.get_exchange_dir(target, run_id, sanitizer)
+            rm_with_docker(exchange_dir)
+            return TaskResult(success=True)
+
+        def cleanup_shared_dir(progress: MultiTaskProgress, crs_name: str) -> TaskResult:
+            rm_with_docker(self.work_dir.get_shared_dir(crs_name, target, run_id, sanitizer))
             return TaskResult(success=True)
 
         def cleanup_shared_dirs(progress: MultiTaskProgress) -> TaskResult:
             for crs in self.crs_list:
                 progress.add_task(
                     f"Clean up shared directory for {crs.name}",
-                    lambda progress, crs=crs: TaskResult(
-                        success=crs.cleanup_shared_dir(target, run_id=run_id, sanitizer=sanitizer)
-                    ),
+                    lambda p, name=crs.name: cleanup_shared_dir(p, name),
                 )
             return progress.run_added_tasks()
 
         def _get_exchange_dir() -> Path:
-            # All CRSs share the same exchange dir — use the first non-builder CRS
-            for crs in self.crs_list:
-                if not crs.config.is_builder:
-                    return crs.get_exchange_dir(target, run_id, sanitizer)
-            raise ValueError("No non-builder CRS found")
+            return self.work_dir.get_exchange_dir(target, run_id, sanitizer)
 
         def copy_povs(progress: MultiTaskProgress) -> TaskResult:
             pov_subdir = _get_exchange_dir() / "povs"

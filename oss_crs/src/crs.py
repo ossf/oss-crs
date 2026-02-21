@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 import hashlib
 import os
 
@@ -8,10 +8,8 @@ from .config.crs_compose import CRSEntry, CRSComposeEnv
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
-from .utils import TmpDockerCompose, rm_with_docker
-
-if TYPE_CHECKING:
-    from .workdir import WorkDir
+from .utils import TmpDockerCompose
+from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
 
@@ -93,7 +91,7 @@ class CRS:
         self,
         name: str,
         crs_path: Path,
-        work_dir: "WorkDir",
+        work_dir: WorkDir,
         resource: Optional[CRSEntry],
         crs_compose_env: Optional[CRSComposeEnv],
     ):
@@ -213,8 +211,7 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        target_key = target_base_image.replace(":", "_")
-        build_work_dir = self.work_dir.get_crs_build_dir(self.name, target_key, build_id, sanitizer)
+        build_work_dir = self.work_dir.get_crs_build_dir(self.name, target, build_id, sanitizer)
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -256,7 +253,7 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        build_out_dir = self.get_build_output_dir(target, build_id=build_id, sanitizer=sanitizer)
+        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -268,52 +265,6 @@ class CRS:
                 ),
             )
         return progress.run_added_tasks()
-
-    def __get_target_key(self, target: Target) -> str:
-        return target.get_docker_image_name().replace(":", "_")
-
-    def get_build_output_dir(self, target: Target, build_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get BUILD_OUT_DIR for this CRS."""
-        target_key = self.__get_target_key(target)
-        return self.work_dir.get_build_output_dir(
-            self.name, target_key, build_id, sanitizer, create=create
-        )
-
-    def get_submit_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get SUBMIT_DIR for this CRS."""
-        assert target.target_harness, "target_harness must be set for submit dir"
-        target_key = self.__get_target_key(target)
-        return self.work_dir.get_submit_dir(
-            self.name, target_key, target.target_harness, run_id, sanitizer, create=create
-        )
-
-    def get_shared_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get SHARED_DIR for this CRS."""
-        assert target.target_harness, "target_harness must be set for shared dir"
-        target_key = self.__get_target_key(target)
-        return self.work_dir.get_shared_dir(
-            self.name, target_key, target.target_harness, run_id, sanitizer, create=create
-        )
-
-    def get_exchange_dir(self, target: Target, run_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get the shared EXCHANGE_DIR (shared across all CRSs)."""
-        assert target.target_harness, "target_harness must be set for exchange dir"
-        target_key = self.__get_target_key(target)
-        return self.work_dir.get_exchange_dir(
-            target_key, target.target_harness, run_id, sanitizer, create=create
-        )
-
-    def get_snapshot_dir(self, target: Target, build_id: str, sanitizer: str, create: bool = True) -> Path:
-        """Get snapshot output directory for a target."""
-        target_key = self.__get_target_key(target)
-        return self.work_dir.get_snapshot_dir(
-            target_key, build_id, sanitizer, create=create
-        )
-
-    def cleanup_shared_dir(self, target: Target, run_id: str, sanitizer: str) -> bool:
-        dir_path = self.get_shared_dir(target, run_id, sanitizer)
-        rm_with_docker(dir_path)
-        return True
 
     def __check_outputs(
         self, build_config, build_out_dir, progress=None
@@ -356,7 +307,7 @@ class CRS:
         sanitizer: str,
         progress: MultiTaskProgress,
     ) -> "TaskResult":
-        build_out_dir = self.get_build_output_dir(target, build_id=build_id, sanitizer=sanitizer)
+        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
         build_cache_path = build_out_dir / f".{build_name}.cache"
         docker_compose_output = ""
 

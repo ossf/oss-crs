@@ -20,6 +20,8 @@ logic for the CRS Compose work directory structure:
 
 from pathlib import Path
 
+from .target import Target
+
 
 class WorkDir:
     """Centralized path management for CRS Compose work directories."""
@@ -32,6 +34,11 @@ class WorkDir:
         """
         self.path = base_path
         self.path.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _get_target_key(target: Target) -> str:
+        """Compute target_key from a Target."""
+        return target.get_docker_image_name().replace(":", "_")
 
     # -------------------------------------------------------------------------
     # Base directory helpers
@@ -58,12 +65,13 @@ class WorkDir:
     # -------------------------------------------------------------------------
 
     def get_crs_build_dir(
-        self, crs_name: str, target_key: str, build_id: str, sanitizer: str
+        self, crs_name: str, target: Target, build_id: str, sanitizer: str
     ) -> Path:
         """Get the CRS build work directory.
 
         Structure: <sanitizer>/builds/<build_id>/crs/<crs_name>/<target_key>/
         """
+        target_key = self._get_target_key(target)
         return (
             self.get_build_dir(build_id, sanitizer)
             / "crs"
@@ -74,7 +82,7 @@ class WorkDir:
     def get_build_output_dir(
         self,
         crs_name: str,
-        target_key: str,
+        target: Target,
         build_id: str,
         sanitizer: str,
         create: bool = True,
@@ -83,18 +91,19 @@ class WorkDir:
 
         Structure: <sanitizer>/builds/<build_id>/crs/<crs_name>/<target_key>/BUILD_OUT_DIR/
         """
-        path = self.get_crs_build_dir(crs_name, target_key, build_id, sanitizer) / "BUILD_OUT_DIR"
+        path = self.get_crs_build_dir(crs_name, target, build_id, sanitizer) / "BUILD_OUT_DIR"
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
     def get_crs_run_dir(
-        self, crs_name: str, target_key: str, run_id: str, sanitizer: str
+        self, crs_name: str, target: Target, run_id: str, sanitizer: str
     ) -> Path:
         """Get the CRS run work directory.
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/
         """
+        target_key = self._get_target_key(target)
         return (
             self.get_run_dir(run_id, sanitizer)
             / "crs"
@@ -105,8 +114,7 @@ class WorkDir:
     def get_submit_dir(
         self,
         crs_name: str,
-        target_key: str,
-        harness: str,
+        target: Target,
         run_id: str,
         sanitizer: str,
         create: bool = True,
@@ -115,10 +123,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SUBMIT_DIR/<harness>/
         """
+        assert target.target_harness, "target_harness must be set for submit dir"
         path = (
-            self.get_crs_run_dir(crs_name, target_key, run_id, sanitizer)
+            self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SUBMIT_DIR"
-            / harness
+            / target.target_harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -127,8 +136,7 @@ class WorkDir:
     def get_shared_dir(
         self,
         crs_name: str,
-        target_key: str,
-        harness: str,
+        target: Target,
         run_id: str,
         sanitizer: str,
         create: bool = True,
@@ -137,10 +145,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SHARED_DIR/<harness>/
         """
+        assert target.target_harness, "target_harness must be set for shared dir"
         path = (
-            self.get_crs_run_dir(crs_name, target_key, run_id, sanitizer)
+            self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SHARED_DIR"
-            / harness
+            / target.target_harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -152,8 +161,7 @@ class WorkDir:
 
     def get_exchange_dir(
         self,
-        target_key: str,
-        harness: str,
+        target: Target,
         run_id: str,
         sanitizer: str,
         create: bool = True,
@@ -162,11 +170,13 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/EXCHANGE_DIR/<target_key>/<harness>/
         """
+        assert target.target_harness, "target_harness must be set for exchange dir"
+        target_key = self._get_target_key(target)
         path = (
             self.get_run_dir(run_id, sanitizer)
             / "EXCHANGE_DIR"
             / target_key
-            / harness
+            / target.target_harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -174,7 +184,7 @@ class WorkDir:
 
     def get_snapshot_dir(
         self,
-        target_key: str,
+        target: Target,
         build_id: str,
         sanitizer: str,
         create: bool = True,
@@ -183,6 +193,7 @@ class WorkDir:
 
         Structure: <sanitizer>/builds/<build_id>/targets/<target_key>/snapshot-out-<sanitizer>/
         """
+        target_key = self._get_target_key(target)
         path = (
             self.get_build_dir(build_id, sanitizer)
             / "targets"

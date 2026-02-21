@@ -83,9 +83,9 @@ services:
     # TODO: Check memory limit because it's for all services in a single CRS
     mem_limit: "{{ crs.resource.memory }}"
     volumes:
-      - {{ crs.get_build_output_dir(target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
-      - {{ crs.get_submit_dir(target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
-      - {{ crs.get_shared_dir(target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
+      - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
+      - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
+      - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
 {%- if exchange_dir %}
       - {{ exchange_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
@@ -190,7 +190,7 @@ services:
       - {{ exchange_dir }}:/exchange:rw
 {%- for crs in crs_list %}
 {%- if not crs.config.is_builder %}
-      - {{ crs.get_submit_dir(target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
+      - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
 {%- endfor %}
     networks:

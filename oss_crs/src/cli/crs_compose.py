@@ -217,18 +217,18 @@ def init_target_from_args(args) -> Target:
 
 
 def _collect_run_ids_for_target(crs_compose, target, harness: str | None, sanitizer: str) -> list[str]:
-    """Collect all run-ids for a target from SUBMIT_DIR (run artifacts).
-
-    Structure: <sanitizer>/runs/<run-id>/crs/<crs-name>/<target>/SUBMIT_DIR/<harness>/
-    """
+    """Collect all run-ids for a target from SUBMIT_DIR (run artifacts)."""
     import re
-    target_base_image = target.get_docker_image_name()
-    target_key = target_base_image.replace(":", "_")
     seen = set()
 
-    runs_dir = crs_compose.get_runs_dir(sanitizer)
+    runs_dir = crs_compose.work_dir.get_runs_dir(sanitizer)
     if not runs_dir.exists():
         return []
+
+    # Temporarily set harness for path resolution
+    original_harness = target.target_harness
+    if harness:
+        target.target_harness = harness
 
     for run_id_dir in runs_dir.iterdir():
         if not run_id_dir.is_dir():
@@ -236,13 +236,18 @@ def _collect_run_ids_for_target(crs_compose, target, harness: str | None, saniti
         run_id = run_id_dir.name
         # Check if any CRS has submit output for this target
         for crs in crs_compose.crs_list:
-            if harness:
-                submit_path = run_id_dir / "crs" / crs.name / target_key / "SUBMIT_DIR" / harness
-            else:
-                submit_path = run_id_dir / "crs" / crs.name / target_key / "SUBMIT_DIR"
+            submit_path = crs_compose.work_dir.get_submit_dir(
+                crs.name, target, run_id, sanitizer, create=False
+            )
+            # For harness=None, check parent dir (without harness component)
+            if not harness:
+                submit_path = submit_path.parent
             if submit_path.exists():
                 seen.add(run_id)
-                break  # Found at least one CRS with this run, no need to check others
+                break
+
+    # Restore original harness
+    target.target_harness = original_harness
 
     # Sort by timestamp (extract 10-digit sequences), newest first
     def extract_ts(run_id: str) -> int:
@@ -292,7 +297,7 @@ def _handle_artifacts(args, crs_compose) -> bool:
     if args.build_id:
         build_id = normalize_run_id(args.build_id)
         # Explicit --build-id must exist on disk
-        build_dir = crs_compose.get_build_dir(build_id, sanitizer)
+        build_dir = crs_compose.work_dir.get_build_dir(build_id, sanitizer)
         if not build_dir.exists():
             print(f"Build '{args.build_id}' not found.", file=sys.stderr)
             return False
@@ -305,12 +310,11 @@ def _handle_artifacts(args, crs_compose) -> bool:
 
     # Build structured result — always return computed paths
     output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
+    work_dir = crs_compose.work_dir
 
-    # exchange_dir is shared across all CRSs — compute once from the first CRS
-    if harness and crs_compose.crs_list:
-        exchange_path = crs_compose.crs_list[0].get_exchange_dir(
-            target, run_id=run_id, sanitizer=sanitizer, create=False
-        )
+    # exchange_dir is shared across all CRSs
+    if harness:
+        exchange_path = work_dir.get_exchange_dir(target, run_id, sanitizer, create=False)
         output.exchange_dir = ExchangeDir(
             base=str(exchange_path),
             pov=str(exchange_path / "povs"),
@@ -325,12 +329,12 @@ def _handle_artifacts(args, crs_compose) -> bool:
 
         # Build output uses build_id
         if build_id:
-            build_path = crs.get_build_output_dir(target, build_id=build_id, sanitizer=sanitizer, create=False)
+            build_path = work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer, create=False)
             crs_artifacts.build = str(build_path)
 
         # Per-harness artifacts use run_id
         if harness:
-            submit_path = crs.get_submit_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
+            submit_path = work_dir.get_submit_dir(crs.name, target, run_id, sanitizer, create=False)
             crs_artifacts.submit_dir = str(submit_path)
             crs_artifacts.pov = str(submit_path / "povs")
             crs_artifacts.seed = str(submit_path / "seeds")
@@ -339,7 +343,7 @@ def _handle_artifacts(args, crs_compose) -> bool:
 
             crs_artifacts.fetch = output.exchange_dir.base if output.exchange_dir else None
 
-            shared_path = crs.get_shared_dir(target, run_id=run_id, sanitizer=sanitizer, create=False)
+            shared_path = work_dir.get_shared_dir(crs.name, target, run_id, sanitizer, create=False)
             crs_artifacts.shared = str(shared_path)
 
         output.crs[crs.name] = crs_artifacts
