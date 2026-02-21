@@ -57,6 +57,28 @@ class CRSCompose:
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
 
+    # -------------------------------------------------------------------------
+    # Path helpers
+    # -------------------------------------------------------------------------
+
+    def get_builds_dir(self, sanitizer: str) -> Path:
+        """Get the builds directory for a sanitizer."""
+        return self.work_dir / sanitizer / "builds"
+
+    def get_build_dir(self, build_id: str, sanitizer: str) -> Path:
+        """Get directory for a specific build."""
+        return self.get_builds_dir(sanitizer) / build_id
+
+    def get_runs_dir(self, sanitizer: str) -> Path:
+        """Get the runs directory for a sanitizer."""
+        return self.work_dir / sanitizer / "runs"
+
+    def get_run_dir(self, run_id: str, sanitizer: str) -> Path:
+        """Get directory for a specific run."""
+        return self.get_runs_dir(sanitizer) / run_id
+
+    # -------------------------------------------------------------------------
+
     def get_latest_build_id(self, target: Target, sanitizer: str) -> str | None:
         """Find the latest build-id (by unix timestamp) for the given target and sanitizer.
 
@@ -68,7 +90,7 @@ class CRSCompose:
         latest_build_id = None
         latest_ts = 0
 
-        builds_dir = self.work_dir / sanitizer / "builds"
+        builds_dir = self.get_builds_dir(sanitizer)
         if not builds_dir.exists():
             return None
 
@@ -95,7 +117,7 @@ class CRSCompose:
 
         Reads from: <sanitizer>/runs/<run-id>/BUILD_ID
         """
-        build_id_file = self.work_dir / sanitizer / "runs" / run_id / "BUILD_ID"
+        build_id_file = self.get_run_dir(run_id, sanitizer) / "BUILD_ID"
         if build_id_file.exists():
             return build_id_file.read_text().strip()
         return None
@@ -187,6 +209,7 @@ class CRSCompose:
             return progress.run_added_tasks().success
 
         return True
+
     def run(
         self,
         target: Target,
@@ -259,7 +282,7 @@ class CRSCompose:
         assert build_id is not None
 
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
-        run_dir = self.work_dir / sanitizer / "runs" / run_id
+        run_dir = self.get_run_dir(run_id, sanitizer)
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "BUILD_ID").write_text(build_id)
 

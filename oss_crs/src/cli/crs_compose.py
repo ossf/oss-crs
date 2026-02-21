@@ -226,7 +226,7 @@ def _collect_run_ids_for_target(crs_compose, target, harness: str | None, saniti
     target_key = target_base_image.replace(":", "_")
     seen = set()
 
-    runs_dir = crs_compose.work_dir / sanitizer / "runs"
+    runs_dir = crs_compose.get_runs_dir(sanitizer)
     if not runs_dir.exists():
         return []
 
@@ -292,8 +292,8 @@ def _handle_artifacts(args, crs_compose) -> bool:
     if args.build_id:
         build_id = normalize_run_id(args.build_id)
         # Explicit --build-id must exist on disk
-        builds_dir = crs_compose.work_dir / sanitizer / "builds" / build_id
-        if not builds_dir.exists():
+        build_dir = crs_compose.get_build_dir(build_id, sanitizer)
+        if not build_dir.exists():
             print(f"Build '{args.build_id}' not found.", file=sys.stderr)
             return False
     else:
