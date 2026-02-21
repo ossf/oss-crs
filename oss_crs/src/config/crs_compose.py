@@ -7,6 +7,8 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator, HttpUrl
 import yaml
 
+from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
+
 
 class CRSSource(BaseModel):
     """Source configuration for a CRS entry."""
@@ -234,8 +236,6 @@ class CRSComposeConfig(BaseModel):
         Raises:
             ValueError: If cpus_pool format is invalid or pool is too small
         """
-        from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
-
         # Validate cpus_pool format
         parse_cpuset(cpus_pool)
 
