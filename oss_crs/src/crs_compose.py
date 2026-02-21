@@ -52,9 +52,7 @@ class CRSCompose:
 
     @staticmethod
     def _get_sanitizer(target: Target) -> str:
-        # Default sanitizer when --sanitizer is not provided via CLI.
-        # project.yaml lists *supported* sanitizers, not the selection.
-        return "address"
+        return target.get_target_env().get("sanitizer", "address")
 
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
