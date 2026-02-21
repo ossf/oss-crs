@@ -225,21 +225,27 @@ class CRSComposeConfig(BaseModel):
         with open(filepath, "w") as f:
             f.write(self.to_yaml())
 
-    def get_all_cpusets(self) -> list[str]:
-        """Collect all cpuset values from config."""
-        cpusets = [self.oss_crs_infra.cpuset]
-        for entry in self.crs_entries.values():
-            cpusets.append(entry.cpuset)
-        return cpusets
-
-    def apply_cpuset_mapping(self, cpu_mapping: dict[int, int]) -> None:
-        """Apply CPU mapping to all cpuset fields in-place.
+    def map_cpus(self, cpus_pool: str) -> None:
+        """Map virtual cpusets to a real CPU pool in-place.
 
         Args:
-            cpu_mapping: Dict mapping virtual CPU IDs to real CPU IDs
-        """
-        from ..cpuset import map_cpuset
+            cpus_pool: Real CPU pool to map to (e.g., '20-31' or '1-3,5,8-11')
 
+        Raises:
+            ValueError: If cpus_pool format is invalid or pool is too small
+        """
+        from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
+
+        # Validate cpus_pool format
+        parse_cpuset(cpus_pool)
+
+        # Collect all cpusets from config
+        all_cpusets = [self.oss_crs_infra.cpuset]
+        for entry in self.crs_entries.values():
+            all_cpusets.append(entry.cpuset)
+
+        # Create and apply mapping
+        cpu_mapping = create_cpu_mapping(all_cpusets, cpus_pool)
         self.oss_crs_infra.cpuset = map_cpuset(self.oss_crs_infra.cpuset, cpu_mapping)
         for entry in self.crs_entries.values():
             entry.cpuset = map_cpuset(entry.cpuset, cpu_mapping)

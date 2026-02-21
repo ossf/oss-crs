@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import questionary
 from ..crs_compose import CRSCompose
+from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from ..utils import normalize_run_id
 from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir
@@ -347,15 +348,6 @@ def _handle_artifacts(args, crs_compose) -> bool:
     return True
 
 
-def _handle_gen_compose(args) -> bool:
-    """Handle the gen-compose subcommand."""
-    return CRSCompose.gen_compose(
-        template_path=args.compose_template,
-        cpus_pool=args.cpus,
-        output_path=args.compose_output,
-    )
-
-
 def _sigterm_handler(signum, frame):
     """Convert SIGTERM into KeyboardInterrupt so cleanup tasks can run."""
     raise KeyboardInterrupt("SIGTERM received")
@@ -388,7 +380,22 @@ def cli() -> bool:
 
     # Handle gen-compose early - it doesn't need CRSCompose initialization
     if args.command == "gen-compose":
-        return _handle_gen_compose(args)
+        template_path = args.compose_template
+        if not template_path.exists():
+            print(f"Error: Template file not found: {template_path}", file=sys.stderr)
+            return False
+        try:
+            config = CRSComposeConfig.from_yaml_file(template_path, resolve_sources=False)
+            config.map_cpus(args.cpus)
+            config.to_yaml_file(args.compose_output)
+            print(f"Generated compose file: {args.compose_output}")
+            return True
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return False
+        except Exception as e:
+            print(f"Error: Failed to process template: {e}", file=sys.stderr)
+            return False
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command == "artifacts"

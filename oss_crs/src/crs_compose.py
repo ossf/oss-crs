@@ -1,12 +1,10 @@
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .llm import LLM
 from .crs import CRS
-from .cpuset import parse_cpuset, create_cpu_mapping
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target
 from .templates import renderer
@@ -18,54 +16,6 @@ class CRSCompose:
     def from_yaml_file(cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
         return cls(config, work_dir, skip_crs_init=skip_crs_init)
-
-    @staticmethod
-    def gen_compose(template_path: Path, cpus_pool: str, output_path: Path) -> bool:
-        """Generate a compose file with virtual cpusets mapped to real CPUs.
-
-        Args:
-            template_path: Path to the template CRS Compose file
-            cpus_pool: Real CPU pool to map virtual cpusets to (e.g., '20-31' or '1-3,5,8-11')
-            output_path: Path to write the generated compose file
-
-        Returns:
-            True on success, False on error
-        """
-        # Validate input file exists
-        if not template_path.exists():
-            print(f"Error: Template file not found: {template_path}", file=sys.stderr)
-            return False
-
-        # Validate cpus format
-        try:
-            parse_cpuset(cpus_pool)
-        except ValueError as e:
-            print(f"Error: Invalid --cpus format: {e}", file=sys.stderr)
-            return False
-
-        # Load template as CRSComposeConfig (skip source resolution for gen-compose)
-        try:
-            config = CRSComposeConfig.from_yaml_file(template_path, resolve_sources=False)
-        except Exception as e:
-            print(f"Error: Failed to parse template: {e}", file=sys.stderr)
-            return False
-
-        # Create CPU mapping from all cpusets
-        all_cpusets = config.get_all_cpusets()
-        try:
-            cpu_mapping = create_cpu_mapping(all_cpusets, cpus_pool)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return False
-
-        # Apply mapping to config
-        config.apply_cpuset_mapping(cpu_mapping)
-
-        # Write output file
-        config.to_yaml_file(output_path)
-
-        print(f"Generated compose file: {output_path}")
-        return True
 
     def __init__(self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False):
         hash = config.md5_hash()
