@@ -160,6 +160,7 @@ class CRSComposeConfig(BaseModel):
         with open(filepath, "r") as f:
             return cls.from_yaml(f.read(), resolve_sources=resolve_sources)
 
+
     @classmethod
     def from_dict(cls, data: dict, resolve_sources: bool = True) -> "CRSComposeConfig":
         """Parse CRS Compose config from dictionary.
@@ -170,27 +171,13 @@ class CRSComposeConfig(BaseModel):
                             Set to False for operations like gen-compose that don't
                             need source resolution.
         """
-        RUN_ENV = "run_env"
-        DOCKER_REGISTRY = "docker_registry"
-        OSS_CRS_INFRA = "oss_crs_infra"
-        LLM_CONFIG = "llm_config"
-        run_env = data.get(RUN_ENV)
-        docker_registry = data.get(DOCKER_REGISTRY)
-        oss_crs_infra = data.get(OSS_CRS_INFRA)
-        llm_config = data.get(LLM_CONFIG)
+        # Restructure flat YAML format into model schema:
+        # Non-reserved top-level keys become crs_entries
+        reserved = {"run_env", "docker_registry", "oss_crs_infra", "llm_config"}
+        model_data = {k: v for k, v in data.items() if k in reserved}
+        model_data["crs_entries"] = {k: v for k, v in data.items() if k not in reserved}
 
-        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
-        crs_entries = {
-            key: value for key, value in data.items() if key not in reserved_keys
-        }
-
-        config = cls(
-            run_env=run_env,  # Pydantic will convert string to enum automatically
-            docker_registry=docker_registry,
-            oss_crs_infra=oss_crs_infra,
-            crs_entries=crs_entries,
-            llm_config=llm_config,
-        )
+        config = cls.model_validate(model_data)
 
         # Resolve missing sources from registry
         if resolve_sources:
