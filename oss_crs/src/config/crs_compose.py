@@ -151,41 +151,46 @@ class CRSComposeConfig(BaseModel):
         return v
 
     @classmethod
-    def from_yaml(cls, yaml_content: str, resolve_sources: bool = True) -> "CRSComposeConfig":
+    def from_yaml(cls, yaml_content: str) -> "CRSComposeConfig":
         """Parse CRS Compose config from YAML string."""
         data = yaml.safe_load(yaml_content)
-        return cls.from_dict(data, resolve_sources=resolve_sources)
+        return cls.from_dict(data)
 
     @classmethod
-    def from_yaml_file(cls, filepath: str | Path, resolve_sources: bool = True) -> "CRSComposeConfig":
+    def from_yaml_file(cls, filepath: str) -> "CRSComposeConfig":
         """Parse CRS Compose config from YAML file."""
         with open(filepath, "r") as f:
-            return cls.from_yaml(f.read(), resolve_sources=resolve_sources)
-
+            return cls.from_yaml(f.read())
 
     @classmethod
-    def from_dict(cls, data: dict, resolve_sources: bool = True) -> "CRSComposeConfig":
-        """Parse CRS Compose config from dictionary.
+    def from_dict(cls, data: dict) -> "CRSComposeConfig":
+        """Parse CRS Compose config from dictionary."""
+        RUN_ENV = "run_env"
+        DOCKER_REGISTRY = "docker_registry"
+        OSS_CRS_INFRA = "oss_crs_infra"
+        LLM_CONFIG = "llm_config"
+        run_env = data.get(RUN_ENV)
+        docker_registry = data.get(DOCKER_REGISTRY)
+        oss_crs_infra = data.get(OSS_CRS_INFRA)
+        llm_config = data.get(LLM_CONFIG)
 
-        Args:
-            data: Dictionary containing the config
-            resolve_sources: If True, resolve missing CRS sources from the registry.
-                            Set to False for operations like gen-compose that don't
-                            need source resolution.
-        """
-        # Restructure flat YAML format into model schema:
-        # Non-reserved top-level keys become crs_entries
-        reserved = set(cls.model_fields.keys()) - {"crs_entries"}
-        model_data = {k: v for k, v in data.items() if k in reserved}
-        model_data["crs_entries"] = {k: v for k, v in data.items() if k not in reserved}
+        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
+        crs_entries = {
+            key: value for key, value in data.items() if key not in reserved_keys
+        }
 
-        config = cls.model_validate(model_data)
+        config = cls(
+            run_env=run_env,  # Pydantic will convert string to enum automatically
+            docker_registry=docker_registry,
+            oss_crs_infra=oss_crs_infra,
+            crs_entries=crs_entries,
+            llm_config=llm_config,
+        )
 
         # Resolve missing sources from registry
-        if resolve_sources:
-            for name, entry in config.crs_entries.items():
-                if entry.source is None:
-                    entry.source = resolve_source_from_registry(name)
+        for name, entry in config.crs_entries.items():
+            if entry.source is None:
+                entry.source = resolve_source_from_registry(name)
 
         return config
 

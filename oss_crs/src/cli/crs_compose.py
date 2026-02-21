@@ -250,7 +250,7 @@ def cli() -> bool:
             print(f"Error: Template file not found: {template_path}", file=sys.stderr)
             return False
         try:
-            config = CRSComposeConfig.from_yaml_file(template_path, resolve_sources=False)
+            config = CRSComposeConfig.from_yaml_file(template_path)
             config.map_cpus(args.cpus)
             config.to_yaml_file(args.compose_output)
             print(f"Generated compose file: {args.compose_output}")
