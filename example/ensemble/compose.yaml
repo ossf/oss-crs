@@ -25,4 +25,7 @@ atlantis-multilang-wo-concolic:
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
-  litellm_config: ./example/atlantis-multilang-wo-concolic/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/atlantis-multilang-wo-concolic/litellm-config.yaml

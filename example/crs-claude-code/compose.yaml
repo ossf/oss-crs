@@ -33,4 +33,7 @@ crs-claude-code:
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
-  litellm_config: ./example/crs-claude-code/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-claude-code/litellm-config.yaml
