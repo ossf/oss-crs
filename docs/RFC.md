@@ -353,65 +353,64 @@ Example aggregators:
 - **`weighted`**: Score-based selection
 - **`custom`**: User-defined aggregator
 
-<!-- NOTE: comment out until desired CLI interface is implemented -->
-<!-- ### A Working Example -->
+### A Working Example
 
-<!-- #### Simple CRS (crs-libfuzzer) -->
+#### Simple CRS (crs-libfuzzer)
 
-<!-- ```bash -->
-<!-- # Prepare the CRS -->
-<!-- uv run oss-crs prepare \ -->
-<!--   --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml -->
+```bash
+# Prepare the CRS
+uv run oss-crs prepare \
+  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml
 
-<!-- # Build target -->
-<!-- uv run oss-crs build-target \ -->
-<!--   --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 -->
+# Build target
+uv run oss-crs build-target \
+  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2
 
-<!-- # Run -->
-<!-- uv run oss-crs run \ -->
-<!--   --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 \ -->
-<!--   --target-harness xml -->
-<!-- ``` -->
+# Run
+uv run oss-crs run \
+  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml
+```
 
-<!-- #### LLM-Powered CRS (multilang) -->
+#### LLM-Powered CRS (multilang)
 
-<!-- ```bash -->
-<!-- # Set API keys -->
-<!-- export OPENAI_API_KEY=<key> -->
-<!-- export ANTHROPIC_API_KEY=<key> -->
+```bash
+# Set API keys
+export OPENAI_API_KEY=<key>
+export ANTHROPIC_API_KEY=<key>
 
-<!-- # Prepare, build, and run -->
-<!-- uv run oss-crs prepare \ -->
-<!--   --compose-file ./example/multilang/multilang-compose.yaml -->
+# Prepare, build, and run
+uv run oss-crs prepare \
+  --compose-file ./example/multilang/multilang-compose.yaml
 
-<!-- uv run oss-crs build-target \ -->
-<!--   --compose-file ./example/multilang/multilang-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 -->
+uv run oss-crs build-target \
+  --compose-file ./example/multilang/multilang-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2
 
-<!-- uv run oss-crs run \ -->
-<!--   --compose-file ./example/multilang/multilang-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 \ -->
-<!--   --target-harness xml -->
-<!-- ``` -->
+uv run oss-crs run \
+  --compose-file ./example/multilang/multilang-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml
+```
 
-<!-- #### Ensemble (multiple CRSs) -->
+#### Ensemble (multiple CRSs)
 
-<!-- ```bash -->
-<!-- # Run both crs-libfuzzer and multilang together -->
-<!-- uv run oss-crs prepare \ -->
-<!--   --compose-file ./example/ensemble/ensemble-compose.yaml -->
+```bash
+# Run both crs-libfuzzer and multilang together
+uv run oss-crs prepare \
+  --compose-file ./example/ensemble/ensemble-compose.yaml
 
-<!-- uv run oss-crs build-target \ -->
-<!--   --compose-file ./example/ensemble/ensemble-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 -->
+uv run oss-crs build-target \
+  --compose-file ./example/ensemble/ensemble-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2
 
-<!-- uv run oss-crs run \ -->
-<!--   --compose-file ./example/ensemble/ensemble-compose.yaml \ -->
-<!--   --target-proj-path ~/oss-fuzz/projects/libxml2 \ -->
-<!--   --target-harness xml -->
-<!-- ``` -->
+uv run oss-crs run \
+  --compose-file ./example/ensemble/ensemble-compose.yaml \
+  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml
+```
 
 ## CRS Integration Interface
 
