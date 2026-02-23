@@ -16,6 +16,8 @@
   - [CRS-Compose Configuration](#crs-compose-configuration)
   - [LLM Configuration](#llm-configuration)
 - [CRS Integration Interface (libCRS)](#crs-integration-interface-libcrs)
+  - [Custom Builders](#custom-builders)
+  - [Snapshot and Builder Sidecar](#snapshot-and-builder-sidecar)
   - [Output format standards](#output-format-standards)
   - [Delta Scan Mode](#delta-scan-mode)
   - [CRS Ensemble Support](#crs-ensemble-support)
@@ -489,6 +491,8 @@ required_llms:
 
 #### Dockerfile Conventions
 
+To accommodate the OSS-CRS workflow, we suggest following certain conventions when integrating a CRS.
+
 **Builder Dockerfile** (`target_build_phase`): Uses the target project image as base via build arg. This allows CRS-specific instrumentation on top of the OSS-Fuzz project build.
 
 ```dockerfile
@@ -529,7 +533,8 @@ CRSs interact with the oss-crs infrastructure through **libCRS**, a Python libra
 | `POV` | Proof of Vulnerability inputs |
 | `SEED` | Fuzzing corpus seeds |
 | `BUG_CANDIDATE` | Potential bug reports |
-| `PATCH` | Bug fix patches |
+| `PATCH` | Bug fix patches (outputted by patch CRS) |
+| `DIFF` | Code diffs for delta-mode analysis (input for CRS) |
 
 #### Core API
 
@@ -554,7 +559,42 @@ crs.fetch(DataType.SEED, directory)            # Fetch shared data
 
 # Service Discovery
 domain = crs.get_service_domain("litellm")     # Get service endpoint
+
+# Builder Sidecar Operations (for bug-fixing CRSs)
+exit_code = crs.apply_patch_build(patch_path, response_dir, builder="builder-asan")
+exit_code = crs.run_pov(pov_path, harness_name, build_id, response_dir, builder="builder-asan")
+exit_code = crs.run_test(build_id, response_dir, builder="builder-asan")
 ```
+
+#### CLI Commands
+
+libCRS is also available as the `libCRS` CLI executable inside containers:
+
+```bash
+# Build output management
+libCRS submit-build-output <src_path> <dst_path>
+libCRS download-build-output <src_path> <dst_path>
+libCRS skip-build-output <dst_path>
+
+# Data auto-sync (runs as daemon, blocks until container exits)
+libCRS register-submit-dir <TYPE> <path> [--log <log_path>]
+libCRS register-fetch-dir <TYPE> <path> [--log <log_path>]
+libCRS register-shared-dir <local_path> <shared_path>
+
+# Manual data operations
+libCRS submit <TYPE> <path>
+libCRS fetch <TYPE> <path>
+
+# Service discovery
+libCRS get-service-domain <service_name>
+
+# Builder sidecar operations
+libCRS apply-patch-build <patch_path> <response_dir> --builder <name>
+libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <name>
+libCRS run-test <response_dir> --build-id <id> --builder <name>
+```
+
+Where `TYPE` is one of: `pov`, `seed`, `bug-candidate`, `patch`, `diff`.
 
 #### Environment Variables
 
@@ -579,6 +619,119 @@ CRSs receive the following environment variables from OSS-CRS:
 CRSs may use the environment variables however they like, but we suggest handling the following:
 - `OSS_CRS_LLM_API_URL` and `OSS_CRS_LLM_API_KEY` for making LLM requests
 - `OSS_CRS_CPUSET` and `OSS_CRS_MEMORY_LIMIT` in case compute-heavy tasks need to scale along with the resource constraints applied by the operator
+
+#### Custom Builders
+
+A CRS may want to perform several custom target project compilation passes. For example, fuzzers need custom instrumentation of the source code, and static analysis tools also need to process the project's source code to produce analysis reports. OSS-CRS supports multiple custom builders to accommodate these demands.
+
+CRS authors can choose between framework-provided builders and custom Dockerfiles for the `target_build_phase`. The `dockerfile` field accepts two formats:
+
+- **Framework-provided:** `oss-crs-infra:<module>` references a builder shipped with oss-crs (e.g., `oss-crs-infra:default-builder`). These handle the standard OSS-Fuzz compile flow and snapshot creation automatically.
+- **Custom Dockerfile:** A path to a CRS-provided Dockerfile (e.g., `oss-crs/dockerfiles/builder.Dockerfile`). Custom builders use `ARG target_base_image` / `FROM $target_base_image` to layer CRS-specific instrumentation on top of the OSS-Fuzz project build.
+
+```yaml
+target_build_phase:
+  # Framework-provided builder for snapshot creation
+  - name: asan-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: address
+
+  # Custom builder with explicit outputs
+  - name: coverage-build
+    dockerfile: oss-crs/dockerfiles/builder.Dockerfile
+    additional_env:
+      BUILD_TYPE: coverage
+    outputs:
+      - coverage/build
+```
+
+The same `oss-crs-infra:` prefix can be used in `crs_run_phase` modules to run framework-provided services (e.g., a builder sidecar server).
+
+#### Snapshot and Builder Sidecar
+
+CRSs may want to reuse their builder environment for on-demand rebuilds at the run phase. OSS-CRS provides mechanisms for snapshotting the builder environment and launching the CRS builders in the run phase. This comes with the benefits of more performative rebuilds and re-use of the builder environment without additional run phase setup.
+
+A **snapshot** is a Docker image that captures a fully compiled and instrumented target project. Snapshots enable **incremental rebuilds**: instead of compiling from scratch for every patch attempt, a CRS applies a unified diff to the snapshot and only recompiles the changed files.
+
+**Enabling snapshots** requires two fields in `crs.yaml`:
+
+1. **`snapshot: true`** on a `target_build_phase` entry — tells `build-target` to compile the project, install libCRS and build scripts, then commit the container as a snapshot image.
+
+2. **`run_snapshot: true`** on a `crs_run_phase` module — uses the snapshot image as the module's base image. This module runs a **builder sidecar**, an HTTP service that accepts patch, POV, and test requests.
+
+```yaml
+# crs.yaml — bug-fixing CRS with builder sidecar
+target_build_phase:
+  - name: asan-snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+    additional_env:
+      SANITIZER: address
+
+crs_run_phase:
+  patcher:
+    dockerfile: oss-crs/patcher.Dockerfile
+  builder-asan:
+    dockerfile: oss-crs-infra:default-builder
+    run_snapshot: true
+```
+
+In this configuration, oss-crs launches `builder-asan` from the snapshot image. The patcher module communicates with it via libCRS:
+
+**Patch → Build → Validate workflow:**
+
+```python
+from libCRS import CRSUtils
+from pathlib import Path
+
+crs = CRSUtils()
+
+# 1. Apply a patch and rebuild (POST to builder sidecar /build)
+build_exit = crs.apply_patch_build(
+    patch_path=Path("/work/fix.patch"),
+    response_dir=Path("/work/build-result"),
+    builder="builder-asan",
+)
+# Response dir contains: build_exit_code, build.log, build_id
+
+# 2. Run POV against the patched build (POST to /run-pov)
+build_id = Path("/work/build-result/build_id").read_text()
+pov_exit = crs.run_pov(
+    pov_path=Path("/work/crash-input"),
+    harness_name="target_fuzzer",
+    build_id=build_id,
+    response_dir=Path("/work/pov-result"),
+    builder="builder-asan",
+)
+# exit code 0 = no crash = patch fixed the bug
+
+# 3. Run project tests against the patched build (POST to /run-test)
+test_exit = crs.run_test(
+    build_id=build_id,
+    response_dir=Path("/work/test-result"),
+    builder="builder-asan",
+)
+# exit code 0 = tests pass
+```
+
+Or equivalently via the CLI:
+
+```bash
+# Apply patch and rebuild
+libCRS apply-patch-build /work/fix.patch /work/build-result --builder builder-asan
+
+# Verify the POV no longer crashes
+BUILD_ID=$(cat /work/build-result/build_id)
+libCRS run-pov /work/crash-input /work/pov-result \
+  --harness target_fuzzer --build-id "$BUILD_ID" --builder builder-asan
+
+# Run project tests
+libCRS run-test /work/test-result --build-id "$BUILD_ID" --builder builder-asan
+```
+
+The builder sidecar handles the compilation, binary execution, and test running inside the snapshot environment. CRS authors only need to generate patches and interpret the results.
 
 ### Output format standards
 
