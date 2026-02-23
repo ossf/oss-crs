@@ -24,11 +24,11 @@ crs-claude-code:
     #   claude-opus-4-6, claude-opus-4-5-20251101, claude-opus-4-1-20250805,
     #   claude-sonnet-4-5-20250929, claude-sonnet-4-20250514, claude-haiku-4-5-20251001
     CRS_AGENT: claude_code
-    ANTHROPIC_MODEL: claude-sonnet-4-5-20250929
-    CLAUDE_CODE_SUBAGENT_MODEL: claude-sonnet-4-5-20250929
-    ANTHROPIC_DEFAULT_OPUS_MODEL: claude-sonnet-4-5-20250929
-    ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-5-20250929
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-sonnet-4-5-20250929
+    ANTHROPIC_MODEL: claude-opus-4-6
+    # CLAUDE_CODE_SUBAGENT_MODEL: claude-sonnet-4-5-20250929
+    # ANTHROPIC_DEFAULT_OPUS_MODEL: claude-sonnet-4-5-20250929
+    # ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-5-20250929
+    # ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-sonnet-4-5-20250929
     # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
 
 # --- LLM Configuration -----------------------------------------------------
