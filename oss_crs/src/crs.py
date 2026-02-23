@@ -14,13 +14,19 @@ from .workdir import WorkDir
 CRS_YAML_PATH = "oss-crs/crs.yaml"
 
 
-def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exists: bool = False) -> bool:
+def init_crs_repo(
+    name,
+    repo_url: str,
+    branch: str,
+    dest_path: Path,
+    skip_if_exists: bool = False,
+) -> TaskResult:
     # Use file lock to prevent race conditions when multiple runs access same CRS repo
     lock_path = dest_path.parent / f".{name}.lock"
     with file_lock(lock_path):
         # Skip init if repo exists and skip_if_exists is True
         if skip_if_exists and dest_path.exists():
-            return True
+            return TaskResult(success=True)
 
         tasks = []
         if dest_path.exists():
@@ -28,8 +34,8 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 (
                     "Git Fetch",
                     lambda progress: progress.run_command_with_streaming_output(
-                    cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
-                        cwd=dest_path
+                        cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
+                        cwd=dest_path,
                     ),
                 ),
                 (
@@ -58,7 +64,7 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 ),
             ]
         with MultiTaskProgress(tasks, title=f"Init CRS: {name}") as progress:
-            return progress.run_added_tasks().success
+            return progress.run_added_tasks()
 
 
 class CRS:
@@ -83,9 +89,19 @@ class CRS:
         else:
             # crs_src is a sibling directory to the work_dir
             path = work_dir.path / "../crs_src" / name
-            if init_crs_repo(name, entry.source.url, entry.source.ref, path, skip_if_exists=skip_init):
+            init_result = init_crs_repo(
+                name,
+                entry.source.url,
+                entry.source.ref,
+                path,
+                skip_if_exists=skip_init,
+            )
+            if init_result.success:
                 return cls(name, path, work_dir, entry, crs_compose_env)
-        raise ValueError(f"Failed to initialize CRS from entry: {name}")
+            detail = init_result.error or "unknown repository initialization error"
+            raise ValueError(
+                f"Failed to initialize CRS from entry: {name}; reason: {detail}"
+            )
 
     def __init__(
         self,
@@ -196,7 +212,10 @@ class CRS:
         build_id: str,
         sanitizer: str,
     ) -> "TaskResult":
-        if self.config.target_build_phase is None or not self.config.target_build_phase.builds:
+        if (
+            self.config.target_build_phase is None
+            or not self.config.target_build_phase.builds
+        ):
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
             # TODO: warn instead of error?
@@ -211,7 +230,9 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        build_work_dir = self.work_dir.get_crs_build_dir(self.name, target, build_id, sanitizer)
+        build_work_dir = self.work_dir.get_crs_build_dir(
+            self.name, target, build_id, sanitizer
+        )
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -239,7 +260,10 @@ class CRS:
         build_id: str,
         sanitizer: str,
     ) -> TaskResult:
-        if self.config.target_build_phase is None or not self.config.target_build_phase.builds:
+        if (
+            self.config.target_build_phase is None
+            or not self.config.target_build_phase.builds
+        ):
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
             return TaskResult(
@@ -253,7 +277,9 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
+        build_out_dir = self.work_dir.get_build_output_dir(
+            self.name, target, build_id, sanitizer
+        )
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -307,7 +333,9 @@ class CRS:
         sanitizer: str,
         progress: MultiTaskProgress,
     ) -> "TaskResult":
-        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
+        build_out_dir = self.work_dir.get_build_output_dir(
+            self.name, target, build_id, sanitizer
+        )
         build_cache_path = build_out_dir / f".{build_name}.cache"
         docker_compose_output = ""
 
