@@ -17,7 +17,7 @@
   - [LLM Configuration](#llm-configuration)
 - [CRS Integration Interface (libCRS)](#crs-integration-interface-libcrs)
   - [Output format standards](#output-format-standards)
-  - [Diff Mode Support](#diff-mode-support)
+  - [Delta Scan Mode](#delta-scan-mode)
   - [CRS Ensemble Support](#crs-ensemble-support)
 - [Example Reference CRSs](#example-reference-crses)
 - [Alternative Considerations](#alternative-considerations)
@@ -30,7 +30,9 @@
 ## Overview and context
 
 This RFC proposes a standardized set of interfaces and specifications for Cyber Reasoning Systems (CRSs) following the DARPA AIxCC competition.
-The aim is to unify bug finding and reporting workflows to make them portable across teams, scalable from laptops to clusters, and compatible with oss-fuzz.
+The aim is to unify bug finding and reporting workflows to make them portable across teams, scalable from laptops to clusters, and compatible with OSS-Fuzz.
+
+This unification enables CRSs to interoperate and accurately measure their capabilities, leading to steady improvements over time so that real-world software vulnerabilities can be automatically identified and fixed at scale, vastly reducing the risks to society from vulnerable software.
 
 This RFC proposes to standardise the following systems:
 
@@ -41,10 +43,11 @@ This RFC proposes to standardise the following systems:
 
 ## Glossary and terms
 
-- **CRS** — Cyber Reasoning System
-- **AIxCC** — AI Cyber Challenge
-- **PoV** — Proof of Vulnerability
+- **CRS** — Cyber Reasoning System, whitebox techniques and systems for finding and fixing security bugs
+- **AIxCC** — AI Cyber Challenge, DARPA and ARPA-H organized competition for autonomous bug-finding and fixing
+- **PoV** — Proof of Vulnerability, input to program that triggers a sanitizer crash or other bug oracle
 - **libCRS** — Python library providing the CRS integration interface
+- **Operator** — User of OSS-CRS who launches the CRSs
 
 ## Motivations
 
@@ -69,7 +72,10 @@ In this RFC, we want to make this process more flexible.
 By adding fine-grained control of fuzzing phases, we can run AI agents at different stages such as the early exploration phase or the later saturation phase.
 This helps us understand where and how much LLMs can contribute without waiting for the entire campaign to finish.
 
-#### Pushing OSS-Fuzz Closer to developers via Diff Mode
+#### Pushing OSS-Fuzz Closer to developers via Delta Scan Mode
+
+Delta Scan Mode lets the CRS focus on code changes between commits instead of fuzzing the whole project.
+It's useful for validating patches, PRs, or a series of commits where you only want to explore the modified code paths.
 
 New commits are often where bugs are introduced. In the past, OSS-Fuzz and its differential fuzzing setup mainly served researchers by selecting seeds that could reach modified code regions, which made it less practical for developers doing daily commits.
 
@@ -273,12 +279,7 @@ model_list:
 
 CRSs declare their LLM requirements via `required_llms` in `oss-crs/crs.yaml`. At runtime, oss-crs validates that all required models are available in the LiteLLM configuration before launching the CRS.
 
-### Diff Mode Support
-
-Diff Mode lets the CRS focus on code changes between commits instead of fuzzing the whole project.
-It's useful for validating patches, PRs, or a series of commits where you only want to explore the modified code paths.
-
-#### How it works
+### Delta Scan Mode
 
 You specify a **commit range**, **a single commit**, or a **diff file** as the base for comparison.
 The system analyzes all changes from that base to HEAD and builds a focus map (changed files, functions, or lines).
@@ -316,7 +317,7 @@ uv run oss-crs run \
 
 ### CRS Ensemble Support
 
-**Motivation:** Combine pure agents with fuzzers for maximum coverage.
+**Motivation:** Combine a diverse set of techniques to boost bug-finding and patching effectiveness.
 
 Multiple CRSs can run simultaneously against the same target, sharing data through libCRS:
 
@@ -530,7 +531,7 @@ domain = crs.get_service_domain("litellm")     # Get service endpoint
 
 #### Environment Variables
 
-CRSs receive the following environment variables:
+CRSs receive the following environment variables from OSS-CRS:
 
 | Variable | Description |
 |----------|-------------|
@@ -547,6 +548,10 @@ CRSs receive the following environment variables:
 | `OSS_CRS_SHARED_DIR` | Shared data directory |
 | `OSS_CRS_LLM_API_URL` | LiteLLM proxy URL (if LLM configured) |
 | `OSS_CRS_LLM_API_KEY` | Per-CRS LiteLLM API key (if LLM configured) |
+
+CRSs may use the environment variables however they like, but we suggest handling the following:
+- `OSS_CRS_LLM_API_URL` and `OSS_CRS_LLM_API_KEY` for making LLM requests
+- `OSS_CRS_CPUSET` and `OSS_CRS_MEMORY_LIMIT` in case compute-heavy tasks need to scale along with the resource constraints applied by the operator
 
 ### Output format standards
 
@@ -607,6 +612,8 @@ for seed in shared_seeds:
 
 ## References
 
+- AI Cyber Challenge [https://aicyberchallenge.com/](https://aicyberchallenge.com/)
+- OSS-Fuzz [https://google.github.io/oss-fuzz/](https://google.github.io/oss-fuzz/)
 - GitHub Issue #42 - CRS Configuration Format Refinement: [https://github.com/sslab-gatech/oss-crs/issues/42](https://github.com/sslab-gatech/oss-crs/issues/42)
 - GitHub Issue #56 - LLM Configuration Enhancement: [https://github.com/sslab-gatech/oss-crs/issues/56](https://github.com/sslab-gatech/oss-crs/issues/56)
 - LiteLLM Proxy Configuration: [https://docs.litellm.ai/docs/proxy/configs](https://docs.litellm.ai/docs/proxy/configs)
