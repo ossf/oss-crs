@@ -195,6 +195,8 @@ LLM setup flow during `oss-crs run`:
 3. CRS containers receive their API key via `OSS_CRS_LLM_API_KEY` and endpoint via `OSS_CRS_LLM_API_URL`
 4. All LLM requests are proxied through LiteLLM, which enforces budgets and logs usage
 
+`required_llms` is only used for model-availability validation; internal per-CRS key generation does not depend on `required_llms` being set.
+
 LiteLLM integration modes:
 
 - **Internal mode**: OSS-CRS starts LiteLLM/PostgreSQL/key-gen sidecars and injects per-CRS API keys.

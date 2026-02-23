@@ -55,6 +55,7 @@ Controls LiteLLM integration mode.
 - `litellm.mode=internal`:
   - Internal LiteLLM mode (OSS-CRS starts LiteLLM/postgres/key-gen services).
   - `internal.config_path` is optional; if omitted, OSS-CRS uses the default bundled LiteLLM config.
+  - In this mode, OSS-CRS always generates per-CRS LiteLLM keys. `required_llms` only controls model-availability validation.
 - `litellm.mode=external`:
   - External LiteLLM mode (OSS-CRS injects external URL/key into CRS containers, no internal LiteLLM sidecars).
   - Must set exactly one of `url` or `url_env`.
@@ -297,6 +298,7 @@ The configuration is validated using Pydantic with the following rules:
 
 4. **LLM Budget Validation:**
    - If specified, must be a positive integer (> 0)
+   - If omitted, OSS-CRS forwards `max_budget: null` to LiteLLM during key generation (no explicit OSS-CRS budget cap).
 
 5. **CRS Entry Name Validation:**
    - CRS entry names (keys) must be lowercase only
