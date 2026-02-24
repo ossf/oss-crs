@@ -46,12 +46,12 @@ class LocalCRSUtils(CRSUtils):
             src = Path(get_env(env_key)).resolve()
         except KeyError as exc:
             raise RuntimeError(
-                f"download-source --type {source_type} requires env var {env_key}"
+                f"download-source {source_type} requires env var {env_key}"
             ) from exc
 
         if not src.exists():
             raise RuntimeError(
-                f"download-source --type {source_type} source path does not exist: {src}"
+                f"download-source {source_type} source path does not exist: {src}"
             )
 
         dst = Path(dst_path).resolve()

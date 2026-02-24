@@ -154,18 +154,18 @@ $ libCRS download-build-output /fuzzer /opt/fuzzer
 Download target source tree into the container from canonical source paths.
 
 ```bash
-$ libCRS download-source --type <target|repo> <dst_path>
+$ libCRS download-source <target|repo> <dst_path>
 ```
 
 | Argument | Description |
 |---|---|
-| `--type target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
-| `--type repo` | Source from `OSS_CRS_REPO_PATH` (effective target source path) |
+| `target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
+| `repo` | Source from `OSS_CRS_REPO_PATH` (effective target source path) |
 | `dst_path` | Destination path inside the container |
 
 **Example** — Retrieve effective source tree for patch analysis:
 ```bash
-$ libCRS download-source --type repo /work/src
+$ libCRS download-source repo /work/src
 ```
 
 #### `skip-build-output` ✅

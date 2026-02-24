@@ -121,10 +121,9 @@ def main():
         help="Download source tree from target/repo source path to destination",
     )
     download_source_parser.add_argument(
-        "--type",
+        "type",
         type=SourceType,
         choices=list(SourceType),
-        required=True,
         metavar="TYPE",
         help="Source type: target, repo",
     )
