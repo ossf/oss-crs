@@ -44,3 +44,21 @@ def test_resolve_effective_workdir_without_workdir_defaults_to_src(tmp_path: Pat
         "FROM base\nRUN echo ok\n",
     )
     assert target._resolve_effective_workdir() == "/src"
+
+
+def test_resolve_effective_workdir_strips_inline_comment(tmp_path: Path) -> None:
+    target = _make_target_with_dockerfile(
+        tmp_path,
+        'FROM base\nWORKDIR $SRC/curl # WORKDIR is "curl"\n',
+    )
+    assert target._resolve_effective_workdir() == "/src/curl"
+
+
+def test_resolve_effective_workdir_expands_env_vars(tmp_path: Path) -> None:
+    target = _make_target_with_dockerfile(
+        tmp_path,
+        "FROM base\n"
+        "ENV OSS_FUZZ_ROOT=/src/oss-fuzz\n"
+        "WORKDIR ${OSS_FUZZ_ROOT}/infra\n",
+    )
+    assert target._resolve_effective_workdir() == "/src/oss-fuzz/infra"

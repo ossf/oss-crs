@@ -423,8 +423,7 @@ class Target:
         """Resolve effective final WORKDIR from target Dockerfile.
 
         WORKDIR instructions are applied cumulatively. Relative WORKDIR values
-        are resolved against the current effective WORKDIR. We treat SRC as
-        '/src' by default when expanding `$SRC` / `${SRC}`.
+        are resolved against the current effective WORKDIR.
         """
         dockerfile = self.proj_path / "Dockerfile"
         if not dockerfile.exists():
@@ -433,11 +432,37 @@ class Target:
         src_root = "/src"
         current = src_root
         workdir_seen = False
+        env_vars: dict[str, str] = {"SRC": src_root}
 
         try:
             for raw in dockerfile.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
+                line = self._strip_inline_comment(raw).strip()
                 if not line or line.startswith("#"):
+                    continue
+
+                env_match = re.match(r"(?i)^ENV\s+(.+)$", line)
+                if env_match:
+                    payload = env_match.group(1).strip()
+                    # Support both forms:
+                    #   ENV key=value [k2=v2 ...]
+                    #   ENV key value
+                    parts = payload.split()
+                    if all("=" in p for p in parts):
+                        for part in parts:
+                            key, value = part.split("=", 1)
+                            env_vars[key] = self._expand_docker_vars(value, env_vars)
+                    elif len(parts) >= 2:
+                        key = parts[0]
+                        value = " ".join(parts[1:])
+                        env_vars[key] = self._expand_docker_vars(value, env_vars)
+                    continue
+
+                arg_match = re.match(r"(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line)
+                if arg_match:
+                    key = arg_match.group(1)
+                    value = arg_match.group(2)
+                    if value is not None:
+                        env_vars[key] = self._expand_docker_vars(value.strip(), env_vars)
                     continue
 
                 match = re.match(r"(?i)^WORKDIR\s+(.+)$", line)
@@ -449,7 +474,7 @@ class Target:
                 if not wd:
                     continue
 
-                wd = wd.replace("${SRC}", src_root).replace("$SRC", src_root)
+                wd = self._expand_docker_vars(wd, env_vars)
 
                 if wd.startswith("/"):
                     current = posixpath.normpath(wd)
@@ -459,6 +484,40 @@ class Target:
             return current if workdir_seen else src_root
         except Exception:
             return src_root
+
+    @staticmethod
+    def _strip_inline_comment(line: str) -> str:
+        """Strip inline Dockerfile comments while preserving quoted #."""
+        in_single = False
+        in_double = False
+        escaped = False
+        for idx, ch in enumerate(line):
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                continue
+            if ch == "#" and not in_single and not in_double:
+                if idx == 0 or line[idx - 1].isspace():
+                    return line[:idx]
+        return line
+
+    @staticmethod
+    def _expand_docker_vars(value: str, env_vars: dict[str, str]) -> str:
+        """Expand $VAR / ${VAR} using Dockerfile-known ENV/ARG values."""
+
+        def repl(match: re.Match[str]) -> str:
+            key = match.group(1) or match.group(2)
+            return env_vars.get(key, match.group(0))
+
+        return re.sub(r"\$(\w+)|\$\{([^}]+)\}", repl, value)
 
     def get_snapshot_image_name(self, sanitizer: str) -> str:
         repo_hash = self.__get_repo_hash()

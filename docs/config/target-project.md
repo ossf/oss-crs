@@ -46,7 +46,6 @@ uv run oss-crs run \
 |-----------------------|----------|--------------------------------------------------------------------------------|
 | `--target-path` (`--target-proj-path`) | Yes | Path to the OSS-Fuzz target project directory (`Dockerfile`, `project.yaml`, `build.sh`). |
 | `--target-source-path` (`--target-repo-path`) | No | Optional local source override path. If set, source is overlaid to the effective Dockerfile `WORKDIR`. |
-| `--no-checkout`       | No       | Skip repo checkout/update.                                                     |
 | `--target-harness`    | Yes (run)| Fuzz target harness binary name.                                               |
 
 Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/projects) can be used directly as `--target-path` (or `--target-proj-path`) without modification.
