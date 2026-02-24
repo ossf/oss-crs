@@ -36,12 +36,33 @@ class LocalCRSUtils(CRSUtils):
 
     def download_source(self, source_type: SourceType, dst_path: Path) -> None:
         if source_type == SourceType.TARGET:
-            src = Path(get_env("OSS_CRS_PROJ_PATH"))
+            env_key = "OSS_CRS_PROJ_PATH"
         elif source_type == SourceType.REPO:
-            src = Path(get_env("OSS_CRS_REPO_PATH"))
+            env_key = "OSS_CRS_REPO_PATH"
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
-        rsync_copy(src, Path(dst_path))
+
+        try:
+            src = Path(get_env(env_key)).resolve()
+        except KeyError as exc:
+            raise RuntimeError(
+                f"download-source --type {source_type} requires env var {env_key}"
+            ) from exc
+
+        if not src.exists():
+            raise RuntimeError(
+                f"download-source --type {source_type} source path does not exist: {src}"
+            )
+
+        dst = Path(dst_path).resolve()
+
+        # Guard against recursive/self copy (rsync source == destination or overlaps).
+        if dst == src or src in dst.parents or dst in src.parents:
+            raise RuntimeError(
+                f"Refusing download-source copy due to overlapping paths: src={src}, dst={dst}"
+            )
+
+        rsync_copy(src, dst)
 
     def submit_build_output(self, src_path: str, dst_path: Path) -> None:
         src = Path(src_path)

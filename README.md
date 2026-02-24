@@ -44,12 +44,12 @@ uv run oss-crs prepare \
 # Build the target project
 uv run oss-crs build-target \
   --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2
+  --target-path ~/oss-fuzz/projects/libxml2
 
 # Run the CRS against a specific harness (e.g., "xml")
 uv run oss-crs run \
   --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
@@ -66,7 +66,7 @@ uv run oss-crs prepare \
 # Build the target
 uv run oss-crs build-target \
   --compose-file ./example/multilang/multilang-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 
+  --target-path ~/oss-fuzz/projects/libxml2 
 
 # Run the CRS
 export OPENAI_API_KEY=<OPENAI_API_KEY>
@@ -74,7 +74,7 @@ export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
 uv run oss-crs run \
   --compose-file ./example/multilang/multilang-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
@@ -123,7 +123,7 @@ uv run oss-crs prepare \
 # Build the target
 uv run oss-crs build-target \
   --compose-file ./example/ensemble/ensemble-compose.yaml  \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 
+  --target-path ~/oss-fuzz/projects/libxml2 
 
 # Run the CRS
 export OPENAI_API_KEY=<OPENAI_API_KEY>
@@ -131,7 +131,7 @@ export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
 uv run oss-crs run \
   --compose-file ./example/ensemble/ensemble-compose.yaml  \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
@@ -163,4 +163,3 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 ## License
 
 See [LICENSE](LICENSE) for details.
-
