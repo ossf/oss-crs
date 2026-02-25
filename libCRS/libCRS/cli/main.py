@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import argparse
@@ -5,6 +6,7 @@ from pathlib import Path
 from ..base import DataType, CRSUtils
 from ..local import LocalCRSUtils
 from ..common import get_run_env_type, EnvType
+from ..fuzzer import FuzzerHandle, FuzzerStatus, FuzzerResult
 
 
 def init_crs_utils() -> CRSUtils:
@@ -328,6 +330,142 @@ def main():
     get_service_domain_parser.set_defaults(
         func=lambda args: get_service_domain(crs_utils, args)
     )
+
+    # =========================================================================
+    # Fuzzer commands
+    # =========================================================================
+
+    # start-fuzzer command
+    start_fuzzer_parser = subparsers.add_parser(
+        "start-fuzzer",
+        help="Start a fuzzer in the fuzzer sidecar (non-blocking, prints fuzzer_id)",
+    )
+    start_fuzzer_parser.add_argument(
+        "harness", type=str, help="Harness binary name in /out/"
+    )
+    start_fuzzer_parser.add_argument(
+        "corpus_dir", type=Path, help="Directory for corpus files"
+    )
+    start_fuzzer_parser.add_argument(
+        "crashes_dir", type=Path, help="Directory for crash files"
+    )
+    start_fuzzer_parser.add_argument(
+        "--fuzzer", type=str, required=True,
+        help="Fuzzer sidecar module name",
+    )
+    start_fuzzer_parser.add_argument(
+        "--engine", type=str, default="libfuzzer",
+        help="Fuzzing engine (default: libfuzzer)",
+    )
+    start_fuzzer_parser.add_argument(
+        "--timeout", type=int, default=0,
+        help="Maximum fuzzing time in seconds (0 = unlimited)",
+    )
+    start_fuzzer_parser.add_argument(
+        "--extra-args", type=str, default=None,
+        help="Additional engine-specific arguments (space-separated)",
+    )
+
+    def _start_fuzzer(args):
+        extra_args = args.extra_args.split() if args.extra_args else None
+        try:
+            handle = crs_utils.start_fuzzer(
+                harness_name=args.harness,
+                corpus_dir=args.corpus_dir,
+                crashes_dir=args.crashes_dir,
+                fuzzer=args.fuzzer,
+                engine=args.engine,
+                timeout=args.timeout,
+                extra_args=extra_args,
+            )
+            print(json.dumps({"fuzzer_id": handle.fuzzer_id, "pid": handle.pid}))
+        except RuntimeError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    start_fuzzer_parser.set_defaults(func=_start_fuzzer)
+
+    # fuzzer-status command
+    fuzzer_status_parser = subparsers.add_parser(
+        "fuzzer-status",
+        help="Get status of a running fuzzer (JSON output)",
+    )
+    fuzzer_status_parser.add_argument(
+        "fuzzer_id", type=str, help="Fuzzer ID from start-fuzzer"
+    )
+    fuzzer_status_parser.add_argument(
+        "--fuzzer", type=str, required=True,
+        help="Fuzzer sidecar module name",
+    )
+
+    def _fuzzer_status(args):
+        try:
+            status = crs_utils.fuzzer_status(args.fuzzer_id, args.fuzzer)
+            print(json.dumps({
+                "state": status.state,
+                "runtime_seconds": status.runtime_seconds,
+                "execs": status.execs,
+                "corpus_size": status.corpus_size,
+                "crashes_found": status.crashes_found,
+                "pid": status.pid,
+            }))
+        except RuntimeError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    fuzzer_status_parser.set_defaults(func=_fuzzer_status)
+
+    # stop-fuzzer command
+    stop_fuzzer_parser = subparsers.add_parser(
+        "stop-fuzzer",
+        help="Stop a running fuzzer (blocks until terminated, prints result JSON)",
+    )
+    stop_fuzzer_parser.add_argument(
+        "fuzzer_id", type=str, help="Fuzzer ID from start-fuzzer"
+    )
+    stop_fuzzer_parser.add_argument(
+        "--fuzzer", type=str, required=True,
+        help="Fuzzer sidecar module name",
+    )
+
+    def _stop_fuzzer(args):
+        try:
+            result = crs_utils.stop_fuzzer(args.fuzzer_id, args.fuzzer)
+            print(json.dumps({
+                "exit_code": result.exit_code,
+                "runtime_seconds": result.runtime_seconds,
+                "corpus_size": result.corpus_size,
+                "crashes_found": result.crashes_found,
+            }))
+            sys.exit(result.exit_code)
+        except RuntimeError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    stop_fuzzer_parser.set_defaults(func=_stop_fuzzer)
+
+    # list-fuzzers command
+    list_fuzzers_parser = subparsers.add_parser(
+        "list-fuzzers",
+        help="List all fuzzer instances in the sidecar (JSON array)",
+    )
+    list_fuzzers_parser.add_argument(
+        "--fuzzer", type=str, required=True,
+        help="Fuzzer sidecar module name",
+    )
+
+    def _list_fuzzers(args):
+        try:
+            handles = crs_utils.list_fuzzers(args.fuzzer)
+            print(json.dumps([
+                {"fuzzer_id": h.fuzzer_id, "pid": h.pid}
+                for h in handles
+            ]))
+        except RuntimeError as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    list_fuzzers_parser.set_defaults(func=_list_fuzzers)
 
     args = parser.parse_args()
 

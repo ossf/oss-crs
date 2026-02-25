@@ -97,7 +97,10 @@ class CRSRunPhaseModule(BaseModel):
     """Configuration for a single CRS run phase module.
 
     A module with run_snapshot=True uses the snapshot image from the build phase
-    as its base image. The dockerfile can be:
+    as its base image. A module with run_fuzzer=True uses the base-runner image
+    (which has /out/ binaries) and runs the fuzzer sidecar server.
+
+    The dockerfile can be:
     - Omitted: no service for this module (snapshot only used as base)
     - "oss-crs-infra:<module>": framework-provided service (e.g., default-builder)
     - A file path: CRS developer's custom service Dockerfile
@@ -105,13 +108,14 @@ class CRSRunPhaseModule(BaseModel):
 
     dockerfile: Optional[str] = None
     run_snapshot: bool = False
+    run_fuzzer: bool = False
     additional_env: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_dockerfile_requirement(self):
-        """Ensure dockerfile is provided for non-snapshot modules."""
-        if not self.run_snapshot and self.dockerfile is None:
-            raise ValueError("dockerfile is required for non-snapshot modules")
+        """Ensure dockerfile is provided for non-snapshot/non-fuzzer modules."""
+        if not self.run_snapshot and not self.run_fuzzer and self.dockerfile is None:
+            raise ValueError("dockerfile is required for non-snapshot/non-fuzzer modules")
         return self
 
     @field_validator("dockerfile")
@@ -193,6 +197,11 @@ class CRSConfig(BaseModel):
     def has_builder_module(self) -> bool:
         """Check if this CRS has a run phase module that uses a snapshot."""
         return any(m.run_snapshot for m in self.crs_run_phase.modules.values())
+
+    @property
+    def has_fuzzer_module(self) -> bool:
+        """Check if this CRS has a run phase module that runs a fuzzer sidecar."""
+        return any(m.run_fuzzer for m in self.crs_run_phase.modules.values())
 
     @field_validator("version")
     @classmethod

@@ -29,7 +29,7 @@ OSS_FUZZ_SCRIPTS = {
 }
 
 # Custom scripts from our templates directory.
-CUSTOM_SCRIPTS = ["oss_crs_handler.sh", "oss_crs_builder_server.py"]
+CUSTOM_SCRIPTS = ["oss_crs_handler.sh", "oss_crs_builder_server.py", "oss_crs_fuzzer_server.py"]
 
 
 def _ensure_third_party_oss_fuzz() -> bool:

@@ -10,6 +10,7 @@ from .base import CRSUtils, DataType
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
 from .submit import SubmitHelper
+from .fuzzer import FuzzerHandle, FuzzerStatus, FuzzerResult
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class LocalCRSUtils(CRSUtils):
     def __init__(self):
         super().__init__()
         self._builders_healthy: dict[str, bool] = {}
+        self._fuzzers_healthy: dict[str, bool] = {}
 
     def __init_submit_helper(self, data_type: DataType) -> SubmitHelper:
         OSS_CRS_SUBMIT_DIR = Path(get_env("OSS_CRS_SUBMIT_DIR"))
@@ -255,3 +257,150 @@ class LocalCRSUtils(CRSUtils):
             (response_dir / "test_stderr.log").write_text(result["test_stderr"])
 
         return test_exit_code
+
+    # =========================================================================
+    # Fuzzer sidecar operations
+    # =========================================================================
+
+    def _get_fuzzer_url(self, fuzzer: str) -> str:
+        domain = self.get_service_domain(fuzzer)
+        return f"http://{domain}:8080"
+
+    def _wait_for_fuzzer_health(
+        self, fuzzer: str, max_wait: int = 120, initial_interval: float = 1.0,
+    ) -> bool:
+        """Poll GET /health until the fuzzer sidecar is reachable."""
+        if self._fuzzers_healthy.get(fuzzer, False):
+            return True
+
+        fuzzer_url = self._get_fuzzer_url(fuzzer)
+        interval = initial_interval
+        start = time.monotonic()
+        while time.monotonic() - start < max_wait:
+            try:
+                resp = http_requests.get(f"{fuzzer_url}/health", timeout=5)
+                if resp.status_code == 200:
+                    logger.info("Fuzzer sidecar '%s' is healthy", fuzzer)
+                    self._fuzzers_healthy[fuzzer] = True
+                    return True
+            except (http_requests.ConnectionError, http_requests.Timeout):
+                pass
+            elapsed = time.monotonic() - start
+            logger.debug(
+                "Fuzzer '%s' not ready (%.0fs elapsed), retrying in %.1fs...",
+                fuzzer, elapsed, interval,
+            )
+            time.sleep(interval)
+            interval = min(interval * 2, 10.0)
+
+        logger.error("Fuzzer sidecar '%s' not healthy after %ds", fuzzer, max_wait)
+        return False
+
+    def start_fuzzer(
+        self,
+        harness_name: str,
+        corpus_dir: Path,
+        crashes_dir: Path,
+        fuzzer: str,
+        engine: str = "libfuzzer",
+        timeout: int = 0,
+        extra_args: list[str] | None = None,
+    ) -> FuzzerHandle:
+        """Start a fuzzer in the fuzzer sidecar container."""
+        if not self._wait_for_fuzzer_health(fuzzer):
+            raise RuntimeError(f"Fuzzer sidecar '{fuzzer}' not available")
+
+        fuzzer_url = self._get_fuzzer_url(fuzzer)
+        payload = {
+            "harness_name": harness_name,
+            "corpus_dir": str(corpus_dir),
+            "crashes_dir": str(crashes_dir),
+            "engine": engine,
+            "timeout": timeout,
+            "extra_args": extra_args or [],
+        }
+
+        try:
+            resp = http_requests.post(
+                f"{fuzzer_url}/start",
+                json=payload,
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except (http_requests.ConnectionError, http_requests.Timeout, http_requests.HTTPError) as e:
+            raise RuntimeError(f"Failed to start fuzzer: {e}")
+
+        result = resp.json()
+        return FuzzerHandle(
+            fuzzer_id=result["fuzzer_id"],
+            pid=result["pid"],
+        )
+
+    def fuzzer_status(self, fuzzer_id: str, fuzzer: str) -> FuzzerStatus:
+        """Get status of a running fuzzer."""
+        if not self._wait_for_fuzzer_health(fuzzer):
+            raise RuntimeError(f"Fuzzer sidecar '{fuzzer}' not available")
+
+        fuzzer_url = self._get_fuzzer_url(fuzzer)
+        try:
+            resp = http_requests.get(
+                f"{fuzzer_url}/status/{fuzzer_id}",
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except (http_requests.ConnectionError, http_requests.Timeout, http_requests.HTTPError) as e:
+            raise RuntimeError(f"Failed to get fuzzer status: {e}")
+
+        result = resp.json()
+        return FuzzerStatus(
+            state=result["state"],
+            runtime_seconds=result["runtime_seconds"],
+            execs=result["execs"],
+            corpus_size=result["corpus_size"],
+            crashes_found=result["crashes_found"],
+            pid=result["pid"],
+        )
+
+    def stop_fuzzer(self, fuzzer_id: str, fuzzer: str) -> FuzzerResult:
+        """Stop a running fuzzer and return final result."""
+        if not self._wait_for_fuzzer_health(fuzzer):
+            raise RuntimeError(f"Fuzzer sidecar '{fuzzer}' not available")
+
+        fuzzer_url = self._get_fuzzer_url(fuzzer)
+        try:
+            resp = http_requests.post(
+                f"{fuzzer_url}/stop/{fuzzer_id}",
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except (http_requests.ConnectionError, http_requests.Timeout, http_requests.HTTPError) as e:
+            raise RuntimeError(f"Failed to stop fuzzer: {e}")
+
+        result = resp.json()
+        return FuzzerResult(
+            exit_code=result["exit_code"],
+            runtime_seconds=result["runtime_seconds"],
+            corpus_size=result["corpus_size"],
+            crashes_found=result["crashes_found"],
+        )
+
+    def list_fuzzers(self, fuzzer: str) -> list[FuzzerHandle]:
+        """List all fuzzer instances in the sidecar."""
+        if not self._wait_for_fuzzer_health(fuzzer):
+            raise RuntimeError(f"Fuzzer sidecar '{fuzzer}' not available")
+
+        fuzzer_url = self._get_fuzzer_url(fuzzer)
+        try:
+            resp = http_requests.get(
+                f"{fuzzer_url}/list",
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except (http_requests.ConnectionError, http_requests.Timeout, http_requests.HTTPError) as e:
+            raise RuntimeError(f"Failed to list fuzzers: {e}")
+
+        result = resp.json()
+        return [
+            FuzzerHandle(fuzzer_id=f["fuzzer_id"], pid=f["pid"])
+            for f in result
+        ]

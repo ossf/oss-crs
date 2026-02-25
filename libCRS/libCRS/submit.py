@@ -109,19 +109,23 @@ class SubmitHelper:
             raise RuntimeError("Directory already registered")
         self.registered_dir = dir_path
 
+        # Resolve symlinks for proper inotify watching - inotify watches
+        # the symlink file itself, not the target directory
+        watch_path = dir_path.resolve() if dir_path.is_symlink() else dir_path
+
         def handle_new_file(file_path: Path) -> None:
             if is_data_file(file_path):
                 self.__enqueue_file(file_path)
                 self.__flush(batch_time, batch_size)
 
         # Process existing files in the directory
-        for file_path in dir_path.iterdir():
+        for file_path in watch_path.iterdir():
             handle_new_file(file_path)
 
-        # Set up the observer
+        # Set up the observer on the resolved path for symlinks
         observer = Observer()
         observer.schedule(
-            NewFileHandler(handle_new_file), str(dir_path), recursive=False
+            NewFileHandler(handle_new_file), str(watch_path), recursive=False
         )
         observer.start()
 

@@ -1,0 +1,28 @@
+# Test CRS using fuzzer sidecar pattern
+# The agent starts fuzzers via libCRS HTTP API to the fuzzer sidecar
+name: fuzzer-sidecar-crs
+type:
+  - bug-finding
+version: 1.0.0
+docker_registry: local
+
+target_build_phase:
+  - name: default-build
+    dockerfile: oss-crs/builder.Dockerfile
+    outputs:
+      - build
+
+crs_run_phase:
+  # Main agent that orchestrates fuzzing via libCRS
+  agent:
+    dockerfile: oss-crs/agent.Dockerfile
+  # Fuzzer sidecar runs the actual fuzzer process
+  fuzzer:
+    run_fuzzer: true
+    dockerfile: oss-crs-infra:default-fuzzer
+
+supported_target:
+  mode: [full]
+  language: [c, c++]
+  sanitizer: [address]
+  architecture: [x86_64]

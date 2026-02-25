@@ -193,6 +193,7 @@ def render_run_crs_compose_docker_compose(
 
     context = {
         "libCRS_path": str(LIBCRS_PATH),
+        "oss_crs_templates_path": str(CUR_DIR),
         "crs_compose_name": crs_compose_name,
         "crs_list": crs_compose.crs_list,
         "crs_compose_env": crs_compose.crs_compose_env.get_env(),

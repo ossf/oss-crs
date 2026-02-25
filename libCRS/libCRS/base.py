@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from .infra_client import InfraClient
+from .fuzzer import FuzzerHandle, FuzzerStatus, FuzzerResult
 
 
 class DataType(str, Enum):
@@ -143,5 +144,74 @@ class CRSUtils(ABC):
 
         Returns:
             Test exit code (0 = tests pass, 0 with skipped=true if no test.sh).
+        """
+        pass
+
+    # =========================================================================
+    # Fuzzer sidecar operations
+    # =========================================================================
+
+    @abstractmethod
+    def start_fuzzer(
+        self,
+        harness_name: str,
+        corpus_dir: Path,
+        crashes_dir: Path,
+        fuzzer: str,
+        engine: str = "libfuzzer",
+        timeout: int = 0,
+        extra_args: list[str] | None = None,
+    ) -> FuzzerHandle:
+        """Start a fuzzer in the fuzzer sidecar container.
+
+        Args:
+            harness_name: Name of the harness binary in /out/.
+            corpus_dir: Directory for corpus files (shared filesystem path).
+            crashes_dir: Directory for crash files (shared filesystem path).
+            fuzzer: Fuzzer sidecar module name (resolved to URL internally).
+            engine: Fuzzing engine name (default: "libfuzzer").
+            timeout: Maximum fuzzing time in seconds (0 = unlimited).
+            extra_args: Additional engine-specific arguments.
+
+        Returns:
+            FuzzerHandle with fuzzer_id and pid.
+        """
+        pass
+
+    @abstractmethod
+    def fuzzer_status(self, fuzzer_id: str, fuzzer: str) -> FuzzerStatus:
+        """Get status of a running fuzzer.
+
+        Args:
+            fuzzer_id: ID returned from start_fuzzer.
+            fuzzer: Fuzzer sidecar module name.
+
+        Returns:
+            FuzzerStatus with state, runtime, stats.
+        """
+        pass
+
+    @abstractmethod
+    def stop_fuzzer(self, fuzzer_id: str, fuzzer: str) -> FuzzerResult:
+        """Stop a running fuzzer and return final result.
+
+        Args:
+            fuzzer_id: ID returned from start_fuzzer.
+            fuzzer: Fuzzer sidecar module name.
+
+        Returns:
+            FuzzerResult with exit_code, runtime, final stats.
+        """
+        pass
+
+    @abstractmethod
+    def list_fuzzers(self, fuzzer: str) -> list[FuzzerHandle]:
+        """List all fuzzer instances in the sidecar.
+
+        Args:
+            fuzzer: Fuzzer sidecar module name.
+
+        Returns:
+            List of FuzzerHandle for all fuzzer instances.
         """
         pass
