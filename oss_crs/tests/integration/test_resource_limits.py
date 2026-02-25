@@ -234,7 +234,17 @@ def test_containers_within_crs_share_memory_limit(
     # Exit code 1 is expected (docker exits 137 when container OOMs)
     assert run_result.returncode in (0, 1), f"run failed unexpectedly: {run_result.stderr}"
 
-    uses_cgroup_parent = "Created cgroups at:" in run_result.stdout
+    # Verify cgroup-parent mode was used.
+    # The message "Created cgroups at:" indicates cgroups were set up successfully.
+    # Note: The full path may be truncated in Rich console output.
+    assert "Created cgroups at:" in run_result.stdout, (
+        "Expected 'Created cgroups at:' message in output. "
+        "cgroup-parent mode may not be available on this system."
+    )
+    # Verify the cgroup path contains oss-crs (may span multiple lines due to wrapping)
+    assert "oss-crs" in run_result.stdout, (
+        "Expected 'oss-crs' in cgroup path output"
+    )
 
     # Parse memory logs from containers
     memory_logs = sorted(work_dir.rglob("*_memory_test.txt"))
@@ -252,37 +262,49 @@ def test_containers_within_crs_share_memory_limit(
             f"Container {r['container']} should see 192M limit, got: {r['env_memory_limit']}"
         )
 
-    # Check for evidence of memory pressure
-    containers_with_oom = [r for r in container_results if r["hit_oom"]]
-    docker_oom_killed = "exit code 137" in run_result.stdout or "exit code 137" in run_result.stderr
+    # Verify shared memory limit is enforced via cgroup-parent.
+    #
+    # With 3 containers sharing 192MB limit (each trying to allocate 40MB chunks):
+    # - The OOM killer kicks in when total committed memory exceeds ~192MB
+    # - Containers log allocations before being killed, so logged total > actual limit
+    # - But total should still be bounded: ~4-5 chunks fit in 192MB, and with 3
+    #   containers racing, we might see ~10-15 chunks logged before OOM kills them
+    #
+    # We verify:
+    # 1. Exit code 1 (docker returns 1 when a container exits with OOM/137)
+    # 2. Total allocations bounded by a reasonable multiple of the memory limit
 
-    # With 3 containers each trying to allocate up to 1200MB, they should hit limits
-    # Either: explicit OOM in logs, or Docker killed container (exit 137)
-    if uses_cgroup_parent:
-        # With cgroup-parent, the limit is on the parent cgroup
-        # Containers may be killed before writing FINAL line
-        # Just verify we saw memory allocation attempts
-        allocated_chunks = sum(
-            1 for r in container_results
-            for line in (r.get("raw_text") or "").splitlines()
-            if "ALLOCATED chunk" in line
-        )
-        # Re-parse to count allocations from raw log text
-        total_chunks = 0
-        for log_path in memory_logs:
-            text = log_path.read_text()
-            total_chunks += text.count("ALLOCATED chunk")
+    chunk_size_mb = 40
+    crs_memory_limit_mb = 192
 
-        # Should see some allocation activity
-        assert total_chunks > 0 or containers_with_oom or docker_oom_killed, (
-            f"Expected memory allocation activity or OOM. "
-            f"Results: {[(r['container'], r['final_allocated_mb'], r['hit_oom']) for r in container_results]}"
-        )
-    else:
-        # Without cgroup-parent, each container has per-container limits
-        # Verify allocation happened
-        total_allocated = sum(r["final_allocated_mb"] or 0 for r in container_results)
-        assert total_allocated > 0 or containers_with_oom, "Expected some memory allocation or OOM"
+    # With cgroup-parent mode, containers share memory and should be OOM-killed
+    assert run_result.returncode == 1, (
+        f"Expected exit code 1 (container OOM), got {run_result.returncode}. "
+        "This suggests the shared memory limit may not be enforced."
+    )
+
+    # Count total chunks allocated across all containers
+    total_chunks = sum(
+        log_path.read_text().count("ALLOCATED chunk")
+        for log_path in memory_logs
+    )
+    total_allocated_mb = total_chunks * chunk_size_mb
+
+    # With shared 192MB limit, total logged allocations should be bounded.
+    # Allow up to 3x the limit to account for:
+    # - Containers allocating in parallel before OOM kicks in
+    # - Memory allocation vs commit timing
+    # But NOT unlimited (which would be 90 chunks = 3600MB with no limits)
+    max_reasonable_mb = crs_memory_limit_mb * 3  # 576MB
+
+    assert total_allocated_mb <= max_reasonable_mb, (
+        f"Total logged allocation ({total_allocated_mb}MB = {total_chunks} chunks) "
+        f"exceeds 3x the CRS limit ({crs_memory_limit_mb}MB). "
+        f"Expected OOM to bound allocations."
+    )
+
+    # Verify at least some allocation happened (containers actually ran)
+    assert total_chunks > 0, "Expected at least one memory chunk to be allocated"
 
 
 def _parse_memory_log(log_path) -> dict:

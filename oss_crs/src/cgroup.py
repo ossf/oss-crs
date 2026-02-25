@@ -556,6 +556,9 @@ def create_crs_cgroup(
     # Set memory limit
     (crs_path / "memory.max").write_text(str(memory_bytes))
 
+    # Disable swap to enforce hard memory limit (prevents OOM being deferred to swap)
+    (crs_path / "memory.swap.max").write_text("0")
+
     # Enable controllers for Docker container sub-cgroups
     (crs_path / "cgroup.subtree_control").write_text("+cpuset +memory")
 
