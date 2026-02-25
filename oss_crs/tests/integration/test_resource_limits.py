@@ -172,6 +172,109 @@ def test_run_enforces_memory_limits_in_active_mode(
         assert all(value == expected_memory for value in numeric)
 
 
+@pytest.mark.skipif(not docker_available(), reason="Docker not available")
+def test_containers_within_crs_share_memory_limit(
+    cli_runner,
+    mock_project_path,
+    mock_repo_path,
+    dummy_compose_file,
+    work_dir,
+):
+    """Multiple containers within a CRS should share the memory limit.
+
+    The dummy-crs has 3 containers (fuzzer, analyzer, monitor) each trying
+    to allocate 40MB chunks. With a 192M CRS limit and cgroup-parent mode:
+    - If limits were per-container: each could allocate ~4 chunks (160MB) = 480MB total
+    - If limits are shared: total across all containers should be ~192MB
+
+    This test verifies the shared limit by checking that:
+    1. At least one container hit OOM (couldn't allocate all 30 chunks)
+    2. The combined allocation is bounded by the CRS limit
+    """
+    build_id = "shared-mem-build"
+    run_id = "shared-mem-run"
+    crs_memory_limit_mb = 192
+
+    build_result = cli_runner(
+        "build-target",
+        "--compose-file",
+        str(dummy_compose_file),
+        "--work-dir",
+        str(work_dir),
+        "--target-proj-path",
+        str(mock_project_path),
+        "--target-repo-path",
+        str(mock_repo_path),
+        "--build-id",
+        build_id,
+        timeout=300,
+    )
+    assert build_result.returncode == 0, f"build-target failed: {build_result.stderr}"
+
+    # Longer timeout to let containers compete for memory
+    run_result = cli_runner(
+        "run",
+        "--compose-file",
+        str(dummy_compose_file),
+        "--work-dir",
+        str(work_dir),
+        "--target-proj-path",
+        str(mock_project_path),
+        "--target-repo-path",
+        str(mock_repo_path),
+        "--target-harness",
+        "fuzz_parse_buffer",
+        "--build-id",
+        build_id,
+        "--run-id",
+        run_id,
+        "--timeout",
+        "60",
+        timeout=180,
+    )
+    assert run_result.returncode in (0, 1), f"run failed unexpectedly: {run_result.stderr}"
+
+    uses_cgroup_parent = "Created cgroups at:" in run_result.stdout
+
+    # Parse all memory logs from containers in this CRS
+    memory_logs = sorted(work_dir.rglob("*_memory_test.txt"))
+    assert len(memory_logs) >= 2, f"Expected logs from multiple containers, got {len(memory_logs)}"
+
+    container_results = []
+    for log_path in memory_logs:
+        parsed = _parse_memory_log(log_path)
+        parsed["container"] = log_path.stem.replace("_memory_test", "")
+        container_results.append(parsed)
+
+    # Calculate totals
+    total_allocated_mb = sum(r["final_allocated_mb"] or 0 for r in container_results)
+    containers_with_oom = [r for r in container_results if r["hit_oom"]]
+    containers_without_oom = [r for r in container_results if not r["hit_oom"]]
+
+    if uses_cgroup_parent:
+        # With cgroup-parent, containers share the CRS memory limit
+        # At least one container should have hit OOM since 3 containers
+        # each trying to allocate up to 1200MB (30 * 40MB) exceeds 192MB
+        assert containers_with_oom, (
+            f"With shared 192M limit, at least one container should OOM. "
+            f"Results: {[(r['container'], r['final_allocated_mb'], r['hit_oom']) for r in container_results]}"
+        )
+
+        # Total allocation should be roughly bounded by CRS limit
+        # Allow some overhead for container runtime (~50MB buffer)
+        max_expected_total = crs_memory_limit_mb + 50
+        assert total_allocated_mb <= max_expected_total, (
+            f"Total allocation ({total_allocated_mb}MB) exceeds CRS limit ({crs_memory_limit_mb}MB) + buffer. "
+            f"This suggests containers are NOT sharing the limit. "
+            f"Results: {[(r['container'], r['final_allocated_mb']) for r in container_results]}"
+        )
+    else:
+        # Without cgroup-parent, each container has its own limit
+        # Containers might still OOM based on per-container limits
+        # Just verify we got logs and some allocation happened
+        assert total_allocated_mb > 0, "Expected some memory allocation"
+
+
 @pytest.fixture
 def no_resource_compose_file(tmp_dir):
     """Create a compose file WITHOUT resource limits specified."""
