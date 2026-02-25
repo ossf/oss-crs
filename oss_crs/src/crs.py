@@ -180,8 +180,12 @@ class CRS:
                 ]
             )
 
-        # Set up environment with VERSION
+        # Set up environment for bake:
+        # - forward CRS entry additional_env for prepare-phase overrides
+        # - keep VERSION pinned to the CRS config value
         env = os.environ.copy()
+        if self.resource:
+            env.update(self.resource.additional_env)
         env["VERSION"] = version
 
         # Display command info
