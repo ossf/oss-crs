@@ -498,17 +498,14 @@ def generate_worker_cgroup_name(run_id: str, phase: str) -> str:
     return f"{run_id}-{phase}-{timestamp}-{random_suffix}"
 
 
-def create_worker_cgroup(
-    worker_name: str,
-    total_cpuset: str,
-    total_memory_bytes: int,
-) -> Path:
-    """Create a worker cgroup with total resources.
+def create_worker_cgroup(worker_name: str) -> Path:
+    """Create a worker cgroup for organizing per-CRS cgroups.
+
+    The worker cgroup does NOT set resource limits - it only enables
+    controllers for child cgroups. Each CRS cgroup sets its own limits.
 
     Args:
         worker_name: Name for the worker cgroup
-        total_cpuset: Total cpuset for all CRS combined
-        total_memory_bytes: Total memory for all CRS combined
 
     Returns:
         Path to the created worker cgroup
@@ -522,13 +519,7 @@ def create_worker_cgroup(
     # Create worker directory
     worker_path.mkdir(parents=True, exist_ok=True)
 
-    # Set cpuset
-    (worker_path / "cpuset.cpus").write_text(total_cpuset)
-
-    # Set memory limit
-    (worker_path / "memory.max").write_text(str(total_memory_bytes))
-
-    # Enable controllers for sub-cgroups
+    # Enable controllers for sub-cgroups (no resource limits at this level)
     (worker_path / "cgroup.subtree_control").write_text("+cpuset +memory")
 
     return worker_path
@@ -594,20 +585,9 @@ def create_run_cgroups(
     Raises:
         OSError: If cgroup creation fails
     """
-    # Compute total resources
-    all_cpus: set[int] = set()
-    total_memory_bytes = 0
-
-    for crs in crs_list:
-        cpus = parse_cpuset(crs.resource.cpuset)
-        all_cpus.update(cpus)
-        total_memory_bytes += parse_memory_to_bytes(crs.resource.memory)
-
-    total_cpuset = format_cpuset(all_cpus)
-
-    # Create worker cgroup
+    # Create worker cgroup (no resource limits, just enables controllers)
     worker_name = generate_worker_cgroup_name(run_id, phase)
-    worker_path = create_worker_cgroup(worker_name, total_cpuset, total_memory_bytes)
+    worker_path = create_worker_cgroup(worker_name)
 
     # Create per-CRS cgroups and collect docker cgroup_parent strings
     cgroup_parents: dict[str, str] = {}
