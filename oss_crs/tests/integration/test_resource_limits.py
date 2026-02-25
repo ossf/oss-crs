@@ -262,6 +262,16 @@ def test_containers_within_crs_share_memory_limit(
             f"Container {r['container']} should see 192M limit, got: {r['env_memory_limit']}"
         )
 
+    # Verify containers saw the correct cpuset (fixture sets cpuset: "0-1" = 2 CPUs)
+    for r in container_results:
+        assert r["env_cpuset"] == "0-1", (
+            f"Container {r['container']} should see cpuset '0-1', got: {r['env_cpuset']}"
+        )
+        # nproc should report 2 CPUs for cpuset "0-1"
+        assert r["nproc"] == 2, (
+            f"Container {r['container']} should see 2 CPUs (nproc), got: {r['nproc']}"
+        )
+
     # Verify shared memory limit is enforced via cgroup-parent.
     #
     # With 3 containers sharing 192MB limit (each trying to allocate 40MB chunks):
@@ -314,6 +324,9 @@ def _parse_memory_log(log_path) -> dict:
         - cgroup_path: str
         - memory_max: int (bytes) or "max" for unlimited
         - env_memory_limit: str (e.g., "128M")
+        - nproc: int (number of CPUs visible to container)
+        - cpuset_effective: str (effective cpuset from cgroup)
+        - env_cpuset: str (cpuset from environment variable)
         - final_allocated_mb: int (MB allocated before OOM or completion)
         - hit_oom: bool
     """
@@ -322,6 +335,9 @@ def _parse_memory_log(log_path) -> dict:
         "cgroup_path": None,
         "memory_max": None,
         "env_memory_limit": None,
+        "nproc": None,
+        "cpuset_effective": None,
+        "env_cpuset": None,
         "final_allocated_mb": None,
         "hit_oom": False,
     }
@@ -337,6 +353,14 @@ def _parse_memory_log(log_path) -> dict:
                 result["memory_max"] = int(val)
         elif "env_memory_limit:" in line:
             result["env_memory_limit"] = line.split("env_memory_limit:", 1)[1].strip().strip('"')
+        elif "nproc:" in line:
+            val = line.split("nproc:", 1)[1].strip()
+            if val.isdigit():
+                result["nproc"] = int(val)
+        elif "cpuset.cpus.effective:" in line:
+            result["cpuset_effective"] = line.split("cpuset.cpus.effective:", 1)[1].strip()
+        elif "env_cpuset:" in line:
+            result["env_cpuset"] = line.split("env_cpuset:", 1)[1].strip().strip('"')
         elif "FINAL: allocated" in line:
             # Parse "FINAL: allocated X chunks = YMB before OOM" or "... (no OOM)"
             result["hit_oom"] = "before OOM" in line
