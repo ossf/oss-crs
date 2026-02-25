@@ -3,14 +3,13 @@ import subprocess
 import re
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .llm import LLM
 from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target
 from .templates import renderer
-from .utils import TmpDockerCompose, normalize_run_id, generate_run_id, rm_with_docker
+from .utils import TmpDockerCompose, normalize_run_id, generate_run_id, rm_with_docker, log_success, log_warning, log_dim
 from .workdir import WorkDir
 from .cgroup import (
     check_cgroup_parent_available,
@@ -325,10 +324,10 @@ class CRSCompose:
                 worker_cgroup_path, cgroup_parents = create_run_cgroups(
                     run_id, "run", self.crs_list
                 )
-                Console().print(f"[green]Created cgroups at:[/green] {worker_cgroup_path}")
+                log_success(f"Created cgroups at: {worker_cgroup_path}")
             except OSError as e:
-                Console().print(f"[yellow]Warning:[/yellow] Failed to create cgroups: {e}")
-                Console().print("[yellow]Falling back to per-container resource limits.[/yellow]")
+                log_warning(f"Failed to create cgroups: {e}")
+                log_warning("Falling back to per-container resource limits.")
                 cgroup_parents = None
 
         with MultiTaskProgress(
@@ -369,7 +368,7 @@ class CRSCompose:
                 if worker_cgroup_path is not None:
                     success, msg = cleanup_cgroup(worker_cgroup_path)
                     if not success:
-                        Console().print(f"[dim]Note: Cgroup cleanup deferred: {msg}[/dim]")
+                        log_dim(f"Note: Cgroup cleanup deferred: {msg}")
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)

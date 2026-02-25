@@ -7,10 +7,10 @@ the host system for cgroup-parent based resource management.
 import subprocess
 from dataclasses import dataclass
 from typing import Callable, Optional
-from rich.console import Console
 from rich.panel import Panel
 import questionary
 
+from ..utils import get_console, configure_logging
 from ..cgroup import (
     check_docker_cgroup_driver,
     check_cgroup_delegation,
@@ -170,7 +170,8 @@ class SetupRunner:
     """Runs the interactive setup process for cgroup-parent mode."""
 
     def __init__(self, yes: bool = False):
-        self.console = Console(quiet=yes)
+        configure_logging(quiet=yes)
+        self.console = get_console()
         self.yes = yes
         self.step_num = 0
         self.results: dict[str, CheckResult] = {}

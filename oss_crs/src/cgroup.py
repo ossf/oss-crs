@@ -565,6 +565,9 @@ def create_crs_cgroup(
     # Set memory limit
     (crs_path / "memory.max").write_text(str(memory_bytes))
 
+    # Enable controllers for Docker container sub-cgroups
+    (crs_path / "cgroup.subtree_control").write_text("+cpuset +memory")
+
     return crs_path
 
 

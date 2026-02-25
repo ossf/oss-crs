@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from rich.console import Console, Group
+
+from .utils import log_error
 from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
@@ -600,14 +602,14 @@ class MultiTaskProgress:
             if task_name:
                 self.set_error_info(task_name, error_msg)
             else:
-                Console().print(f"[bold red]Error:[/bold red] {error_msg}")
+                log_error(error_msg)
             return TaskResult(success=False, error=error_msg)
         except Exception as e:
             error_msg = str(e)
             if task_name:
                 self.set_error_info(task_name, error_msg)
             else:
-                Console().print(f"[bold red]Error:[/bold red] {error_msg}")
+                log_error(error_msg)
             return TaskResult(success=False, error=error_msg)
 
     def add_items_to_head(self, items) -> None:

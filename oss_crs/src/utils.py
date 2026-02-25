@@ -8,8 +8,66 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from rich.console import Console
+
 
 RAND_CHARS = string.ascii_lowercase + string.digits
+
+# Global console instance for unified logging
+_console: Console | None = None
+_quiet: bool = False
+
+
+def configure_logging(quiet: bool = False) -> None:
+    """Configure global logging settings.
+
+    Args:
+        quiet: If True, suppress non-essential output.
+    """
+    global _quiet, _console
+    _quiet = quiet
+    # Reset console so it picks up new quiet setting
+    _console = None
+
+
+def get_console() -> Console:
+    """Get the shared Console instance for unified logging.
+
+    Returns:
+        The global Console instance, configured with current quiet setting.
+    """
+    global _console
+    if _console is None:
+        _console = Console(quiet=_quiet)
+    return _console
+
+
+def log_info(message: str) -> None:
+    """Log an informational message."""
+    if not _quiet:
+        get_console().print(message)
+
+
+def log_success(message: str) -> None:
+    """Log a success message in green."""
+    if not _quiet:
+        get_console().print(f"[green]{message}[/green]")
+
+
+def log_warning(message: str) -> None:
+    """Log a warning message in yellow."""
+    get_console().print(f"[yellow]Warning:[/yellow] {message}")
+
+
+def log_error(message: str) -> None:
+    """Log an error message in red."""
+    get_console().print(f"[bold red]Error:[/bold red] {message}")
+
+
+def log_dim(message: str) -> None:
+    """Log a dimmed/subtle message."""
+    if not _quiet:
+        get_console().print(f"[dim]{message}[/dim]")
 
 
 def generate_random_name(length: int = 10) -> str:
