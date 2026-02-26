@@ -107,7 +107,8 @@ supported_target:
   architecture:
     - x86_64
 
-# Only needed if your CRS uses LLMs
+# Only needed if your CRS uses LLMs.
+# This is a minimum dependency list (validation baseline), not an allowlist.
 required_llms:
   - gpt-4.1
   - claude-sonnet-4-20250514
@@ -125,7 +126,7 @@ required_llms:
 | `target_build_phase` | List of build steps, each with a Dockerfile and expected outputs |
 | `crs_run_phase` | Dictionary of named modules (containers) that run at runtime |
 | `supported_target` | Languages, sanitizers, architectures, and modes your CRS supports |
-| `required_llms` | *(Optional)* LLM model names your CRS needs |
+| `required_llms` | *(Optional)* Minimum required LLM model names your CRS needs (validation baseline) |
 
 For the complete schema reference, see [config/crs.md](config/crs.md).
 
@@ -370,7 +371,11 @@ my-crs:
 
 # Uncomment if using LLMs
 # llm_config:
-#   litellm_config: /path/to/litellm-config.yaml
+#   litellm:
+#     mode: internal
+#     internal:
+#       config_path: /path/to/litellm-config.yaml
+#   litellm_config: /path/to/litellm-config.yaml  # Backward-compatible legacy key; will be deprecated after gen-compose is fully implemented.
 ```
 
 ### Run the Three Phases

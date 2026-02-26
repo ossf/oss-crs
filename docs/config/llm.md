@@ -2,6 +2,9 @@
 
 OSS-CRS uses [LiteLLM](https://github.com/BerriAI/litellm) for LLM integration. The configuration format follows the [LiteLLM Proxy Configuration](https://docs.litellm.ai/docs/proxy/configs) specification.
 
+This document describes the **LiteLLM config file format** used in `llm_config.litellm.mode=internal`.
+For compose-level mode selection (`internal`, `external`, `null`), see [crs-compose.md](crs-compose.md).
+
 For complete documentation, refer to:
 - [LiteLLM Proxy Configuration](https://docs.litellm.ai/docs/proxy/configs)
 - [LiteLLM Supported Providers](https://docs.litellm.ai/docs/providers)

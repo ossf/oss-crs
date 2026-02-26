@@ -93,3 +93,10 @@ class TestNormalizeRunId:
 
         with pytest.raises(ValueError, match="at least one alphanumeric"):
             normalize_run_id("@#$%^&*()")
+
+    def test_path_separator_is_normalized(self):
+        """Path separators should be normalized like other delimiters."""
+        result = normalize_run_id("../escape")
+        assert result.startswith("escape-")
+        result2 = normalize_run_id(r"test\\run")
+        assert result2.startswith("test-run-")

@@ -101,10 +101,12 @@ class TmpDockerCompose:
         progress,
         project_name_prefix: str = "proj",
         run_id: str | None = None,
+        auto_cleanup: bool = True,
     ):
         self.progress = progress
         self._project_name_prefix = project_name_prefix
         self._requested_run_id = run_id
+        self._auto_cleanup = auto_cleanup
         self.dir: Optional[Path] = None
         self.docker_compose: Optional[Path] = None
         self.project_name: Optional[str] = None
@@ -113,7 +115,11 @@ class TmpDockerCompose:
     def __enter__(self) -> "TmpDockerCompose":
         # Create a temporary docker-compose YAML file
         # Note: run_id should already be normalized by the caller (CLI)
-        run_id = self._requested_run_id if self._requested_run_id else generate_random_name(10)
+        run_id = (
+            self._requested_run_id
+            if self._requested_run_id
+            else generate_random_name(10)
+        )
         tmp_name = generate_random_name(10)
         self.dir = Path(f"/tmp/{tmp_name}")
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -121,12 +127,13 @@ class TmpDockerCompose:
         self.project_name = f"{self._project_name_prefix}_{run_id}"
         self.run_id = run_id
         self.docker_compose.touch()
-        self.progress.add_cleanup_task(
-            "Cleanup Docker Compose",
-            lambda progress: progress.docker_compose_down(
-                self.project_name, self.docker_compose
-            ),
-        )
+        if self._auto_cleanup:
+            self.progress.add_cleanup_task(
+                "Cleanup Docker Compose",
+                lambda progress: progress.docker_compose_down(
+                    self.project_name, self.docker_compose
+                ),
+            )
         return self
 
     def __exit__(self, _exc_type, _exc_value, _traceback) -> None:

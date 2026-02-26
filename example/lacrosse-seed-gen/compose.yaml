@@ -20,4 +20,7 @@ lacrosse-seed-gen:
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
-  litellm_config: ./example/lacrosse-seed-gen/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/lacrosse-seed-gen/litellm-config.yaml

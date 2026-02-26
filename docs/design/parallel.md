@@ -73,6 +73,7 @@ Run artifacts are stored at:
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/patches/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SHARED_DIR/{harness}/
 {work_dir}/{sanitizer}/runs/{run-id}/EXCHANGE_DIR/{target}/{harness}/      # shared across all CRSs
+{work_dir}/{sanitizer}/runs/{run-id}/logs/{target}/{harness}/              # compose/service logs
 ```
 
 ## Artifacts Command
@@ -117,6 +118,12 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
     "bug_candidate": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/bug-candidates",
     "patch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/patches",
     "diff": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/diffs"
+  },
+  "run_logs": {
+    "base": "/path/to/address/runs/1739819274ab/logs/target/xml",
+    "compose_stdout_log": "/path/to/address/runs/1739819274ab/logs/target/xml/docker-compose.stdout.log",
+    "compose_stderr_log": "/path/to/address/runs/1739819274ab/logs/target/xml/docker-compose.stderr.log",
+    "service_logs": "/path/to/address/runs/1739819274ab/logs/target/xml/services"
   },
   "crs": {
     "crs-libfuzzer": {

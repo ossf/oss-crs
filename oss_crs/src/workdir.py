@@ -21,6 +21,7 @@ logic for the CRS Compose work directory structure:
 from pathlib import Path
 
 from .target import Target
+from .utils import normalize_run_id
 
 
 class WorkDir:
@@ -60,6 +61,56 @@ class WorkDir:
         """Get directory for a specific run."""
         return self.get_runs_dir(sanitizer) / run_id
 
+    @staticmethod
+    def _resolve_existing_id(raw_id: str, ids_dir: Path) -> str | None:
+        """Resolve a user-provided id to an existing directory name.
+
+        Prefer exact match first, then try normalized form for backward
+        compatibility.
+        """
+        if not raw_id:
+            return None
+        if (ids_dir / raw_id).is_dir():
+            return raw_id
+        try:
+            normalized = normalize_run_id(raw_id)
+        except ValueError:
+            return None
+        if (ids_dir / normalized).is_dir():
+            return normalized
+        return None
+
+    def resolve_run_id(self, raw_id: str, sanitizer: str) -> str | None:
+        """Resolve a user-provided run-id to an existing directory name."""
+        return self._resolve_existing_id(raw_id, self.get_runs_dir(sanitizer))
+
+    def resolve_build_id(self, raw_id: str, sanitizer: str) -> str | None:
+        """Resolve a user-provided build-id to an existing directory name."""
+        return self._resolve_existing_id(raw_id, self.get_builds_dir(sanitizer))
+
+    def get_run_logs_dir(
+        self,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+        create: bool = True,
+    ) -> Path:
+        """Get run-scoped logs directory (outside EXCHANGE_DIR/SUBMIT_DIR mounts).
+
+        Structure: <sanitizer>/runs/<run_id>/logs/<target_key>/<harness>/
+        """
+        assert target.target_harness, "target_harness must be set for run logs dir"
+        target_key = self._get_target_key(target)
+        path = (
+            self.get_run_dir(run_id, sanitizer)
+            / "logs"
+            / target_key
+            / target.target_harness
+        )
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
     # -------------------------------------------------------------------------
     # CRS-specific directory helpers
     # -------------------------------------------------------------------------
@@ -72,12 +123,7 @@ class WorkDir:
         Structure: <sanitizer>/builds/<build_id>/crs/<crs_name>/<target_key>/
         """
         target_key = self._get_target_key(target)
-        return (
-            self.get_build_dir(build_id, sanitizer)
-            / "crs"
-            / crs_name
-            / target_key
-        )
+        return self.get_build_dir(build_id, sanitizer) / "crs" / crs_name / target_key
 
     def get_build_output_dir(
         self,
@@ -91,7 +137,10 @@ class WorkDir:
 
         Structure: <sanitizer>/builds/<build_id>/crs/<crs_name>/<target_key>/BUILD_OUT_DIR/
         """
-        path = self.get_crs_build_dir(crs_name, target, build_id, sanitizer) / "BUILD_OUT_DIR"
+        path = (
+            self.get_crs_build_dir(crs_name, target, build_id, sanitizer)
+            / "BUILD_OUT_DIR"
+        )
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
@@ -104,12 +153,7 @@ class WorkDir:
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/
         """
         target_key = self._get_target_key(target)
-        return (
-            self.get_run_dir(run_id, sanitizer)
-            / "crs"
-            / crs_name
-            / target_key
-        )
+        return self.get_run_dir(run_id, sanitizer) / "crs" / crs_name / target_key
 
     def get_submit_dir(
         self,
@@ -219,7 +263,9 @@ class WorkDir:
             return build_id_file.read_text().strip()
         return None
 
-    def write_build_id_for_run(self, run_id: str, sanitizer: str, build_id: str) -> None:
+    def write_build_id_for_run(
+        self, run_id: str, sanitizer: str, build_id: str
+    ) -> None:
         """Write the build-id for a run."""
         run_dir = self.get_run_dir(run_id, sanitizer)
         run_dir.mkdir(parents=True, exist_ok=True)

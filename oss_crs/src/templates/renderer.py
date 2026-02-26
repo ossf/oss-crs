@@ -7,6 +7,7 @@ import secrets
 import yaml
 
 from ..config.crs import OSS_CRS_INFRA_PREFIX
+from ..llm import DEFAULT_LITELLM_CONFIG_PATH
 
 RAND_CHARS = string.ascii_lowercase + string.digits
 
@@ -114,8 +115,29 @@ def render_build_target_docker_compose(
 def prepare_llm_context(
     tmp_docker_compose: "TmpDockerCompose", crs_compose: "CRSCompose"
 ) -> Optional[dict]:
-    if crs_compose.llm.exists():
-        # Prepare LiteLLM environment variables
+    if not crs_compose.llm.exists():
+        return None
+
+    if crs_compose.llm.mode == "external":
+        url = crs_compose.llm.get_crs_api_url()
+        key = crs_compose.llm.get_crs_api_key()
+        if not url:
+            raise RuntimeError("External LiteLLM URL is required.")
+        if not key:
+            raise RuntimeError("External LiteLLM API key is required.")
+        keys = {}
+        for crs in crs_compose.crs_list:
+            if crs.config.is_builder:
+                continue
+            keys[crs.name] = key
+        return {
+            "mode": "external",
+            "llm_api_url": url,
+            "api_keys": keys,
+        }
+
+    if crs_compose.llm.mode == "internal":
+        # Prepare LiteLLM environment variables for internal sidecar mode
         litellm_env = {}
         for name in crs_compose.llm.extract_envs():
             tmp = os.environ.get(name)
@@ -143,14 +165,20 @@ def prepare_llm_context(
         )
 
         return {
+            "mode": "internal",
+            "llm_api_url": "http://litellm.oss-crs:4000",
             "litellm_master_key": "sk-" + _generate_random_key(16),
             "postgres_password": _generate_random_key(16),
-            "litellm_config_path": crs_compose.config.llm_config.litellm_config,
+            "litellm_config_path": crs_compose.llm.llm_config.litellm.internal.config_path
+            if crs_compose.llm.llm_config.litellm.internal
+            and crs_compose.llm.llm_config.litellm.internal.config_path
+            else str(DEFAULT_LITELLM_CONFIG_PATH),
             "api_keys": keys,
             "litellm_env": litellm_env,
             "key_gen_request_path": str(key_gen_request_path),
         }
-    return None
+
+    raise RuntimeError(f"Unsupported LLM mode: {crs_compose.llm.mode}")
 
 
 def render_run_crs_compose_docker_compose(

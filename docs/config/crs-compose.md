@@ -9,7 +9,7 @@ The configuration file is written in YAML format and consists of the following s
 1. `run_env` - The runtime environment
 2. `docker_registry` - Docker registry URL
 3. `oss_crs_infra` - Infrastructure resource configuration
-4. `llm_config` - LLM configuration (required if CRS uses LLMs, see [llm.md](llm.md))
+4. `llm_config` - LLM configuration (optional; if omitted/null, OSS-CRS does not manage LiteLLM)
 5. CRS entries - One or more named CRS configurations
 
 ## Schema Overview
@@ -21,8 +21,17 @@ oss_crs_infra:
   cpuset: <cpu-set>
   memory: <memory-limit>
   llm_budget: <optional-integer>
-llm_config:                    # required if CRS uses LLMs
-  litellm_config: <path-to-litellm-config>
+llm_config:                    # optional
+  litellm:
+    mode: <internal|external>
+    model_check: <true|false>  # optional, default: true
+    internal:
+      config_path: <path-to-litellm-config>   # optional; default config used if omitted
+    external:
+      url: <external-litellm-url>             # oneof(url, url_env)
+      url_env: <host-env-var-name>
+      key: <external-litellm-api-key>         # oneof(key, key_env)
+      key_env: <host-env-var-name>
 <crs-name>:
   cpuset: <cpu-set>
   memory: <memory-limit>
@@ -36,6 +45,59 @@ llm_config:                    # required if CRS uses LLMs
 ```
 
 ## Configuration Fields
+
+### `llm_config` (optional)
+
+Controls LiteLLM integration mode.
+
+- `null` / omitted:
+  - No OSS-CRS-managed LiteLLM validation or sidecars.
+- `litellm.mode=internal`:
+  - Internal LiteLLM mode (OSS-CRS starts LiteLLM/postgres/key-gen services).
+  - `internal.config_path` is optional; if omitted, OSS-CRS uses the default bundled LiteLLM config.
+  - In this mode, OSS-CRS always generates per-CRS LiteLLM keys. `required_llms` only controls model-availability validation.
+- `litellm.mode=external`:
+  - External LiteLLM mode (OSS-CRS injects external URL/key into CRS containers, no internal LiteLLM sidecars).
+  - Must set exactly one of `url` or `url_env`.
+  - Must set exactly one of `key` or `key_env`.
+- `model_check`:
+  - When `true` (default), validates `/models` reachability and `required_llms` availability.
+  - When `false`, skips `/models` model availability check.
+
+**Examples:**
+
+```yaml
+# disabled
+llm_config: null
+```
+
+```yaml
+# internal (default config path)
+llm_config:
+  litellm:
+    mode: internal
+```
+
+```yaml
+# internal (explicit config path)
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: /home/crs-compose/litellm-config.yaml
+```
+
+```yaml
+# external (env-based endpoint/key)
+llm_config:
+  litellm:
+    mode: external
+    external:
+      url_env: LITELLM_URL
+      key_env: LITELLM_API_KEY
+```
+
+---
 
 ### `run_env` (required)
 
@@ -185,7 +247,10 @@ oss_crs_infra:
   memory: "4G"
 
 llm_config:
-  litellm_config: /home/crs-compose/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: /home/crs-compose/litellm-config.yaml
 
 # Registered CRS — source resolved from registry/crs-libfuzzer.yaml
 crs-libfuzzer:
@@ -233,6 +298,7 @@ The configuration is validated using Pydantic with the following rules:
 
 4. **LLM Budget Validation:**
    - If specified, must be a positive integer (> 0)
+   - If omitted, OSS-CRS forwards `max_budget: null` to LiteLLM during key generation (no explicit OSS-CRS budget cap).
 
 5. **CRS Entry Name Validation:**
    - CRS entry names (keys) must be lowercase only

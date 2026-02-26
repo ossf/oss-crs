@@ -73,11 +73,15 @@ services:
       - {{ env_key }}={{ env_value }}
 {%- endfor %}
 {%- if llm_context is defined and not crs.config.is_builder %}
-      - OSS_CRS_LLM_API_URL=http://litellm.oss-crs:4000
+      - OSS_CRS_LLM_API_URL={{ llm_context.llm_api_url }}
+{%- if llm_context.api_keys.get(crs.name) %}
       - OSS_CRS_LLM_API_KEY={{ llm_context.api_keys[crs.name] }}
+{%- endif %}
+{%- if llm_context.mode == "internal" %}
     depends_on:
       oss-crs-litellm-key-gen:
         condition: service_completed_successfully
+{%- endif %}
 {%- endif %}
 {%- if cgroup_parents and crs.name in cgroup_parents %}
     # Using cgroup-parent mode: resources managed by parent cgroup
@@ -116,7 +120,7 @@ services:
   # OSS-CRS-INFRA-SERVICES
   # - oss-crs-litellm
   # - oss-crs-postgres
-{% if llm_context is defined %}
+{% if llm_context is defined and llm_context.mode == "internal" %}
   ###########################################
   # OSS-CRS-LITELLM
   ###########################################

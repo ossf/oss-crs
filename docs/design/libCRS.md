@@ -67,6 +67,36 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 
 libCRS uses the **strategy pattern** via the abstract `CRSUtils` base class. Currently, `LocalCRSUtils` implements all operations for local Docker Compose deployments. An `AzureCRSUtils` implementation is planned to support Azure-based deployments (e.g., using Azure Blob Storage for shared filesystems and Azure Container Instances for CRS execution). New deployment backends can be added by implementing the `CRSUtils` interface without changing the CLI or any CRS code.
 
+### Data Exchange Flow
+
+CRS containers never communicate directly. All inter-CRS data flows through a two-tier filesystem managed by the exchange sidecar:
+
+```
+  CRS-A Container                                              CRS-B Container
+ ┌──────────────────┐                                        ┌──────────────────┐
+ │                  │                                        │                  │
+ │  SubmitHelper    │                                        │  FetchHelper     │
+ │  (watchdog +     │                                        │  (poll every 5s) │
+ │   MD5 dedup +    │                                        │                  │
+ │   batch flush)   │                                        │  InfraClient     │
+ │       │          │                                        │    .fetch_new()  │
+ │       ▼          │                                        │       ▲          │
+ │  SUBMIT_DIR/     │       Exchange Sidecar                 │  FETCH_DIR/      │
+ │  ├─ povs/        │      (oss-crs-infra)                   │  ├─ povs/        │
+ │  ├─ seeds/       │    ┌──────────────────┐                │  ├─ seeds/       │
+ │  ├─ patches/     │───▶│  EXCHANGE_DIR/   │───▶            │  ├─ patches/     │
+ │  └─ bug-         │    │  (shared global) │                │  └─ bug-         │
+ │     candidates/  │    └──────────────────┘                │     candidates/  │
+ │                  │                                        │                  │
+ │  (per-CRS,       │                                        │  (per-CRS,       │
+ │   write-only)    │                                        │   read-only)     │
+ └──────────────────┘                                        └──────────────────┘
+```
+
+- **SUBMIT_DIR** — Per-CRS write area. `SubmitHelper` watches a local directory for new files, deduplicates by MD5 hash, batches them (100 files or 10 seconds), and copies to `SUBMIT_DIR/<type>/` with hash-based filenames.
+- **EXCHANGE_DIR** — Global shared area managed by the exchange sidecar. The sidecar copies files from each CRS's SUBMIT_DIR into EXCHANGE_DIR and distributes them to other CRSs' FETCH_DIRs.
+- **FETCH_DIR** — Per-CRS read-only area. `FetchHelper` polls every 5 seconds via `InfraClient`, deduplicates by filename (hash-based names from submit provide natural content dedup), and copies new files to the local directory.
+
 ### Data Types
 
 All submission and fetching operations work with one of the following data types:

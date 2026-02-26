@@ -1,6 +1,8 @@
 import shutil
 import subprocess
 import re
+import json
+import os
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
@@ -20,11 +22,15 @@ from .cgroup import (
 
 class CRSCompose:
     @classmethod
-    def from_yaml_file(cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False) -> "CRSCompose":
+    def from_yaml_file(
+        cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False
+    ) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
         return cls(config, work_dir, skip_crs_init=skip_crs_init)
 
-    def __init__(self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False):
+    def __init__(
+        self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False
+    ):
         hash = config.md5_hash()
         self.config = config
         self.llm = LLM(self.config.llm_config)
@@ -32,7 +38,11 @@ class CRSCompose:
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
         self.crs_list = [
             CRS.from_crs_compose_entry(
-                name, crs_cfg, self.work_dir, self.crs_compose_env, skip_init=skip_crs_init
+                name,
+                crs_cfg,
+                self.work_dir,
+                self.crs_compose_env,
+                skip_init=skip_crs_init,
             )
             for name, crs_cfg in self.config.crs_entries.items()
         ]
@@ -83,7 +93,7 @@ class CRSCompose:
                 )
                 if build_out_dir.exists():
                     # Extract first 10-digit sequence (unix timestamp) from build_id
-                    match = re.search(r'\d{10}', build_id)
+                    match = re.search(r"\d{10}", build_id)
                     if match:
                         ts = int(match.group())
                         if ts > latest_ts:
@@ -128,7 +138,9 @@ class CRSCompose:
 
         return True
 
-    def build_target(self, target: Target, build_id: str | None = None, sanitizer: str | None = None) -> bool:
+    def build_target(
+        self, target: Target, build_id: str | None = None, sanitizer: str | None = None
+    ) -> bool:
         # Normalize build_id at library boundary; generate timestamp-based ID if not provided
         build_id = normalize_run_id(build_id) if build_id else generate_run_id()
         sanitizer = sanitizer if sanitizer else self._get_sanitizer(target)
@@ -227,7 +239,8 @@ class CRSCompose:
             snapshot_tag = target.get_snapshot_image_name(sanitizer)
             check = subprocess.run(
                 ["docker", "image", "inspect", snapshot_tag],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if check.returncode != 0:
                 need_build = True
@@ -257,9 +270,21 @@ class CRSCompose:
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
 
-        return self.__run(target, run_id=run_id, build_id=build_id, sanitizer=sanitizer, pov_files=pov_files, diff_path=diff, seed_dir=seed_dir, cgroup_parent=cgroup_parent)
+        return self.__run(
+            target,
+            run_id=run_id,
+            build_id=build_id,
+            sanitizer=sanitizer,
+            pov_files=pov_files,
+            diff_path=diff,
+            seed_dir=seed_dir,
+            cgroup_parent=cgroup_parent,
+        )
 
     def __validate_before_run(self, target: Target) -> bool:
+        if not self.llm.exists():
+            return True
+
         tasks = [
             (
                 "Validate required LLMs for CRS targets",
@@ -278,7 +303,9 @@ class CRSCompose:
 
         return True
 
-    def __check_target_built(self, target: Target, build_id: str, sanitizer: str) -> bool:
+    def __check_target_built(
+        self, target: Target, build_id: str, sanitizer: str
+    ) -> bool:
         target_base_image = target.get_docker_image_name()
         tasks = []
         for crs in self.crs_list:
@@ -298,7 +325,17 @@ class CRSCompose:
 
         return True
 
-    def __run(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, seed_dir: Optional[Path] = None, cgroup_parent: bool = False) -> bool:
+    def __run(
+        self,
+        target: Target,
+        run_id: str,
+        build_id: str,
+        sanitizer: str,
+        pov_files: list[Path] | None = None,
+        diff_path: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        cgroup_parent: bool = False,
+    ) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
                 target,
@@ -314,7 +351,17 @@ class CRSCompose:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
             return False
 
-    def __run_local(self, target: Target, run_id: str, build_id: str, sanitizer: str, pov_files: list[Path] | None = None, diff_path: Optional[Path] = None, seed_dir: Optional[Path] = None, cgroup_parent: bool = False) -> bool:
+    def __run_local(
+        self,
+        target: Target,
+        run_id: str,
+        build_id: str,
+        sanitizer: str,
+        pov_files: list[Path] | None = None,
+        diff_path: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        cgroup_parent: bool = False,
+    ) -> bool:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
         cgroup_parents: Optional[dict[str, str]] = None
@@ -336,18 +383,39 @@ class CRSCompose:
             deadline=self.deadline,
         ) as progress:
             with TmpDockerCompose(
-                progress, "crs_compose", run_id=run_id
+                progress, "crs_compose", run_id=run_id, auto_cleanup=False
             ) as tmp_docker_compose:
                 project_name = tmp_docker_compose.project_name
                 actual_run_id = tmp_docker_compose.run_id
+                docker_compose_path = tmp_docker_compose.docker_compose
                 assert project_name is not None
                 assert actual_run_id is not None
+                assert docker_compose_path is not None
+                progress.add_cleanup_task(
+                    "Capture Docker Compose Logs",
+                    lambda p: self.__capture_compose_logs(
+                        project_name=project_name,
+                        docker_compose_path=docker_compose_path,
+                        target=target,
+                        run_id=actual_run_id,
+                        sanitizer=sanitizer,
+                    ),
+                )
+                progress.add_cleanup_task(
+                    "Cleanup Docker Compose",
+                    lambda p: p.docker_compose_down(project_name, docker_compose_path),
+                )
                 tasks = [
                     (
                         "Prepare Running Environment",
                         lambda progress: self.__prepare_local_running_env(
-                            project_name, target, tmp_docker_compose,
-                            actual_run_id, build_id, sanitizer, progress,
+                            project_name,
+                            target,
+                            tmp_docker_compose,
+                            actual_run_id,
+                            build_id,
+                            sanitizer,
+                            progress,
                             pov_files=pov_files or [],
                             diff_path=diff_path,
                             seed_dir=seed_dir,
@@ -377,9 +445,172 @@ class CRSCompose:
 
         return False
 
-    def __show_result_local(self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress) -> None:
+    def __capture_compose_logs(
+        self,
+        *,
+        project_name: str,
+        docker_compose_path: Path,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+    ) -> TaskResult:
+        """Persist docker-compose and per-service logs under run-scoped logs dir.
+
+        This step is best-effort: failures are recorded to files but do not fail
+        the run. Teardown failures are handled separately by compose cleanup.
+        """
+        logs_dir = self.work_dir.get_run_logs_dir(target, run_id, sanitizer)
+        services_dir = logs_dir / "services"
+        crs_logs_root = logs_dir / "crs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        services_dir.mkdir(parents=True, exist_ok=True)
+        crs_logs_root.mkdir(parents=True, exist_ok=True)
+
+        cmd_base = [
+            "docker",
+            "compose",
+            "-p",
+            project_name,
+            "-f",
+            str(docker_compose_path),
+        ]
+
+        try:
+            def _run_capture(cmd: list[str]) -> tuple[str, str, int]:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                return result.stdout or "", result.stderr or "", result.returncode
+
+            def _run_to_files(
+                cmd: list[str], stdout_path: Path, stderr_path: Path
+            ) -> int:
+                with stdout_path.open("w") as stdout_f:
+                    with stderr_path.open("w") as stderr_f:
+                        result = subprocess.run(
+                            cmd, stdout=stdout_f, stderr=stderr_f, text=True
+                        )
+                        return result.returncode
+
+            compose_logs_rc = _run_to_files(
+                [*cmd_base, "logs", "--no-color", "--timestamps"],
+                logs_dir / "docker-compose.stdout.log",
+                logs_dir / "docker-compose.stderr.log",
+            )
+
+            services_stdout, services_stderr, services_rc = _run_capture(
+                [*cmd_base, "config", "--services"]
+            )
+            if services_stderr:
+                (logs_dir / "services-config.stderr.log").write_text(services_stderr)
+
+            service_names = [
+                line.strip() for line in services_stdout.splitlines() if line.strip()
+            ]
+            (logs_dir / "services.json").write_text(
+                json.dumps(service_names, indent=2, sort_keys=True)
+            )
+
+            failed_services: dict[str, int] = {}
+            failed_links: dict[str, str] = {}
+            for service in service_names:
+                safe_name = self._safe_service_name(service)
+                service_stdout_log = services_dir / f"{safe_name}.stdout.log"
+                service_stderr_log = services_dir / f"{safe_name}.stderr.log"
+                rc = _run_to_files(
+                    [*cmd_base, "logs", "--no-color", "--timestamps", service],
+                    service_stdout_log,
+                    service_stderr_log,
+                )
+                if rc != 0:
+                    failed_services[service] = rc
+
+                owner_crs = self._service_owner_crs(service)
+                if owner_crs is not None:
+                    crs_dir = crs_logs_root / owner_crs
+                    crs_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        self._link_or_copy(
+                            service_stdout_log, crs_dir / service_stdout_log.name
+                        )
+                        self._link_or_copy(
+                            service_stderr_log, crs_dir / service_stderr_log.name
+                        )
+                    except Exception as exc:
+                        failed_links[service] = f"{type(exc).__name__}: {exc}"
+
+            metadata = {
+                "compose_logs_rc": compose_logs_rc,
+                "services_command_rc": services_rc,
+                "failed_service_logs": failed_services,
+                "failed_log_links": failed_links,
+            }
+            (logs_dir / "capture-metadata.json").write_text(
+                json.dumps(metadata, indent=2, sort_keys=True)
+            )
+
+            warnings: list[str] = []
+            if compose_logs_rc != 0:
+                warnings.append(
+                    "Failed to capture docker compose aggregate logs; "
+                    "see docker-compose.stderr.log."
+                )
+            if services_rc != 0:
+                warnings.append(
+                    "Failed to list docker compose services; "
+                    "see services-config.stderr.log."
+                )
+            if failed_services:
+                warnings.append(
+                    "Some service logs failed to capture; see capture-metadata.json."
+                )
+            if failed_links:
+                warnings.append(
+                    "Some per-CRS log links failed; see capture-metadata.json."
+                )
+            if warnings:
+                (logs_dir / "capture-warning.txt").write_text("\n".join(warnings) + "\n")
+        except Exception as exc:
+            (logs_dir / "capture-warning.txt").write_text(
+                "Unexpected failure during compose log capture.\n"
+                f"{type(exc).__name__}: {exc}\n"
+            )
+
+        # Log capture is always best-effort; never fail the run on this task.
+        return TaskResult(success=True)
+
+    @staticmethod
+    def _safe_service_name(service: str) -> str:
+        safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", service).strip("-")
+        return safe_name or "unknown-service"
+
+    def _service_owner_crs(self, service: str) -> Optional[str]:
+        for crs in self.crs_list:
+            if service.startswith(f"{crs.name}_"):
+                return crs.name
+        return None
+
+    @staticmethod
+    def _link_or_copy(src: Path, dst: Path) -> None:
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+        try:
+            os.link(src, dst)
+        except OSError:
+            try:
+                rel_src = os.path.relpath(src, start=dst.parent)
+                dst.symlink_to(rel_src)
+            except OSError:
+                shutil.copy2(src, dst)
+
+    def __show_result_local(
+        self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress
+    ) -> None:
         crs_results = [
-            {"name": crs.name, "submit_dir": self.work_dir.get_submit_dir(crs.name, target, run_id, sanitizer)}
+            {
+                "name": crs.name,
+                "submit_dir": self.work_dir.get_submit_dir(
+                    crs.name, target, run_id, sanitizer
+                ),
+            }
             for crs in self.crs_list
         ]
         return progress.show_run_result(crs_results)
@@ -417,8 +648,12 @@ class CRSCompose:
             rm_with_docker(exchange_dir)
             return TaskResult(success=True)
 
-        def cleanup_shared_dir(progress: MultiTaskProgress, crs_name: str) -> TaskResult:
-            rm_with_docker(self.work_dir.get_shared_dir(crs_name, target, run_id, sanitizer))
+        def cleanup_shared_dir(
+            progress: MultiTaskProgress, crs_name: str
+        ) -> TaskResult:
+            rm_with_docker(
+                self.work_dir.get_shared_dir(crs_name, target, run_id, sanitizer)
+            )
             return TaskResult(success=True)
 
         def cleanup_shared_dirs(progress: MultiTaskProgress) -> TaskResult:

@@ -360,13 +360,17 @@ class MultiTaskProgress:
         for task_name, task_func in tasks:
             self.add_cleanup_task(task_name, task_func)
 
-    def run_added_tasks(self) -> TaskResult:
+    def run_added_tasks(self, cleanup_failure_is_error: bool = True) -> TaskResult:
         """
         Run all subtasks added under the current task, then run cleanup tasks.
         Cleanup tasks always run, even if regular subtasks fail.
 
+        Args:
+            cleanup_failure_is_error: If False, cleanup task failures are recorded
+                in the UI but do not fail the returned TaskResult.
+
         Returns:
-            True if all subtasks succeeded, False if any failed.
+            TaskResult for the run.
         """
         parent = self._current_task
         main_result = TaskResult(success=True)
@@ -416,6 +420,8 @@ class MultiTaskProgress:
         # Return the first failure (main task failure takes precedence)
         if not main_result.success:
             return main_result
+        if not cleanup_failure_is_error and not cleanup_result.success:
+            return TaskResult(success=True)
         return cleanup_result
 
     def _run_cleanup_tasks(self, parent: Optional[str]) -> TaskResult:
@@ -731,9 +737,17 @@ class MultiTaskProgress:
         # or services with attach: false.
         try:
             subprocess.run(
-                ["docker", "compose", "-p", project_name, "-f",
-                 str(docker_compose_path), "stop"],
-                capture_output=True, timeout=60,
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project_name,
+                    "-f",
+                    str(docker_compose_path),
+                    "stop",
+                ],
+                capture_output=True,
+                timeout=60,
             )
         except subprocess.TimeoutExpired:
             pass
