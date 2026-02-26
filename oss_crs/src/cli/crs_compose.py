@@ -14,6 +14,10 @@ from .setup import add_setup_command, handle_setup
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
+DEPRECATED_FLAGS = {
+    "--target-proj-path": "--fuzz-proj-path",
+    "--target-path": "--fuzz-proj-path",
+}
 
 
 def add_common_arguments(parser):
@@ -33,19 +37,28 @@ def add_common_arguments(parser):
 
 def add_target_arguments(parser):
     parser.add_argument(
+        "--fuzz-proj-path",
+        "--target-path",
         "--target-proj-path",
+        dest="target_proj_path",
         type=Path,
         required=True,
-        help="""
-        Target Project Path where includes oss-fuzz compatible files (e.g., Dockerfile, project.yaml, ...)
-        # TODO: this accepts only local paths for now. But, we will support remote paths later.
-        """,
+        help=(
+            "Path to OSS-Fuzz target project directory "
+            "(contains Dockerfile/project.yaml/build.sh). "
+            "--target-path and --target-proj-path are kept as compatibility aliases."
+        ),
     )
     parser.add_argument(
-        "--target-repo-path",
+        "--target-source-path",
+        dest="target_repo_path",
         type=Path,
         required=False,
-        help="Local path to the target repository to build with the target project configuration.",
+        help=(
+            "Optional local source override path. "
+            "When set, oss-crs overlays this source into the effective target "
+            "source path resolved from Dockerfile WORKDIR."
+        ),
     )
 
 
@@ -143,6 +156,7 @@ def add_run_command(subparsers):
         help="Directory of initial seed files, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch seed <local_path>",
     )
 
+
 def add_artifacts_command(subparsers):
     artifacts = subparsers.add_parser(
         "artifacts", help="Show directories for run artifacts (JSON output)"
@@ -173,7 +187,11 @@ def add_artifacts_command(subparsers):
         type=str,
         required=False,
         default=None,
-        help="Run identifier to look up artifacts for (interactive selection if omitted)",
+        help=(
+            "Run identifier to resolve artifacts for. If omitted, interactive "
+            "selection is used. If provided but not found yet, paths are still "
+            "computed deterministically for pre-run resolution."
+        ),
     )
 
 
@@ -183,8 +201,7 @@ def add_check_command(subparsers):
 
 def add_gen_compose_command(subparsers):
     gen_compose = subparsers.add_parser(
-        "gen-compose",
-        help="Generate a compose file with mapped CPU sets"
+        "gen-compose", help="Generate a compose file with mapped CPU sets"
     )
     gen_compose.add_argument(
         "--compose-template",
@@ -216,6 +233,18 @@ def init_target_from_args(args) -> Target:
     )
 
 
+def _warn_deprecated_cli_aliases(argv: list[str]) -> None:
+    for legacy, preferred in DEPRECATED_FLAGS.items():
+        if legacy in argv:
+            print(
+                (
+                    f"Warning: {legacy} is deprecated and will be removed in a "
+                    f"future minor release. Use {preferred} instead."
+                ),
+                file=sys.stderr,
+            )
+
+
 def _sigterm_handler(signum, frame):
     """Convert SIGTERM into KeyboardInterrupt so cleanup tasks can run."""
     raise KeyboardInterrupt("SIGTERM received")
@@ -225,8 +254,7 @@ def cli() -> bool:
     signal.signal(signal.SIGTERM, _sigterm_handler)
     load_dotenv()
     parser = argparse.ArgumentParser(
-        prog="oss-crs",
-        description="OSS-CRS: Cyber Reasoning System orchestration CLI"
+        prog="oss-crs", description="OSS-CRS: Cyber Reasoning System orchestration CLI"
     )
     subparsers = parser.add_subparsers(
         dest="command", required=True, help="Command to run"
@@ -239,14 +267,16 @@ def cli() -> bool:
     add_gen_compose_command(subparsers)
     add_setup_command(subparsers)
 
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+    _warn_deprecated_cli_aliases(argv)
+    args = parser.parse_args(argv)
 
     # Handle setup command early - it doesn't need compose file
     if args.command == "setup":
         return handle_setup(args)
 
     # Resolve all Path arguments to absolute paths so that relative paths
-    # (e.g., --target-proj-path ../ghostscript) work regardless of cwd.
+    # (e.g., --fuzz-proj-path ../ghostscript) work regardless of cwd.
     for key, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, key, value.expanduser().resolve())
@@ -272,21 +302,33 @@ def cli() -> bool:
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command == "artifacts"
-    crs_compose = CRSCompose.from_yaml_file(args.compose_file, args.work_dir, skip_crs_init=skip_crs_init)
+    crs_compose = CRSCompose.from_yaml_file(
+        args.compose_file, args.work_dir, skip_crs_init=skip_crs_init
+    )
 
     if args.command == "prepare":
         if not crs_compose.prepare(publish=args.publish):
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
-        # Library normalizes build_id internally
-        if not crs_compose.build_target(target, build_id=args.build_id, sanitizer=args.sanitizer):
+        if not crs_compose.build_target(
+            target, build_id=args.build_id, sanitizer=args.sanitizer
+        ):
             return False
     elif args.command == "run":
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
-        if not crs_compose.run(target, run_id=args.run_id, build_id=args.build_id, sanitizer=args.sanitizer, pov=args.pov, pov_dir=args.pov_dir, diff=args.diff, seed_dir=args.seed_dir):
+        if not crs_compose.run(
+            target,
+            run_id=args.run_id,
+            build_id=args.build_id,
+            sanitizer=args.sanitizer,
+            pov=args.pov,
+            pov_dir=args.pov_dir,
+            diff=args.diff,
+            seed_dir=args.seed_dir,
+        ):
             return False
     elif args.command == "artifacts":
         target = init_target_from_args(args)

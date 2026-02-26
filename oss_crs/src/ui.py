@@ -808,8 +808,6 @@ class MultiTaskProgress:
             str(docker_compose_path),
             "down",
             "-v",
-            "--rmi",
-            "local",
         ]
         return self.run_command_with_streaming_output(
             cmd=cmd,

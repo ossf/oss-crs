@@ -33,6 +33,7 @@ job_results: dict = {}
 
 BUILDS_DIR = Path("/builds")
 PREBUILT_OUT_DIR = Path("/OSS_CRS_BUILD_OUT_DIR/build")
+OSS_CRS_PROJ_PATH = Path(os.environ.get("OSS_CRS_PROJ_PATH", "/OSS_CRS_PROJ_PATH"))
 
 
 def _ignore_build_junk(directory, contents):
@@ -216,14 +217,19 @@ def get_job_status(job_id: str):
 def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     """Apply patch and compile via oss_crs_handler.sh."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
             capture_output=True,
             text=True,
             timeout=600,
         )
-    except subprocess.TimeoutExpired:
-        return {"build_exit_code": 1, "build_log": "Build timed out"}
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "build_exit_code": 1,
+            "build_log": "Build timed out",
+            "build_stdout": exc.stdout or "",
+            "build_stderr": exc.stderr or "",
+        }
 
     response = {}
     for name, key, parse in [
@@ -234,6 +240,14 @@ def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
         if f.exists():
             response[key] = parse(f.read_text().strip())
     response.setdefault("build_exit_code", 1)
+    response["build_stdout"] = result.stdout or ""
+    response["build_stderr"] = result.stderr or ""
+    response.setdefault(
+        "build_log",
+        "\n".join(
+            part for part in [response["build_stdout"], response["build_stderr"]] if part
+        ),
+    )
 
     # Save build artifacts for later POV/test runs
     if response["build_exit_code"] == 0:
@@ -284,6 +298,7 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "pov_exit_code": 124,
+            "pov_stdout": "",
             "pov_stderr": "POV execution timed out",
         }
 
@@ -293,11 +308,12 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     build_id = (req_dir / "build_id").read_text().strip()
     test_timeout = int(os.environ.get("TEST_TIMEOUT", "120"))
 
-    test_path = Path("/project_dir/test.sh")
+    test_path = OSS_CRS_PROJ_PATH / "test.sh"
     if not test_path.exists():
         return {
             "test_exit_code": 0,
-            "test_stderr": "skipped: no test.sh found in /project_dir/",
+            "test_stdout": "",
+            "test_stderr": f"skipped: no test.sh found in {OSS_CRS_PROJ_PATH}/",
         }
 
     build_out = BUILDS_DIR / build_id / "out"
@@ -315,11 +331,13 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
         )
         return {
             "test_exit_code": result.returncode,
+            "test_stdout": result.stdout,
             "test_stderr": result.stderr,
         }
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         return {
             "test_exit_code": 124,
+            "test_stdout": exc.stdout or "",
             "test_stderr": "Test execution timed out",
         }
 
