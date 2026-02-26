@@ -3,11 +3,9 @@ import re
 import sys
 import datetime
 
-import questionary
-
 from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir
 from ..target import Target
-from ..utils import normalize_run_id
+from ..utils import normalize_run_id, select
 
 
 def collect_run_ids_for_target(crs_compose, target: Target, harness: str | None, sanitizer: str) -> list[str]:
@@ -65,9 +63,8 @@ def select_run_id_interactively(crs_compose, target: Target, harness: str | None
         print("No runs found for this target.", file=sys.stderr)
         return None
 
-    choices = [questionary.Choice(title=format_run_id(r), value=r) for r in all_run_ids]
-    selected = questionary.select("Select run-id:", choices=choices).ask()
-    return selected
+    choices = [(format_run_id(r), r) for r in all_run_ids]
+    return select("Select run-id:", choices)
 
 
 def handle_artifacts(args, crs_compose, target: Target) -> bool:

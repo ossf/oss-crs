@@ -203,3 +203,17 @@ def confirm(message: str, default: bool = True, auto_confirm: bool = False) -> b
     if auto_confirm:
         return True
     return questionary.confirm(message, default=default).ask()
+
+
+def select(message: str, choices: list[tuple[str, str]]) -> str | None:
+    """Prompt user to select from a list of choices.
+
+    Args:
+        message: The question to ask.
+        choices: List of (display_title, value) tuples.
+
+    Returns:
+        The selected value, or None if aborted (Ctrl+C).
+    """
+    q_choices = [questionary.Choice(title=title, value=value) for title, value in choices]
+    return questionary.select(message, choices=q_choices).ask()
