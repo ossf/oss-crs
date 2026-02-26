@@ -3,12 +3,12 @@
 # Usage:
 #   # Without cgroup-parent (each container gets 1G individually)
 #   oss-crs run --compose-file oss_crs/tests/integration/fixtures/dummy-crs/example-compose.yaml \
-#     --target-proj-path <path-to-oss-fuzz-project> \
+#     --fuzz-proj-path <path-to-oss-fuzz-project> \
 #     --target-harness <harness-name>
 #
 #   # With cgroup-parent (all 3 containers share 1G)
 #   oss-crs run --cgroup-parent --compose-file oss_crs/tests/integration/fixtures/dummy-crs/example-compose.yaml \
-#     --target-proj-path <path-to-oss-fuzz-project> \
+#     --fuzz-proj-path <path-to-oss-fuzz-project> \
 #     --target-harness <harness-name>
 #
 # Expected results:
