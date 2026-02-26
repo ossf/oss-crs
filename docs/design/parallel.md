@@ -16,12 +16,12 @@ To reuse an existing build (avoid rebuilding), explicitly specify `--build-id`:
 # Build fresh artifacts
 uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
 
 # Pin to a specific build ID to reuse across invocations
 uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --build-id my-pinned-build
 ```
 
@@ -39,7 +39,7 @@ The `--sanitizer` flag (default: from target config, usually `address`) determin
 ```bash
 uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --sanitizer undefined
 ```
 
@@ -52,7 +52,7 @@ The `--run-id` flag isolates run artifacts (seeds, PoVs, shared state), allowing
 ```bash
 uv run oss-crs run \
   --compose-file ./crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --build-id my-pinned-build \
   --run-id experiment-1 \
@@ -83,7 +83,7 @@ The `artifacts` command takes the same options as `run` and computes all artifac
 ```bash
 oss-crs artifacts \
   --compose-file ./crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --run-id my-new-run
 ```

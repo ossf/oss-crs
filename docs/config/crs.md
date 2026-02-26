@@ -233,6 +233,7 @@ Defines the type of CRS:
 |-------|-------------|
 | `bug-finding` | CRS designed for finding bugs |
 | `bug-fixing` | CRS designed for fixing bugs |
+| `builder` | Builder-side CRS for incremental patch build/test workflows |
 
 ### TargetMode
 

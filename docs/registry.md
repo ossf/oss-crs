@@ -72,10 +72,10 @@ To use a CRS from the registry, reference it in your [compose file](config/crs-c
 uv run oss-crs prepare --compose-file <compose-file>
 
 # Build the target
-uv run oss-crs build-target --compose-file <compose-file> --target-proj-path <target-path>
+uv run oss-crs build-target --compose-file <compose-file> --fuzz-proj-path <fuzz-proj-path>
 
 # Run the CRS
-uv run oss-crs run --compose-file <compose-file> --target-proj-path <target-path> --target-harness <harness>
+uv run oss-crs run --compose-file <compose-file> --fuzz-proj-path <fuzz-proj-path> --target-harness <harness>
 ```
 
 See the [Quick Start](../README.md#quick-start) for a complete walkthrough.

@@ -8,6 +8,7 @@ import questionary
 
 from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir, RunLogs
 from ..target import Target
+from ..utils import normalize_run_id
 
 
 def collect_run_ids_for_target(
@@ -80,13 +81,19 @@ def handle_artifacts(args, crs_compose, target: Target) -> bool:
     sanitizer = args.sanitizer
     work_dir = crs_compose.work_dir
 
-    # run_id for SUBMIT/FETCH/SHARED dirs - interactive selection if not provided
+    # run_id for SUBMIT/FETCH/SHARED dirs.
+    # If --run-id is provided and not found on disk yet, still accept it and
+    # normalize to deterministic run-scoped paths (pre-run resolution).
     if args.run_id:
         resolved_run_id = work_dir.resolve_run_id(args.run_id, sanitizer)
-        if resolved_run_id is None:
-            print(f"Run '{args.run_id}' not found.", file=sys.stderr)
-            return False
-        run_id = resolved_run_id
+        if resolved_run_id is not None:
+            run_id = resolved_run_id
+        else:
+            try:
+                run_id = normalize_run_id(args.run_id)
+            except ValueError:
+                print(f"Invalid run id '{args.run_id}'.", file=sys.stderr)
+                return False
     else:
         run_id = select_run_id_interactively(crs_compose, target, harness, sanitizer)
         if run_id is None:

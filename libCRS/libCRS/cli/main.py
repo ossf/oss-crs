@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from ..base import DataType, CRSUtils
+from ..base import DataType, SourceType, CRSUtils
 from ..local import LocalCRSUtils
 from ..common import get_run_env_type, EnvType
 
@@ -113,6 +113,27 @@ def main():
     )
     download_build_parser.set_defaults(
         func=lambda args: crs_utils.download_build_output(args.src_path, args.dst_path)
+    )
+
+    # download-source command
+    download_source_parser = subparsers.add_parser(
+        "download-source",
+        help="Download source tree from target/repo source path to destination",
+    )
+    download_source_parser.add_argument(
+        "type",
+        type=SourceType,
+        choices=list(SourceType),
+        metavar="TYPE",
+        help="Source type: target, repo",
+    )
+    download_source_parser.add_argument(
+        "dst_path",
+        type=Path,
+        help="Destination path in docker container",
+    )
+    download_source_parser.set_defaults(
+        func=lambda args: crs_utils.download_source(args.type, args.dst_path)
     )
 
     # =========================================================================

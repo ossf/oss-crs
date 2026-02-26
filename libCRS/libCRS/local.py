@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests as http_requests
 
-from .base import CRSUtils, DataType
+from .base import CRSUtils, DataType, SourceType
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
 from .submit import SubmitHelper
@@ -32,6 +32,36 @@ class LocalCRSUtils(CRSUtils):
     def download_build_output(self, src_path: str, dst_path: Path) -> None:
         src = _get_build_out_dir() / src_path
         dst = Path(dst_path)
+        rsync_copy(src, dst)
+
+    def download_source(self, source_type: SourceType, dst_path: Path) -> None:
+        if source_type == SourceType.TARGET:
+            env_key = "OSS_CRS_PROJ_PATH"
+        elif source_type == SourceType.REPO:
+            env_key = "OSS_CRS_REPO_PATH"
+        else:
+            raise ValueError(f"Unsupported source type: {source_type}")
+
+        try:
+            src = Path(get_env(env_key)).resolve()
+        except KeyError as exc:
+            raise RuntimeError(
+                f"download-source {source_type} requires env var {env_key}"
+            ) from exc
+
+        if not src.exists():
+            raise RuntimeError(
+                f"download-source {source_type} source path does not exist: {src}"
+            )
+
+        dst = Path(dst_path).resolve()
+
+        # Guard against recursive/self copy (rsync source == destination or overlaps).
+        if dst == src or src in dst.parents or dst in src.parents:
+            raise RuntimeError(
+                f"Refusing download-source copy due to overlapping paths: src={src}, dst={dst}"
+            )
+
         rsync_copy(src, dst)
 
     def submit_build_output(self, src_path: str, dst_path: Path) -> None:
@@ -199,7 +229,11 @@ class LocalCRSUtils(CRSUtils):
         (response_dir / "build_exit_code").write_text(str(build_exit_code))
         if "build_log" in result:
             (response_dir / "build.log").write_text(result["build_log"])
-        if "id" in result:
+        if "build_stdout" in result:
+            (response_dir / "build_stdout.log").write_text(result["build_stdout"])
+        if "build_stderr" in result:
+            (response_dir / "build_stderr.log").write_text(result["build_stderr"])
+        if build_exit_code == 0 and "id" in result:
             (response_dir / "build_id").write_text(result["id"])
 
         return build_exit_code
@@ -251,6 +285,8 @@ class LocalCRSUtils(CRSUtils):
 
         test_exit_code = result.get("test_exit_code", 1)
         (response_dir / "test_exit_code").write_text(str(test_exit_code))
+        if "test_stdout" in result:
+            (response_dir / "test_stdout.log").write_text(result["test_stdout"])
         if "test_stderr" in result:
             (response_dir / "test_stderr.log").write_text(result["test_stderr"])
 

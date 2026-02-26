@@ -388,25 +388,25 @@ uv run oss-crs prepare \
 # 2. Build target — compile the target with your instrumentation
 uv run oss-crs build-target \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
 
 # 3. Run — launch the CRS
 uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --timeout 3600
 
 # 4. Query artifacts — find PoVs and seeds
 uv run oss-crs artifacts \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 
 # Optional: pass POVs, diffs, or seed files to CRS containers
 uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --pov-dir ./povs \
   --diff ./ref.diff \

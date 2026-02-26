@@ -149,6 +149,25 @@ $ libCRS download-build-output <src_path> <dst_path>
 $ libCRS download-build-output /fuzzer /opt/fuzzer
 ```
 
+#### `download-source` ✅
+
+Download target source tree into the container from canonical source paths.
+
+```bash
+$ libCRS download-source <target|repo> <dst_path>
+```
+
+| Argument | Description |
+|---|---|
+| `target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
+| `repo` | Source from `OSS_CRS_REPO_PATH` (effective target source path) |
+| `dst_path` | Destination path inside the container |
+
+**Example** — Retrieve effective source tree for patch analysis:
+```bash
+$ libCRS download-source repo /work/src
+```
+
 #### `skip-build-output` ✅
 
 Mark a build output path as intentionally skipped (creates a `.skip` sentinel file).
@@ -469,6 +488,7 @@ libCRS submit patch /tmp/patch.diff
 |---|---|---|
 | `submit-build-output` | ✅ Implemented | Uses `rsync` for file copying |
 | `download-build-output` | ✅ Implemented | Uses `rsync` for file copying |
+| `download-source` | ✅ Implemented | Copies from `OSS_CRS_PROJ_PATH` or `OSS_CRS_REPO_PATH` |
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
 | `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |

@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Optional
 import hashlib
+import posixpath
+import re
 import shutil
 import subprocess
 import tempfile
@@ -103,7 +105,7 @@ class Target:
 
     @property
     def _has_repo(self) -> bool:
-        """Whether a repo path was explicitly provided via --target-repo-path."""
+        """Whether a repo path was explicitly provided via --target-source-path."""
         return self._user_provided_repo
 
     def _compute_repo_key(self) -> str:
@@ -307,6 +309,9 @@ class Target:
         try:
             added_dockerfile = (self.proj_path / "Dockerfile").read_bytes()
             added_dockerfile += b"\n# Added by CRS Target build\n"
+            # Stage override source from host as a separate tree.
+            # Use --delete to strictly replace the effective WORKDIR tree with
+            # the provided source override, matching oss-fuzz helper semantics.
             # Exclude volatile .git files that change on fetch/checkout but aren't needed for history:
             # - FETCH_HEAD: updated every fetch
             # - logs/: reflog entries (not needed for commit history)
@@ -318,9 +323,11 @@ class Target:
                 f"--exclude=.git/logs "
                 f"--exclude=.git/refs/remotes "
                 f"--exclude=.git/ORIG_HEAD "
-                f"--from=repo_path . .\n"
+                f"--from=repo_path . /OSS_CRS_REPO_OVERRIDE\n"
             ).encode()
-            added_dockerfile += ("COPY . /project_dir\n").encode()
+            added_dockerfile += b"RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./\n"
+            added_dockerfile += b"RUN rm -rf /OSS_CRS_REPO_OVERRIDE\n"
+            added_dockerfile += ("COPY . /OSS_CRS_PROJ_PATH\n").encode()
             tmp_dockerfile.write_bytes(added_dockerfile)
 
             # TODO: We might need to consider cache options here later.
@@ -349,7 +356,7 @@ class Target:
         """Build docker image without a repo overlay.
 
         Uses self.proj_path as Docker context directly. The Dockerfile is
-        extended with ``COPY . /project_dir`` so that build.sh, test.sh,
+        extended with ``COPY . /OSS_CRS_PROJ_PATH`` so that build.sh, test.sh,
         and other project files are available inside the image.
         """
         dockerfile_dir = self.work_dir / ".oss-crs-dockerfiles"
@@ -359,7 +366,7 @@ class Target:
         try:
             added_dockerfile = (self.proj_path / "Dockerfile").read_bytes()
             added_dockerfile += b"\n# Added by CRS Target build (plain)\n"
-            added_dockerfile += b"COPY . /project_dir\n"
+            added_dockerfile += b"COPY . /OSS_CRS_PROJ_PATH\n"
             tmp_dockerfile.write_bytes(added_dockerfile)
 
             cmd = [
@@ -409,12 +416,115 @@ class Target:
             "engine": "libfuzzer",
             "sanitizer": "address",
             "architecture": "x86_64",
+            # Backward-compatible key name. This is the in-container effective
+            # source path (final WORKDIR), not the host filesystem repo path.
+            "repo_path": self._resolve_effective_workdir(),
         }
 
         if self.target_harness:
             ret["harness"] = self.target_harness
 
         return ret
+
+    def _resolve_effective_workdir(self) -> str:
+        """Resolve effective final WORKDIR from target Dockerfile.
+
+        WORKDIR instructions are applied cumulatively. Relative WORKDIR values
+        are resolved against the current effective WORKDIR.
+        """
+        dockerfile = self.proj_path / "Dockerfile"
+        if not dockerfile.exists():
+            return "/src"
+
+        src_root = "/src"
+        current = src_root
+        workdir_seen = False
+        env_vars: dict[str, str] = {"SRC": src_root}
+
+        try:
+            for raw in dockerfile.read_text(encoding="utf-8").splitlines():
+                line = self._strip_inline_comment(raw).strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                env_match = re.match(r"(?i)^ENV\s+(.+)$", line)
+                if env_match:
+                    payload = env_match.group(1).strip()
+                    # Support both forms:
+                    #   ENV key=value [k2=v2 ...]
+                    #   ENV key value
+                    parts = payload.split()
+                    if all("=" in p for p in parts):
+                        for part in parts:
+                            key, value = part.split("=", 1)
+                            env_vars[key] = self._expand_docker_vars(value, env_vars)
+                    elif len(parts) >= 2:
+                        key = parts[0]
+                        value = " ".join(parts[1:])
+                        env_vars[key] = self._expand_docker_vars(value, env_vars)
+                    continue
+
+                arg_match = re.match(r"(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line)
+                if arg_match:
+                    key = arg_match.group(1)
+                    value = arg_match.group(2)
+                    if value is not None:
+                        env_vars[key] = self._expand_docker_vars(value.strip(), env_vars)
+                    continue
+
+                match = re.match(r"(?i)^WORKDIR\s+(.+)$", line)
+                if not match:
+                    continue
+
+                workdir_seen = True
+                wd = match.group(1).strip().strip("'\"")
+                if not wd:
+                    continue
+
+                wd = self._expand_docker_vars(wd, env_vars)
+
+                if wd.startswith("/"):
+                    current = posixpath.normpath(wd)
+                else:
+                    current = posixpath.normpath(posixpath.join(current, wd))
+
+            return current if workdir_seen else src_root
+        except Exception:
+            return src_root
+
+    @staticmethod
+    def _strip_inline_comment(line: str) -> str:
+        """Strip inline Dockerfile comments while preserving quoted #."""
+        in_single = False
+        in_double = False
+        escaped = False
+        for idx, ch in enumerate(line):
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                continue
+            if ch == "#" and not in_single and not in_double:
+                if idx == 0 or line[idx - 1].isspace():
+                    return line[:idx]
+        return line
+
+    @staticmethod
+    def _expand_docker_vars(value: str, env_vars: dict[str, str]) -> str:
+        """Expand $VAR / ${VAR} using Dockerfile-known ENV/ARG values."""
+
+        def repl(match: re.Match[str]) -> str:
+            key = match.group(1) or match.group(2)
+            return env_vars.get(key, match.group(0))
+
+        return re.sub(r"\$(\w+)|\$\{([^}]+)\}", repl, value)
 
     def get_snapshot_image_name(self, sanitizer: str) -> str:
         repo_hash = self.__get_repo_hash()
