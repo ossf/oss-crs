@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from rich.panel import Panel
 import questionary
 
-from ..utils import get_console, configure_logging
+from ..utils import get_console, configure_logging, green, yellow
 from ..cgroup import (
     check_docker_cgroup_driver,
     check_cgroup_delegation,
@@ -178,9 +178,9 @@ class SetupRunner:
 
     def print_status(self, label: str, ok: bool, detail: str = "") -> None:
         """Print a status line with checkmark or cross."""
-        icon = "[green]OK[/green]" if ok else "[red]X[/red]"
+        icon = green("OK") if ok else "[red]X[/red]"
         detail_text = f" - {detail}" if detail else ""
-        self.console.print(f"  [{icon}] {label}{detail_text}")
+        self.console.print("  [", icon, f"] {label}{detail_text}", sep="")
 
     def confirm(self, message: str) -> bool | None:
         """Prompt for confirmation. Returns True/False, or None if aborted."""
@@ -195,16 +195,16 @@ class SetupRunner:
 
         answer = self.confirm("Run this command?")
         if answer is None:
-            self.console.print("[yellow]Aborted by user[/yellow]")
+            self.console.print(yellow("Aborted by user"))
             return False
         if not answer:
-            self.console.print("[yellow]Skipped[/yellow]")
+            self.console.print(yellow("Skipped"))
             return False
 
         try:
             result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
             if result.returncode == 0:
-                self.console.print("[green]Success[/green]")
+                self.console.print(green("Success"))
                 return True
             else:
                 self.console.print(f"[red]Failed:[/red] {result.stderr.strip()}")
@@ -224,10 +224,10 @@ class SetupRunner:
 
         proceed = self.confirm(f"Proceed with {step.title.lower()}?")
         if proceed is None:
-            self.console.print("[yellow]Aborted by user[/yellow]")
+            self.console.print(yellow("Aborted by user"))
             return False
         if not proceed:
-            self.console.print("[yellow]Skipped[/yellow]")
+            self.console.print(yellow("Skipped"))
             if step.skip_message:
                 self.console.print(step.skip_message)
             return False
@@ -235,7 +235,7 @@ class SetupRunner:
         # Run all commands for this step
         for desc, cmd in step.commands():
             if not self.run_command(desc, cmd):
-                self.console.print(f"[yellow]{step.title} incomplete. Please complete manually.[/yellow]")
+                self.console.print(yellow(f"{step.title} incomplete. Please complete manually."))
                 return False
 
         # Verify if verification function provided
@@ -290,11 +290,11 @@ class SetupRunner:
             return False
 
         if self.all_ok():
-            self.console.print("\n[bold green]All checks passed![/bold green] Your system is ready for cgroup-parent mode.")
+            self.console.print("\n", green("All checks passed!", bold=True), " Your system is ready for cgroup-parent mode.", sep="")
             return True
 
         if check_only:
-            self.console.print("\n[yellow]Some checks failed.[/yellow] Run [bold]oss-crs setup[/bold] to fix issues.")
+            self.console.print("\n", yellow("Some checks failed."), " Run [bold]oss-crs setup[/bold] to fix issues.", sep="")
             return False
 
         # Interactive setup
@@ -317,9 +317,9 @@ class SetupRunner:
             # Try direct write first
             success, message = enable_oss_crs_controllers()
             if success:
-                self.console.print(f"[green]{message}[/green]")
+                self.console.print(green(message))
             else:
-                self.console.print(f"[yellow]Direct write failed: {message}[/yellow]")
+                self.console.print(yellow(f"Direct write failed: {message}"))
                 if not self.execute_step(controller_setup_step()):
                     return False
 
@@ -328,10 +328,10 @@ class SetupRunner:
         self.run_checks()
 
         if self.all_ok():
-            self.console.print("\n[bold green]Setup complete![/bold green] Your system is ready for cgroup-parent mode.")
+            self.console.print("\n", green("Setup complete!", bold=True), " Your system is ready for cgroup-parent mode.", sep="")
             self.console.print("\nCgroup-parent mode will be used automatically when available.")
         else:
-            self.console.print("\n[yellow]Setup incomplete.[/yellow] Some checks are still failing.")
+            self.console.print("\n", yellow("Setup incomplete."), " Some checks are still failing.", sep="")
             self.console.print("Please address the issues above and run [bold]oss-crs setup[/bold] again.")
 
         return self.all_ok()
