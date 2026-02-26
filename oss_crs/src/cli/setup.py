@@ -8,9 +8,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Optional
 from rich.panel import Panel
-import questionary
 
-from ..utils import get_console, configure_logging, green, yellow
+from ..utils import get_console, configure_logging, confirm, green, red, yellow
 from ..cgroup import (
     check_docker_cgroup_driver,
     check_cgroup_delegation,
@@ -178,22 +177,16 @@ class SetupRunner:
 
     def print_status(self, label: str, ok: bool, detail: str = "") -> None:
         """Print a status line with checkmark or cross."""
-        icon = green("OK") if ok else "[red]X[/red]"
+        icon = green("OK") if ok else red("X")
         detail_text = f" - {detail}" if detail else ""
         self.console.print("  [", icon, f"] {label}{detail_text}", sep="")
-
-    def confirm(self, message: str) -> bool | None:
-        """Prompt for confirmation. Returns True/False, or None if aborted."""
-        if self.yes:
-            return True
-        return questionary.confirm(message, default=True).ask()
 
     def run_command(self, description: str, command: str) -> bool:
         """Run a command with user confirmation."""
         self.console.print(f"\n[yellow]Action:[/yellow] {description}")
         self.console.print(f"[dim]Command:[/dim] {command}")
 
-        answer = self.confirm("Run this command?")
+        answer = confirm("Run this command?", auto_confirm=self.yes)
         if answer is None:
             self.console.print(yellow("Aborted by user"))
             return False
@@ -207,13 +200,13 @@ class SetupRunner:
                 self.console.print(green("Success"))
                 return True
             else:
-                self.console.print(f"[red]Failed:[/red] {result.stderr.strip()}")
+                self.console.print(red("Failed:"), f" {result.stderr.strip()}", sep="")
                 return False
         except subprocess.TimeoutExpired:
-            self.console.print("[red]Command timed out[/red]")
+            self.console.print(red("Command timed out"))
             return False
         except Exception as e:
-            self.console.print(f"[red]Error:[/red] {e}")
+            self.console.print(red("Error:"), f" {e}", sep="")
             return False
 
     def execute_step(self, step: SetupStep) -> bool:
@@ -222,7 +215,7 @@ class SetupRunner:
         self.console.print(f"\n[bold cyan]Step {self.step_num}:[/bold cyan] {step.title}")
         self.console.print(step.description)
 
-        proceed = self.confirm(f"Proceed with {step.title.lower()}?")
+        proceed = confirm(f"Proceed with {step.title.lower()}?", auto_confirm=self.yes)
         if proceed is None:
             self.console.print(yellow("Aborted by user"))
             return False
@@ -240,7 +233,7 @@ class SetupRunner:
 
         # Verify if verification function provided
         if step.verify and not step.verify():
-            self.console.print(f"[red]Verification failed for {step.title}[/red]")
+            self.console.print(red(f"Verification failed for {step.title}"))
             return False
 
         return True
@@ -286,7 +279,7 @@ class SetupRunner:
         # Check for fatal errors (Docker not found/not running)
         docker_result = self.results.get("docker", CheckResult(ok=False))
         if not docker_result.ok and not docker_result.needs_fix:
-            self.console.print(f"\n[red]Cannot continue: {docker_result.detail}[/red]")
+            self.console.print("\n", red(f"Cannot continue: {docker_result.detail}"), sep="")
             return False
 
         if self.all_ok():

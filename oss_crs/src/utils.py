@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+import questionary
 from rich.console import Console
 from rich.text import Text
 
@@ -181,3 +182,24 @@ def yellow(text: str, bold: bool = False) -> Text:
 def green(text: str, bold: bool = False) -> Text:
     """Create green text, optionally bold."""
     return Text(text, style="bold green" if bold else "green")
+
+
+def red(text: str, bold: bool = False) -> Text:
+    """Create red text, optionally bold."""
+    return Text(text, style="bold red" if bold else "red")
+
+
+def confirm(message: str, default: bool = True, auto_confirm: bool = False) -> bool | None:
+    """Prompt user for yes/no confirmation.
+
+    Args:
+        message: The question to ask.
+        default: Default value if user just presses enter.
+        auto_confirm: If True, skip prompt and return True immediately.
+
+    Returns:
+        True if confirmed, False if declined, None if aborted (Ctrl+C).
+    """
+    if auto_confirm:
+        return True
+    return questionary.confirm(message, default=default).ask()
