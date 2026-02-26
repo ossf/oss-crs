@@ -179,11 +179,11 @@ class SetupRunner:
         """Print a status line with checkmark or cross."""
         icon = green("OK") if ok else red("X")
         detail_text = f" - {detail}" if detail else ""
-        self.console.print("  [", icon, f"] {label}{detail_text}", sep="")
+        self.console.print(f"  [{icon}] {label}{detail_text}")
 
     def run_command(self, description: str, command: str) -> bool:
         """Run a command with user confirmation."""
-        self.console.print(f"\n[yellow]Action:[/yellow] {description}")
+        self.console.print(f"\n{yellow('Action:')} {description}")
         self.console.print(f"[dim]Command:[/dim] {command}")
 
         answer = confirm("Run this command?", auto_confirm=self.yes)
@@ -200,13 +200,13 @@ class SetupRunner:
                 self.console.print(green("Success"))
                 return True
             else:
-                self.console.print(red("Failed:"), f" {result.stderr.strip()}", sep="")
+                self.console.print(f"{red('Failed:')} {result.stderr.strip()}")
                 return False
         except subprocess.TimeoutExpired:
             self.console.print(red("Command timed out"))
             return False
         except Exception as e:
-            self.console.print(red("Error:"), f" {e}", sep="")
+            self.console.print(f"{red('Error:')} {e}")
             return False
 
     def execute_step(self, step: SetupStep) -> bool:
@@ -279,15 +279,15 @@ class SetupRunner:
         # Check for fatal errors (Docker not found/not running)
         docker_result = self.results.get("docker", CheckResult(ok=False))
         if not docker_result.ok and not docker_result.needs_fix:
-            self.console.print("\n", red(f"Cannot continue: {docker_result.detail}"), sep="")
+            self.console.print(f"\n{red(f'Cannot continue: {docker_result.detail}')}")
             return False
 
         if self.all_ok():
-            self.console.print("\n", green("All checks passed!", bold=True), " Your system is ready for cgroup-parent mode.", sep="")
+            self.console.print(f"\n{green('All checks passed!', bold=True)} Your system is ready for cgroup-parent mode.")
             return True
 
         if check_only:
-            self.console.print("\n", yellow("Some checks failed."), " Run [bold]oss-crs setup[/bold] to fix issues.", sep="")
+            self.console.print(f"\n{yellow('Some checks failed.')} Run [bold]oss-crs setup[/bold] to fix issues.")
             return False
 
         # Interactive setup
@@ -321,10 +321,10 @@ class SetupRunner:
         self.run_checks()
 
         if self.all_ok():
-            self.console.print("\n", green("Setup complete!", bold=True), " Your system is ready for cgroup-parent mode.", sep="")
+            self.console.print(f"\n{green('Setup complete!', bold=True)} Your system is ready for cgroup-parent mode.")
             self.console.print("\nCgroup-parent mode will be used automatically when available.")
         else:
-            self.console.print("\n", yellow("Setup incomplete."), " Some checks are still failing.", sep="")
+            self.console.print(f"\n{yellow('Setup incomplete.')} Some checks are still failing.")
             self.console.print("Please address the issues above and run [bold]oss-crs setup[/bold] again.")
 
         return self.all_ok()

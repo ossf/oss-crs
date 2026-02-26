@@ -10,7 +10,6 @@ from typing import Optional
 
 import questionary
 from rich.console import Console
-from rich.text import Text
 
 
 RAND_CHARS = string.ascii_lowercase + string.digits
@@ -164,29 +163,27 @@ def rm_with_docker(path: Path) -> None:
 # Text Styling Helpers
 # =============================================================================
 
-def styled_text(text: str, style: str) -> Text:
-    """Create styled Rich Text."""
-    return Text(text, style=style)
+def bold(text: str) -> str:
+    """Return bold markup string."""
+    return f"[bold]{text}[/bold]"
 
 
-def bold(text: str) -> Text:
-    """Create bold text."""
-    return Text(text, style="bold")
+def yellow(text: str, bold: bool = False) -> str:
+    """Return yellow markup string, optionally bold."""
+    style = "bold yellow" if bold else "yellow"
+    return f"[{style}]{text}[/{style}]"
 
 
-def yellow(text: str, bold: bool = False) -> Text:
-    """Create yellow text, optionally bold."""
-    return Text(text, style="bold yellow" if bold else "yellow")
+def green(text: str, bold: bool = False) -> str:
+    """Return green markup string, optionally bold."""
+    style = "bold green" if bold else "green"
+    return f"[{style}]{text}[/{style}]"
 
 
-def green(text: str, bold: bool = False) -> Text:
-    """Create green text, optionally bold."""
-    return Text(text, style="bold green" if bold else "green")
-
-
-def red(text: str, bold: bool = False) -> Text:
-    """Create red text, optionally bold."""
-    return Text(text, style="bold red" if bold else "red")
+def red(text: str, bold: bool = False) -> str:
+    """Return red markup string, optionally bold."""
+    style = "bold red" if bold else "red"
+    return f"[{style}]{text}[/{style}]"
 
 
 def confirm(message: str, default: bool = True, auto_confirm: bool = False) -> bool | None:
