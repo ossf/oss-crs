@@ -14,7 +14,6 @@ DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
 DEPRECATED_FLAGS = {
     "--target-proj-path": "--fuzz-proj-path",
     "--target-path": "--fuzz-proj-path",
-    "--target-repo-path": "--target-source-path",
 }
 
 
@@ -49,15 +48,13 @@ def add_target_arguments(parser):
     )
     parser.add_argument(
         "--target-source-path",
-        "--target-repo-path",
         dest="target_repo_path",
         type=Path,
         required=False,
         help=(
             "Optional local source override path. "
             "When set, oss-crs overlays this source into the effective target "
-            "source path resolved from Dockerfile WORKDIR. "
-            "--target-repo-path is kept as compatibility alias."
+            "source path resolved from Dockerfile WORKDIR."
         ),
     )
 

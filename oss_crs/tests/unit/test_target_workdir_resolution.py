@@ -22,6 +22,16 @@ def test_resolve_effective_workdir_with_src_chain(tmp_path: Path) -> None:
     assert target._resolve_effective_workdir() == "/src/libxml2"
 
 
+def test_resolve_effective_workdir_with_src_default_when_env_not_provided(
+    tmp_path: Path,
+) -> None:
+    target = _make_target_with_dockerfile(
+        tmp_path,
+        "FROM base\nWORKDIR $SRC\n",
+    )
+    assert target._resolve_effective_workdir() == "/src"
+
+
 def test_resolve_effective_workdir_with_absolute_path(tmp_path: Path) -> None:
     target = _make_target_with_dockerfile(
         tmp_path,

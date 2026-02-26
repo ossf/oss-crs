@@ -122,3 +122,14 @@ class TestBuildTargetErrors:
         )
         assert result.returncode != 0
         assert "--target-proj-path is deprecated" in result.stderr
+
+    def test_removed_target_repo_path_alias_fails(self, cli_runner, mock_project_path):
+        """Removed alias is rejected by argparse."""
+        result = cli_runner(
+            "build-target",
+            "--compose-file", "/nonexistent/compose.yaml",
+            "--fuzz-proj-path", str(mock_project_path),
+            "--target-repo-path", "/tmp/repo",
+        )
+        assert result.returncode != 0
+        assert "unrecognized arguments: --target-repo-path" in result.stderr

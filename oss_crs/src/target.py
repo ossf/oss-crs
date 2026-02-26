@@ -309,6 +309,10 @@ class Target:
         try:
             added_dockerfile = (self.proj_path / "Dockerfile").read_bytes()
             added_dockerfile += b"\n# Added by CRS Target build\n"
+            # Stage override source from host as a separate tree.
+            # We intentionally do not delete pre-existing files in WORKDIR:
+            # rsync -a overlays matching paths and keeps non-overwritten files.
+            # This preserves target files prepared by the original Dockerfile.
             # Exclude volatile .git files that change on fetch/checkout but aren't needed for history:
             # - FETCH_HEAD: updated every fetch
             # - logs/: reflog entries (not needed for commit history)
@@ -320,8 +324,10 @@ class Target:
                 f"--exclude=.git/logs "
                 f"--exclude=.git/refs/remotes "
                 f"--exclude=.git/ORIG_HEAD "
-                f"--from=repo_path . .\n"
+                f"--from=repo_path . /OSS_CRS_REPO_OVERRIDE\n"
             ).encode()
+            added_dockerfile += b"RUN rsync -a /OSS_CRS_REPO_OVERRIDE/ ./\n"
+            added_dockerfile += b"RUN rm -rf /OSS_CRS_REPO_OVERRIDE\n"
             added_dockerfile += ("COPY . /OSS_CRS_PROJ_PATH\n").encode()
             tmp_dockerfile.write_bytes(added_dockerfile)
 

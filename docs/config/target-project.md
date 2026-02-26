@@ -45,7 +45,7 @@ uv run oss-crs run \
 | Argument              | Required | Description                                                                    |
 |-----------------------|----------|--------------------------------------------------------------------------------|
 | `--fuzz-proj-path` (`--target-path`, `--target-proj-path`, deprecated aliases) | Yes | Path to the OSS-Fuzz target project directory (`Dockerfile`, `project.yaml`, `build.sh`). |
-| `--target-source-path` (`--target-repo-path`, deprecated alias) | No | Optional local source override path. If set, source is overlaid to the effective Dockerfile `WORKDIR`. |
+| `--target-source-path` | No | Optional local source override path. If set, source is synchronized with `rsync -a` into the effective Dockerfile `WORKDIR` (no delete). |
 | `--target-harness`    | Yes (run)| Fuzz target harness binary name.                                               |
 
 Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/projects) can be used directly as `--fuzz-proj-path` without modification.
@@ -54,6 +54,18 @@ Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/proj
 
 - `OSS_CRS_PROJ_PATH` points to the copied target project directory.
 - `OSS_CRS_REPO_PATH` points to the effective final Dockerfile `WORKDIR` inside
-  the target image (default `/src` when no `WORKDIR` is set).
+  the target image.
+- `WORKDIR` resolution follows Dockerfile semantics, with fallback chain:
+  final `WORKDIR` -> `$SRC` -> `/src` (when `SRC` is not provided).
 - When `--target-source-path` is set, the override source is synchronized into
-  `OSS_CRS_REPO_PATH`.
+  `OSS_CRS_REPO_PATH` via `rsync -a` (no delete of non-overwritten files).
+
+### `--target-source-path` Sync Flow
+
+`--target-source-path` is not bind-mounted directly to `OSS_CRS_REPO_PATH`.
+Instead, during image build:
+
+1. The host source path is passed as a Docker build context (`repo_path=...`).
+2. It is copied into a temporary image path (`/OSS_CRS_REPO_OVERRIDE`).
+3. `rsync -a /OSS_CRS_REPO_OVERRIDE/ ./` runs from the effective `WORKDIR`.
+4. `OSS_CRS_REPO_PATH` points to that effective `WORKDIR` path.
