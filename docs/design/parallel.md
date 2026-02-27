@@ -32,15 +32,22 @@ Build artifacts are stored at:
 
 Multiple runs can share the same build by specifying the same `--build-id`.
 
-## Sanitizer
+## Target Build Options
 
-The `--sanitizer` flag (default: from target config, usually `address`) determines which sanitizer configuration to use. It affects the directory structure, isolating artifacts by sanitizer type.
+`oss-crs` uses fixed defaults for target build options:
+
+- `SANITIZER=address`
+- `FUZZING_ENGINE=libfuzzer`
+- `ARCHITECTURE=x86_64`
+
+Users can override these through compose-level CRS `additional_env` values. There are no dedicated CLI flags for these options.
+
+Only `sanitizer` affects artifact directory partitioning.
 
 ```bash
 uv run oss-crs build-target \
   --compose-file ./crs-compose.yaml \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
-  --sanitizer undefined
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
 ```
 
 All artifacts are stored under `{work_dir}/{sanitizer}/...`.
@@ -78,7 +85,7 @@ Run artifacts are stored at:
 
 ## Artifacts Command
 
-The `artifacts` command takes the same options as `run` and computes all artifact paths deterministically from the compose file. No filesystem existence checks — paths are returned even if the run hasn't started yet.
+The `artifacts` command uses `--fuzz-proj-path`, `--target-source-path`, `--target-harness`, `--run-id`, `--build-id`, and `--sanitizer` to compute artifact paths from the compose file.
 
 ```bash
 oss-crs artifacts \
@@ -90,8 +97,12 @@ oss-crs artifacts \
 
 **Default behavior:**
 - `--run-id`: Interactive selection if omitted
-- `--build-id`: Reads from the run's `BUILD_ID` file, falls back to latest build
+- `--build-id`: Reads from the run's `BUILD_ID` file, falls back to latest build by sanitizer (timestamp in ID if present, otherwise build directory mtime)
 - `--sanitizer`: Defaults to `address`
+
+**Resolution behavior:**
+- `--run-id` supports pre-run deterministic resolution (if the run does not exist yet, paths are still computed)
+- `--build-id` is validated against existing builds when explicitly provided
 
 ### Interactive Run Selection
 

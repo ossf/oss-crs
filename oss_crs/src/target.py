@@ -3,7 +3,6 @@ from typing import Optional
 import hashlib
 import posixpath
 import re
-import shutil
 import subprocess
 import tempfile
 import uuid
@@ -11,7 +10,6 @@ import git
 import fcntl
 from contextlib import contextmanager
 
-from .config.target import TargetConfig
 from .ui import MultiTaskProgress, TaskResult
 from .utils import generate_random_name, rm_with_docker
 from . import ui
@@ -76,6 +74,11 @@ def extract_name_from_proj_path(proj_path: str) -> str:
 
 
 class Target:
+    DEFAULT_SANITIZER = "address"
+    DEFAULT_ENGINE = "libfuzzer"
+    DEFAULT_ARCHITECTURE = "x86_64"
+    DEFAULT_LANGUAGE = "c"
+
     def __init__(
         self,
         work_dir: Path,
@@ -85,7 +88,8 @@ class Target:
     ):
         self.name = extract_name_from_proj_path(str(proj_path))
         self.proj_path = proj_path
-        self.config = TargetConfig.from_yaml_file(proj_path / "project.yaml")
+        self.main_repo: Optional[str] = None
+        self.language = self.DEFAULT_LANGUAGE
 
         self.work_dir = work_dir / "targets" / self.name
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -94,8 +98,6 @@ class Target:
         if repo_path:
             self.repo_path = repo_path
         else:
-            # Default repo path includes hash of repo URL to isolate parallel builds
-            # of different repo sources (e.g., different forks or refs)
             repo_key = self._compute_repo_key()
             self.repo_path = work_dir / "targets" / f"{self.name}_{repo_key}" / "repo"
 
@@ -109,9 +111,8 @@ class Target:
         return self._user_provided_repo
 
     def _compute_repo_key(self) -> str:
-        """Compute a short hash key from repo URL (and ref if specified)."""
-        # TODO: Include ref when we add ref support to TargetConfig
-        key_source = self.config.main_repo
+        """Compute a short hash key from project path."""
+        key_source = str(self.proj_path.resolve())
         return hashlib.sha256(key_source.encode()).hexdigest()[:12]
 
     def get_docker_image_name(self) -> str:
@@ -135,9 +136,9 @@ class Target:
 
         if self._has_repo:
             task_label = "Build docker image with the given repo"
-            task_fn = lambda progress: self.__build_docker_image_with_repo(
-                image_tag, progress
-            )
+            def task_fn(progress):
+                return self.__build_docker_image_with_repo(image_tag, progress)
+
             head_items = [
                 ui.bold(f"Repo hash: {repo_hash} (calculated from {self.repo_path})"),
                 ui.bold(f"Image tag: {image_tag}"),
@@ -148,9 +149,9 @@ class Target:
             ]
         else:
             task_label = "Build docker image (plain)"
-            task_fn = lambda progress: self.__build_docker_image_plain(
-                image_tag, progress
-            )
+            def task_fn(progress):
+                return self.__build_docker_image_plain(image_tag, progress)
+
             head_items = [
                 ui.bold(f"Proj hash: {repo_hash} (calculated from {self.proj_path})"),
                 ui.bold(f"Image tag: {image_tag}"),
@@ -190,6 +191,8 @@ class Target:
                         ),
                     ]
             else:
+                if self._user_provided_repo:
+                    return False
                 head.append(
                     ui.yellow(
                         "Please make sure the repo is accessible without typing your credentials.",
@@ -216,7 +219,7 @@ class Target:
             "git",
             "clone",
             "--recurse-submodules",
-            self.config.main_repo,
+            self.main_repo,
             str(self.repo_path),
         ]
         return progress.run_command_with_streaming_output(
@@ -319,11 +322,11 @@ class Target:
             # - ORIG_HEAD: updated on various operations
             # Core history is preserved in: objects/, refs/heads/, refs/tags/, HEAD
             added_dockerfile += (
-                f"COPY --exclude=.git/FETCH_HEAD "
-                f"--exclude=.git/logs "
-                f"--exclude=.git/refs/remotes "
-                f"--exclude=.git/ORIG_HEAD "
-                f"--from=repo_path . /OSS_CRS_REPO_OVERRIDE\n"
+                "COPY --exclude=.git/FETCH_HEAD "
+                "--exclude=.git/logs "
+                "--exclude=.git/refs/remotes "
+                "--exclude=.git/ORIG_HEAD "
+                "--from=repo_path . /OSS_CRS_REPO_OVERRIDE\n"
             ).encode()
             added_dockerfile += b"RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./\n"
             added_dockerfile += b"RUN rm -rf /OSS_CRS_REPO_OVERRIDE\n"
@@ -404,18 +407,12 @@ class Target:
         return None
 
     def get_target_env(self) -> dict:
-        # TODO: implement this properly
-        # NOTE: engine/sanitizer/architecture are hardcoded defaults here.
-        # project.yaml lists what the project *supports*, not what to use.
-        # The actual selection should come from the user via CLI flags.
-        # Currently only --sanitizer is exposed; engine/architecture are
-        # always libfuzzer/x86_64 until CLI flags are added for them.
         ret = {
             "name": self.name,
-            "language": self.config.language.value,
-            "engine": "libfuzzer",
-            "sanitizer": "address",
-            "architecture": "x86_64",
+            "language": self.language,
+            "engine": self.DEFAULT_ENGINE,
+            "sanitizer": self.DEFAULT_SANITIZER,
+            "architecture": self.DEFAULT_ARCHITECTURE,
             # Backward-compatible key name. This is the in-container effective
             # source path (final WORKDIR), not the host filesystem repo path.
             "repo_path": self._resolve_effective_workdir(),

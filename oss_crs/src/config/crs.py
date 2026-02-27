@@ -5,7 +5,8 @@ from typing import Optional, Set
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .target import TargetLangauge, TargetSanitizer, TargetArch
+from ..env_schema import validate_additional_env_keys
+from .target import FuzzingEngine, TargetLangauge, TargetSanitizer, TargetArch
 
 # Prefix for framework-provided infrastructure modules (e.g., "oss-crs-infra:default-builder")
 OSS_CRS_INFRA_PREFIX = "oss-crs-infra:"
@@ -75,6 +76,11 @@ class BuildConfig(BaseModel):
                 raise ValueError(f"output path cannot contain '..': {output}")
         return v
 
+    @field_validator("additional_env")
+    @classmethod
+    def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return validate_additional_env_keys(v, scope="BuildConfig.additional_env")
+
 
 class TargetBuildPhase(BaseModel):
     """Configuration for the target build phase."""
@@ -122,8 +128,7 @@ class CRSRunPhaseModule(BaseModel):
     @field_validator("additional_env")
     @classmethod
     def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
-        # TODO: check for valid env var names/values if needed (do not allow pre-defined vars)
-        return v
+        return validate_additional_env_keys(v, scope="CRSRunPhaseModule.additional_env")
 
 
 class CRSRunPhase(BaseModel):
@@ -150,6 +155,7 @@ class SupportedTarget(BaseModel):
     language: Set[TargetLangauge]
     sanitizer: Set[TargetSanitizer]
     architecture: Set[TargetArch]
+    fuzzing_engine: Set[FuzzingEngine] = Field(default_factory=lambda: set(FuzzingEngine))
 
 
 class CRSType(Enum):

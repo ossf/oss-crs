@@ -67,17 +67,29 @@ class CRSCompose:
             or self._builder_crs is not None
         )
 
-    @staticmethod
-    def _get_sanitizer(target: Target) -> str:
-        return target.get_target_env().get("sanitizer", "address")
+    def _resolve_target_build_options(
+        self,
+        target: Target,
+        *,
+        sanitizer: str | None = None,
+    ) -> tuple[str, str, str] | None:
+        return (
+            sanitizer or Target.DEFAULT_SANITIZER,
+            Target.DEFAULT_ENGINE,
+            Target.DEFAULT_ARCHITECTURE,
+        )
 
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
 
-    def get_latest_build_id(self, target: Target, sanitizer: str) -> str | None:
+    def get_latest_build_id(
+        self,
+        target: Target,
+        sanitizer: str,
+    ) -> str | None:
         """Find the latest build-id (by unix timestamp) for the given target and sanitizer."""
         latest_build_id = None
-        latest_ts = 0
+        latest_score = float("-inf")
 
         builds_dir = self.work_dir.get_builds_dir(sanitizer)
         if not builds_dir.exists():
@@ -93,13 +105,15 @@ class CRSCompose:
                     crs.name, target, build_id, sanitizer, create=False
                 )
                 if build_out_dir.exists():
-                    # Extract first 10-digit sequence (unix timestamp) from build_id
+                    # Prefer embedded unix timestamp; fall back to directory mtime.
                     match = re.search(r"\d{10}", build_id)
                     if match:
-                        ts = int(match.group())
-                        if ts > latest_ts:
-                            latest_ts = ts
-                            latest_build_id = build_id
+                        score = float(int(match.group()))
+                    else:
+                        score = build_id_dir.stat().st_mtime
+                    if score > latest_score:
+                        latest_score = score
+                        latest_build_id = build_id
                     break  # Found at least one CRS with this build, no need to check others
         return latest_build_id
 
@@ -273,9 +287,17 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
     ) -> bool:
+        sanitizer_explicit = sanitizer is not None
+        resolved_options = self._resolve_target_build_options(
+            target,
+            sanitizer=sanitizer,
+        )
+        if resolved_options is None:
+            return False
+        sanitizer, _, _ = resolved_options
+
         # Normalize build_id at library boundary; generate timestamp-based ID if not provided
         build_id = normalize_run_id(build_id) if build_id else generate_run_id()
-        sanitizer = sanitizer if sanitizer else self._get_sanitizer(target)
 
         target_base_image = target.build_docker_image()
         if target_base_image is None:
@@ -290,9 +312,14 @@ class CRSCompose:
 
             for crs in self.crs_list:
                 for build_config in crs.config.snapshot_builds:
-                    snap_sanitizer = build_config.additional_env.get(
-                        "SANITIZER", sanitizer
-                    )
+                    if sanitizer_explicit:
+                        snap_sanitizer = sanitizer
+                    else:
+                        # Default sanitizer is address and can be overridden by
+                        # module-level additional_env.
+                        snap_sanitizer = build_config.additional_env.get(
+                            "SANITIZER", sanitizer
+                        )
                     snapshot_sanitizers.add(snap_sanitizer)
 
             # Old-style builder CRS also triggers a snapshot
@@ -395,9 +422,16 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
     ) -> bool:
+        resolved_options = self._resolve_target_build_options(
+            target,
+            sanitizer=sanitizer,
+        )
+        if resolved_options is None:
+            return False
+        sanitizer, _, _ = resolved_options
+
         # Normalize IDs at library boundary
         run_id = normalize_run_id(run_id) if run_id else generate_run_id()
-        sanitizer = sanitizer if sanitizer else self._get_sanitizer(target)
 
         # Auto-detect cgroup-parent availability
         cgroup_parent, _ = check_cgroup_parent_available()
@@ -618,7 +652,10 @@ class CRSCompose:
             return progress.run_added_tasks().success
 
     def __check_target_built(
-        self, target: Target, build_id: str, sanitizer: str
+        self,
+        target: Target,
+        build_id: str,
+        sanitizer: str,
     ) -> bool:
         target_base_image = target.get_docker_image_name()
         tasks = []
@@ -795,7 +832,12 @@ class CRSCompose:
 
         try:
             def _run_capture(cmd: list[str]) -> tuple[str, str, int]:
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                try:
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=30
+                    )
+                except subprocess.TimeoutExpired:
+                    return "", "Command timed out while capturing logs.", 124
                 return result.stdout or "", result.stderr or "", result.returncode
 
             def _run_to_files(
@@ -803,10 +845,18 @@ class CRSCompose:
             ) -> int:
                 with stdout_path.open("w") as stdout_f:
                     with stderr_path.open("w") as stderr_f:
-                        result = subprocess.run(
-                            cmd, stdout=stdout_f, stderr=stderr_f, text=True
-                        )
-                        return result.returncode
+                        try:
+                            result = subprocess.run(
+                                cmd,
+                                stdout=stdout_f,
+                                stderr=stderr_f,
+                                text=True,
+                                timeout=30,
+                            )
+                            return result.returncode
+                        except subprocess.TimeoutExpired:
+                            stderr_f.write("Command timed out while capturing logs.\n")
+                            return 124
 
             compose_logs_rc = _run_to_files(
                 [*cmd_base, "logs", "--no-color", "--timestamps"],
@@ -949,7 +999,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
     ) -> TaskResult:
         def prepare_docker_compose(progress: MultiTaskProgress) -> TaskResult:
-            content = renderer.render_run_crs_compose_docker_compose(
+            content, warnings = renderer.render_run_crs_compose_docker_compose(
                 self,
                 tmp_docker_compose,
                 project_name,
@@ -959,6 +1009,8 @@ class CRSCompose:
                 sanitizer=sanitizer,
                 cgroup_parents=cgroup_parents,
             )
+            for warning in warnings:
+                progress.add_note(warning)
             tmp_docker_compose.docker_compose.write_text(content)
             return TaskResult(success=True)
 

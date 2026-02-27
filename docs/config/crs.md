@@ -233,6 +233,7 @@ The `supported_target` section defines what types of targets the CRS can work wi
 | `language` | `Set[TargetLanguage]` | Yes | Supported programming languages (see [TargetLanguage](#targetlanguage)) |
 | `sanitizer` | `Set[TargetSanitizer]` | Yes | Supported sanitizers (see [TargetSanitizer](#targetsanitizer)) |
 | `architecture` | `Set[TargetArch]` | Yes | Supported CPU architectures (see [TargetArch](#targetarch)) |
+| `fuzzing_engine` | `Set[FuzzingEngine]` | No | Supported fuzzing engines (see [FuzzingEngine](#fuzzingengine)). Defaults to all engines when omitted. |
 
 ### Example
 
@@ -250,6 +251,9 @@ supported_target:
     - undefined
   architecture:
     - x86_64
+  fuzzing_engine:
+    - libfuzzer
+    - afl
 ```
 
 ---
@@ -309,3 +313,14 @@ Supported CPU architectures (based on [OSS-Fuzz architecture support](https://go
 |-------|-------------|
 | `x86_64` | 64-bit x86 architecture |
 | `i386` | 32-bit x86 architecture |
+
+### FuzzingEngine
+
+Supported fuzzing engines (based on [OSS-Fuzz fuzzing engine support](https://google.github.io/oss-fuzz/getting-started/new-project-guide/#fuzzing_engines-optional)):
+
+| Value | Description |
+|-------|-------------|
+| `libfuzzer` | LLVM libFuzzer |
+| `afl` | American Fuzzy Lop |
+| `honggfuzz` | Honggfuzz |
+| `centipede` | Centipede |

@@ -44,8 +44,8 @@ def add_target_arguments(parser):
         type=Path,
         required=True,
         help=(
-            "Path to OSS-Fuzz target project directory "
-            "(contains Dockerfile/project.yaml/build.sh). "
+            "Path to target project directory "
+            "(contains Dockerfile/build.sh; project.yaml optional). "
             "--target-path and --target-proj-path are kept as compatibility aliases."
         ),
     )
@@ -102,12 +102,6 @@ def add_build_target_command(subparsers):
         help="Build identifier used to isolate parallel builds (default: generates timestamp-based ID).",
     )
     build_target.add_argument(
-        "--sanitizer",
-        type=str,
-        default=None,
-        help="Sanitizer to use for build (default: from target config, usually 'address').",
-    )
-    build_target.add_argument(
         "--diff",
         type=Path,
         default=None,
@@ -138,12 +132,6 @@ def add_run_command(subparsers):
         type=str,
         default=None,
         help="Build identifier to use (default: uses latest build, or generates new if none exists).",
-    )
-    run.add_argument(
-        "--sanitizer",
-        type=str,
-        default=None,
-        help="Sanitizer to use (default: from target config, usually 'address').",
     )
     run.add_argument(
         "--run-id",
@@ -343,7 +331,6 @@ def cli() -> bool:
         if not crs_compose.build_target(
             target,
             build_id=args.build_id,
-            sanitizer=args.sanitizer,
             bug_candidate=bug_candidate,
             bug_candidate_dir=bug_candidate_dir,
             diff=args.diff,
@@ -366,7 +353,6 @@ def cli() -> bool:
             target,
             run_id=args.run_id,
             build_id=args.build_id,
-            sanitizer=args.sanitizer,
             pov=args.pov,
             pov_dir=args.pov_dir,
             diff=args.diff,

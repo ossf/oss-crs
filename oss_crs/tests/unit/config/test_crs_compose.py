@@ -79,6 +79,14 @@ class TestCRSEntry:
         entry = CRSEntry(cpuset="0-3", memory="8G", additional_env=None)
         assert entry.additional_env == {}
 
+    def test_additional_env_rejects_invalid_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            CRSEntry(
+                cpuset="0-3",
+                memory="8G",
+                additional_env={"BAD-KEY": "value"},
+            )
+
 
 class TestLLMConfig:
     """Tests for LLMConfig mode selection and validation."""

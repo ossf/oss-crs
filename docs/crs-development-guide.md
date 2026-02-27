@@ -634,6 +634,11 @@ libCRS run-pov /tmp/crash-input /tmp/pov-result \
 libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
 ```
 
+`run-test` contract notes:
+- Builder sidecar resolves the test script at `/OSS_CRS_PROJ_PATH/test.sh`.
+- `/OSS_CRS_PROJ_PATH` must exist inside the runtime snapshot image used by the builder sidecar.
+- If `test.sh` is missing, sidecar returns skipped-success (`exit_code=0`) by contract.
+
 ### Multi-Sanitizer Setup
 
 You can create separate snapshot builds for each sanitizer. Each builder sidecar module runs independently, so your patcher can test patches against multiple sanitizer configurations in parallel:

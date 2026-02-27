@@ -7,6 +7,7 @@ import secrets
 import yaml
 
 from ..config.crs import OSS_CRS_INFRA_PREFIX
+from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
 
 RAND_CHARS = string.ascii_lowercase + string.digits
@@ -73,7 +74,7 @@ def render_build_target_docker_compose(
     build_id: str,
     sanitizer: str,
     build_fetch_dir: Optional[Path] = None,
-) -> str:
+) -> tuple[str, list[str]]:
     """Render the docker-compose file for building a target.
 
     Args:
@@ -86,13 +87,23 @@ def render_build_target_docker_compose(
         build_fetch_dir: Optional path to build-time fetch directory.
 
     Returns:
-        str: Rendered docker-compose content as a string.
+        tuple[str, list[str]]: Rendered docker-compose content and warning notes.
     """
     template_path = CUR_DIR / "build-target.docker-compose.yaml.j2"
     target_env = target.get_target_env()
     target_env["image"] = target_base_image
     # Override sanitizer with the explicitly-passed value
     target_env["sanitizer"] = sanitizer
+    env_plan = build_target_builder_env(
+        target_env=target_env,
+        run_env_type=crs.crs_compose_env.get_env()["type"],
+        build_id=build_id,
+        crs_additional_env=crs.resource.additional_env if crs.resource else None,
+        build_additional_env=build_config.additional_env,
+        harness=target_env.get("harness"),
+        include_fetch_dir=bool(build_fetch_dir),
+        scope=f"{crs.name}:build:{build_config.name}",
+    )
     context = {
         "crs": {
             "name": crs.name,
@@ -100,7 +111,7 @@ def render_build_target_docker_compose(
             "builder_dockerfile": str(crs.crs_path / build_config.dockerfile),
             "version": crs.config.version,
         },
-        "additional_env": build_config.additional_env,
+        "effective_env": env_plan.effective_env,
         "target": target_env,
         "build_out_dir": str(build_out_dir),
         "build_id": build_id,
@@ -112,7 +123,7 @@ def render_build_target_docker_compose(
         },
         "build_fetch_dir": str(build_fetch_dir) if build_fetch_dir else None,
     }
-    return render_template(template_path, context)
+    return render_template(template_path, context), env_plan.warnings
 
 
 def prepare_llm_context(
@@ -193,18 +204,19 @@ def render_run_crs_compose_docker_compose(
     build_id: str,
     sanitizer: str,
     cgroup_parents: Optional[dict[str, str]] = None,
-) -> str:
+) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
 
     # Exchange dir is shared across all CRSs
     exchange_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
 
+    target_env = target.get_target_env()
     context = {
         "libCRS_path": str(LIBCRS_PATH),
         "crs_compose_name": crs_compose_name,
         "crs_list": crs_compose.crs_list,
         "crs_compose_env": crs_compose.crs_compose_env.get_env(),
-        "target_env": target.get_target_env(),
+        "target_env": target_env,
         "target": target,
         "work_dir": crs_compose.work_dir,
         "run_id": run_id,
@@ -221,6 +233,45 @@ def render_run_crs_compose_docker_compose(
     if llm_context:
         context["llm_context"] = llm_context
 
+    module_envs: dict[str, dict[str, str]] = {}
+    warnings: list[str] = []
+    for crs in crs_compose.crs_list:
+        for module_name, module_config in crs.config.crs_run_phase.modules.items():
+            if not module_config.dockerfile:
+                continue
+            service_name = f"{crs.name}_{module_name}"
+            include_snapshot = (
+                target.snapshot_image_tag
+                if (target.snapshot_image_tag and not module_config.run_snapshot and not crs.config.is_builder)
+                else None
+            )
+            llm_url = None
+            llm_key = None
+            if llm_context is not None and not crs.config.is_builder:
+                llm_url = llm_context.get("llm_api_url")
+                llm_key = llm_context.get("api_keys", {}).get(crs.name)
+            env_plan = build_run_service_env(
+                target_env=target_env,
+                sanitizer=sanitizer,
+                run_env_type=crs_compose.crs_compose_env.get_env()["type"],
+                crs_name=crs.name,
+                module_name=module_name,
+                run_id=run_id,
+                cpuset=crs.resource.cpuset,
+                memory_limit=crs.resource.memory,
+                module_additional_env=module_config.additional_env,
+                crs_additional_env=crs.resource.additional_env,
+                harness=target_env.get("harness"),
+                include_fetch_dir=bool(exchange_dir),
+                include_snapshot_image=include_snapshot,
+                llm_api_url=llm_url,
+                llm_api_key=llm_key,
+                scope=f"{crs.name}:run:{module_name}",
+            )
+            module_envs[service_name] = env_plan.effective_env
+            warnings.extend(env_plan.warnings)
+    context["module_envs"] = module_envs
+
     rendered = render_template(template_path, context)
 
     # Load as YAML and add common config for oss-crs-* services
@@ -236,4 +287,4 @@ def render_run_crs_compose_docker_compose(
             if service_name.startswith("oss-crs"):
                 service_config.update(common_config)
 
-    return yaml.dump(compose_data, default_flow_style=False, sort_keys=False)
+    return yaml.dump(compose_data, default_flow_style=False, sort_keys=False), warnings

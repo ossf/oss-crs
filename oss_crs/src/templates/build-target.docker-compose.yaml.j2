@@ -3,27 +3,7 @@ services:
     privileged: true
     shm_size: 2g
     environment:
-      - HELPER=True
-      - RUN_FUZZER_MODE=interactive
-      - FUZZING_ENGINE={{ target.engine }}
-      - SANITIZER={{ target.sanitizer }}
-      - ARCHITECTURE={{ target.architecture }}
-      - PROJECT_NAME={{ target.name }}
-      - FUZZING_LANGUAGE={{ target.language }}
-      - OSS_CRS_RUN_ENV_TYPE={{ crs_compose_env.type }}
-      - OSS_CRS_BUILD_ID={{ build_id }}
-      - OSS_CRS_BUILD_OUT_DIR=/OSS_CRS_BUILD_OUT_DIR
-      - OSS_CRS_TARGET={{ target.name }}
-      - OSS_CRS_PROJ_PATH=/OSS_CRS_PROJ_PATH
-      - OSS_CRS_REPO_PATH={{ target.repo_path }}
-      - OSS_CRS_TARGET_PROJ_DIR=/project_dir
-{%- if target.harness is defined %}
-      - OSS_CRS_TARGET_HARNESS={{ target.harness }}
-{%- endif %}
-{%- if build_fetch_dir %}
-      - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
-{%- endif %}
-{%- for key, value in additional_env.items() %}
+{%- for key, value in effective_env.items() %}
       - {{ key }}={{ value }}
 {%- endfor %}
     build:

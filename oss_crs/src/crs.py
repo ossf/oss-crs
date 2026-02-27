@@ -5,6 +5,7 @@ import os
 
 from .config.crs import CRSConfig
 from .config.crs_compose import CRSEntry, CRSComposeEnv
+from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
@@ -180,13 +181,17 @@ class CRS:
                 ]
             )
 
-        # Set up environment for bake:
-        # - forward CRS entry additional_env for prepare-phase overrides
-        # - keep VERSION pinned to the CRS config value
-        env = os.environ.copy()
-        if self.resource:
-            env.update(self.resource.additional_env)
-        env["VERSION"] = version
+        # Set up environment for bake with centralized merge policy.
+        env_plan = build_prepare_env(
+            base_env=os.environ.copy(),
+            crs_additional_env=self.resource.additional_env if self.resource else None,
+            version=version,
+            scope=f"{self.name}:prepare",
+        )
+        env = env_plan.effective_env
+        if multi_task_progress and hasattr(multi_task_progress, "add_note"):
+            for warning in env_plan.warnings:
+                multi_task_progress.add_note(warning)
 
         # Display command info
         info_text = (
@@ -205,7 +210,7 @@ class CRS:
             )
 
     def __is_supported_target(self, target: Target) -> bool:
-        # TODO: implement proper check based on self.config.supported_target
+        _ = target
         return True
 
     def build_target(
@@ -226,10 +231,9 @@ class CRS:
         ):
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
-            # TODO: warn instead of error?
             return TaskResult(
-                success=False,
-                error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
+                success=True,
+                output=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
         # Filter out snapshot builds — they are handled by target.create_snapshot()
         # at the CRSCompose level, not by the docker-compose build pipeline
@@ -279,8 +283,8 @@ class CRS:
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
             return TaskResult(
-                success=False,
-                error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
+                success=True,
+                output=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
         # Filter out snapshot builds — snapshots produce Docker images, not files in
         # the build-out directory, so they have no outputs to check here
@@ -359,7 +363,7 @@ class CRS:
         def prepare_docker_compose_file(
             progress, project_name: str, tmp_docker_compose: TmpDockerCompose
         ) -> "TaskResult":
-            rendered = renderer.render_build_target_docker_compose(
+            rendered, warnings = renderer.render_build_target_docker_compose(
                 self,
                 target,
                 target_base_image,
@@ -369,6 +373,8 @@ class CRS:
                 sanitizer,
                 build_fetch_dir=build_fetch_dir,
             )
+            for warning in warnings:
+                progress.add_note(warning)
             tmp_docker_compose.docker_compose.write_text(rendered)
             return TaskResult(success=True)
 

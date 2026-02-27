@@ -6,16 +6,16 @@ A target project defines the software a CRS will fuzz. It must follow the [OSS-F
 
 ```
 <project-name>/
-├── project.yaml    # Project metadata
 ├── Dockerfile      # Build environment
-└── build.sh        # Build script
+├── build.sh        # Build script
+└── project.yaml    # Optional OSS-Fuzz metadata
 ```
 
 For `Dockerfile` and `build.sh` details, see the [OSS-Fuzz guide](https://google.github.io/oss-fuzz/getting-started/new-project-guide/).
 
-## project.yaml
+## project.yaml (Optional)
 
-OSS-CRS parses `project.yaml` using the `TargetConfig` model:
+If present, `project.yaml` can provide OSS-Fuzz metadata:
 
 | Field             | Required | Default                                          | Description                                         |
 |-------------------|----------|--------------------------------------------------|-----------------------------------------------------|

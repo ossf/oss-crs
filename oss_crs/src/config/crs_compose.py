@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
+from ..env_schema import validate_additional_env_keys
 
 
 class CRSSource(BaseModel):
@@ -101,6 +102,11 @@ class CRSEntry(ResourceConfig):
     @classmethod
     def coerce_none_env(cls, v):
         return v if v is not None else {}
+
+    @field_validator("additional_env")
+    @classmethod
+    def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return validate_additional_env_keys(v, scope="CRSEntry.additional_env")
 
 
 class RunEnv(Enum):

@@ -58,6 +58,14 @@ class TestBuildConfig:
         snapshot = BuildConfig(name="build", dockerfile="Dockerfile", snapshot=True)
         assert snapshot.snapshot is True
 
+    def test_rejects_invalid_additional_env_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            BuildConfig(
+                name="build",
+                dockerfile="Dockerfile",
+                additional_env={"BAD-KEY": "value"},
+            )
+
 
 class TestCRSRunPhaseModule:
     """Tests for CRSRunPhaseModule - run phase service configuration."""
@@ -71,6 +79,13 @@ class TestCRSRunPhaseModule:
         """Non-snapshot modules must specify a Dockerfile."""
         with pytest.raises(ValidationError, match="dockerfile is required"):
             CRSRunPhaseModule(run_snapshot=False)
+
+    def test_rejects_invalid_additional_env_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            CRSRunPhaseModule(
+                run_snapshot=True,
+                additional_env={"BAD-KEY": "value"},
+            )
 
 
 def _minimal_crs_config(**overrides) -> dict:
@@ -132,4 +147,3 @@ class TestRequiredInputs:
         """A single-element list is accepted."""
         config = CRSConfig.from_dict(_minimal_crs_config(required_inputs=["pov"]))
         assert config.required_inputs == ["pov"]
-

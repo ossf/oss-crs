@@ -416,6 +416,11 @@ $ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
 $ libCRS run-test /tmp/test-result --build-id abc123 --builder builder-asan
 ```
 
+`run-test` contract notes:
+- `test.sh` is resolved by the builder sidecar at `/OSS_CRS_PROJ_PATH/test.sh`.
+- `/OSS_CRS_PROJ_PATH` must be present inside the runtime snapshot image used by the sidecar.
+- If `test.sh` is missing, the sidecar returns a skipped-success result (`exit_code=0`) by contract.
+
 ## Typical Usage in a CRS
 
 ### During Target Build Phase
