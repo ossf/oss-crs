@@ -16,6 +16,13 @@ services:
       - OSS_CRS_TARGET={{ target.name }}
       - OSS_CRS_PROJ_PATH=/OSS_CRS_PROJ_PATH
       - OSS_CRS_REPO_PATH={{ target.repo_path }}
+      - OSS_CRS_TARGET_PROJ_DIR=/project_dir
+{%- if target.harness is defined %}
+      - OSS_CRS_TARGET_HARNESS={{ target.harness }}
+{%- endif %}
+{%- if build_fetch_dir %}
+      - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
+{%- endif %}
 {%- for key, value in additional_env.items() %}
       - {{ key }}={{ value }}
 {%- endfor %}
@@ -35,3 +42,6 @@ services:
 {%- endif %}
     volumes:
       - {{build_out_dir}}:/OSS_CRS_BUILD_OUT_DIR
+{%- if build_fetch_dir %}
+      - {{ build_fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
+{%- endif %}

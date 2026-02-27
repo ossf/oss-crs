@@ -3,6 +3,7 @@ import subprocess
 import re
 import json
 import os
+import hashlib
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
@@ -102,6 +103,131 @@ class CRSCompose:
                     break  # Found at least one CRS with this build, no need to check others
         return latest_build_id
 
+    def _get_build_metadata_path(
+        self, target: Target, build_id: str, sanitizer: str, create_parent: bool = True
+    ) -> Path:
+        return self.work_dir.get_build_metadata_file(
+            target, build_id, sanitizer, create_parent=create_parent
+        )
+
+    def _write_build_metadata(
+        self,
+        target: Target,
+        build_id: str,
+        sanitizer: str,
+        diff_sha256: Optional[str],
+        bug_candidate_sha256: Optional[str],
+        input_sha256: Optional[str],
+    ) -> None:
+        metadata_path = self._get_build_metadata_path(
+            target, build_id, sanitizer, create_parent=True
+        )
+        metadata = {
+            "build_id": build_id,
+            "sanitizer": sanitizer,
+            "diff_sha256": diff_sha256,
+            "bug_candidate_sha256": bug_candidate_sha256,
+            "input_sha256": input_sha256,
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        hasher = hashlib.sha256()
+        with path.open("rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    def _hash_bug_candidate_input(
+        self,
+        bug_candidate: Optional[Path],
+        bug_candidate_dir: Optional[Path],
+    ) -> Optional[str]:
+        if bug_candidate is not None:
+            return self._hash_file(bug_candidate)
+        if bug_candidate_dir is not None:
+            hasher = hashlib.sha256()
+            for root, dirs, files in os.walk(bug_candidate_dir):
+                dirs.sort()
+                for name in sorted(files):
+                    f = Path(root) / name
+                    rel = f.relative_to(bug_candidate_dir).as_posix()
+                    file_hash = self._hash_file(f)
+                    hasher.update(rel.encode())
+                    hasher.update(b"\0")
+                    hasher.update(file_hash.encode())
+                    hasher.update(b"\n")
+            return hasher.hexdigest()
+        return None
+
+    @staticmethod
+    def _hash_directed_inputs(
+        diff_sha256: Optional[str], bug_candidate_sha256: Optional[str]
+    ) -> Optional[str]:
+        if diff_sha256 is None and bug_candidate_sha256 is None:
+            return None
+        payload = (
+            f"diff_sha256={diff_sha256 or ''}\n"
+            f"bug_candidate_sha256={bug_candidate_sha256 or ''}\n"
+        ).encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    def _read_build_metadata(
+        self, target: Target, build_id: str, sanitizer: str
+    ) -> Optional[dict]:
+        metadata_path = self._get_build_metadata_path(
+            target, build_id, sanitizer, create_parent=False
+        )
+        if not metadata_path.is_file():
+            return None
+        try:
+            content = json.loads(metadata_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not isinstance(content, dict):
+            return None
+        return content
+
+    def _prepare_build_fetch_dir(
+        self,
+        target: Target,
+        build_id: str,
+        sanitizer: str,
+        diff: Optional[Path],
+        bug_candidate: Optional[Path],
+        bug_candidate_dir: Optional[Path],
+    ) -> Optional[Path]:
+        if diff is None and bug_candidate is None and bug_candidate_dir is None:
+            return None
+        build_fetch_dir = self.work_dir.get_build_fetch_dir(
+            target, build_id, sanitizer, create=False
+        )
+        if build_fetch_dir.exists():
+            rm_with_docker(build_fetch_dir)
+        build_fetch_dir.mkdir(parents=True, exist_ok=True)
+        if diff is not None:
+            diff_subdir = build_fetch_dir / "diffs"
+            diff_subdir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(diff, diff_subdir / "ref.diff")
+        if bug_candidate is not None:
+            bc_subdir = build_fetch_dir / "bug-candidates"
+            bc_subdir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bug_candidate, bc_subdir / bug_candidate.name)
+        if bug_candidate_dir is not None:
+            bc_subdir = build_fetch_dir / "bug-candidates"
+            bc_subdir.mkdir(parents=True, exist_ok=True)
+            for f in bug_candidate_dir.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(bug_candidate_dir)
+                    dst = bc_subdir / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(f, dst)
+        return build_fetch_dir
+
     def __prepare_oss_crs_infra(
         self, publish: bool = False, docker_registry: str = None
     ) -> "TaskResult":
@@ -139,7 +265,13 @@ class CRSCompose:
         return True
 
     def build_target(
-        self, target: Target, build_id: str | None = None, sanitizer: str | None = None
+        self,
+        target: Target,
+        build_id: str | None = None,
+        sanitizer: str | None = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+        diff: Optional[Path] = None,
     ) -> bool:
         # Normalize build_id at library boundary; generate timestamp-based ID if not provided
         build_id = normalize_run_id(build_id) if build_id else generate_run_id()
@@ -175,12 +307,60 @@ class CRSCompose:
                     )
                 )
 
+        if bug_candidate is not None and bug_candidate_dir is not None:
+            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            return False
+        if bug_candidate is not None and not bug_candidate.exists():
+            print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
+            return False
+        if bug_candidate is not None and not bug_candidate.is_file():
+            print(
+                "Error: --bug-candidate must be a file. "
+                "Use --bug-candidate-dir for directories."
+            )
+            return False
+        if bug_candidate_dir is not None and not bug_candidate_dir.exists():
+            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            return False
+        if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
+            print("Error: --bug-candidate-dir must be a directory.")
+            return False
+
+        diff_sha256: Optional[str] = None
+        bug_candidate_sha256 = self._hash_bug_candidate_input(
+            bug_candidate, bug_candidate_dir
+        )
+        if diff is not None:
+            if not diff.is_file():
+                print(f"Error: Diff file does not exist: {diff}")
+                return False
+            diff_sha256 = hashlib.sha256(diff.read_bytes()).hexdigest()
+        input_sha256 = self._hash_directed_inputs(diff_sha256, bug_candidate_sha256)
+        input_hash = input_sha256[:12] if input_sha256 else None
+
+        build_fetch_dir = self._prepare_build_fetch_dir(
+            target=target,
+            build_id=build_id,
+            sanitizer=sanitizer,
+            diff=diff,
+            bug_candidate=bug_candidate,
+            bug_candidate_dir=bug_candidate_dir,
+        )
+
         for crs in self.crs_list:
             tasks.append(
                 (
                     crs.name,
                     lambda progress, crs=crs: crs.build_target(
-                        target, target_base_image, progress, build_id, sanitizer
+                        target,
+                        target_base_image,
+                        progress,
+                        build_id,
+                        sanitizer,
+                        build_fetch_dir=build_fetch_dir,
+                        diff_path=diff,
+                        bug_candidate_dir=bug_candidate if bug_candidate else bug_candidate_dir,
+                        input_hash=input_hash,
                     ),
                 )
             )
@@ -188,7 +368,17 @@ class CRSCompose:
             tasks=tasks,
             title="CRS Compose Build Target",
         ) as progress:
-            return progress.run_added_tasks().success
+            ret = progress.run_added_tasks()
+            if ret.success:
+                self._write_build_metadata(
+                    target=target,
+                    build_id=build_id,
+                    sanitizer=sanitizer,
+                    diff_sha256=diff_sha256,
+                    bug_candidate_sha256=bug_candidate_sha256,
+                    input_sha256=input_sha256,
+                )
+            return ret.success
 
         return True
 
@@ -202,6 +392,8 @@ class CRSCompose:
         pov_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
         seed_dir: Optional[Path] = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
     ) -> bool:
         # Normalize IDs at library boundary
         run_id = normalize_run_id(run_id) if run_id else generate_run_id()
@@ -218,13 +410,46 @@ class CRSCompose:
             build_id = self.get_latest_build_id(target, sanitizer)
             # build_id may be None if no builds exist yet
 
+        diff_sha256: Optional[str] = None
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
             return False
+        if diff is not None:
+            diff_sha256 = hashlib.sha256(diff.read_bytes()).hexdigest()
+        if bug_candidate is not None and bug_candidate_dir is not None:
+            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            return False
+        if bug_candidate is not None and not bug_candidate.exists():
+            print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
+            return False
+        if bug_candidate is not None and not bug_candidate.is_file():
+            print(
+                "Error: --bug-candidate must be a file. "
+                "Use --bug-candidate-dir for directories."
+            )
+            return False
+        if bug_candidate_dir is not None and not bug_candidate_dir.exists():
+            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            return False
+        if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
+            print("Error: --bug-candidate-dir must be a directory.")
+            return False
+        bug_candidate_sha256 = self._hash_bug_candidate_input(
+            bug_candidate, bug_candidate_dir
+        )
+        input_sha256 = self._hash_directed_inputs(diff_sha256, bug_candidate_sha256)
         if seed_dir is not None and not seed_dir.is_dir():
             print(f"Error: Seed directory does not exist: {seed_dir}")
             return False
-        if not self.__validate_before_run(target):
+        if not self.__validate_before_run(
+            target,
+            diff=diff,
+            pov=pov,
+            pov_dir=pov_dir,
+            seed_dir=seed_dir,
+            bug_candidate=bug_candidate,
+            bug_candidate_dir=bug_candidate_dir,
+        ):
             return False
         target.init_repo()
 
@@ -245,11 +470,41 @@ class CRSCompose:
             if check.returncode != 0:
                 need_build = True
 
+        if input_sha256 is not None and build_id and not need_build:
+            metadata = self._read_build_metadata(target, build_id, sanitizer)
+            if metadata is None:
+                print(
+                    "Error: build metadata is missing for this build. "
+                    "Rebuild with directed inputs to run directed fuzzing safely."
+                )
+                return False
+            build_input_sha256 = metadata.get("input_sha256")
+            if not build_input_sha256:
+                build_input_sha256 = self._hash_directed_inputs(
+                    metadata.get("diff_sha256"),
+                    metadata.get("bug_candidate_sha256"),
+                )
+            if build_input_sha256 != input_sha256:
+                print(
+                    "Error: directed input set does not match the one used for the selected build.\n"
+                    f"  expected_input_sha256: {build_input_sha256}\n"
+                    f"  actual_input_sha256:   {input_sha256}\n"
+                    "Rebuild with the requested directed inputs or choose a matching build-id."
+                )
+                return False
+
         if need_build:
             # Generate new build_id if we don't have one
             if not build_id:
                 build_id = generate_run_id()
-            if not self.build_target(target, build_id, sanitizer):
+            if not self.build_target(
+                target,
+                build_id,
+                sanitizer,
+                bug_candidate=bug_candidate,
+                bug_candidate_dir=bug_candidate_dir,
+                diff=diff,
+            ):
                 return False
 
         # Ensure snapshot_image_tag is set for the run phase, even if
@@ -279,29 +534,88 @@ class CRSCompose:
             diff_path=diff,
             seed_dir=seed_dir,
             cgroup_parent=cgroup_parent,
+            bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
         )
 
-    def __validate_before_run(self, target: Target) -> bool:
-        if not self.llm.exists():
-            return True
+    def _validate_required_inputs(
+        self,
+        *,
+        diff: Optional[Path] = None,
+        pov: Optional[Path] = None,
+        pov_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+    ) -> TaskResult:
+        """Validate that all CRS-declared required_inputs are provided."""
+        provided: set[str] = set()
+        if diff is not None:
+            provided.add("diff")
+        if pov is not None or pov_dir is not None:
+            provided.add("pov")
+        if seed_dir is not None:
+            provided.add("seed")
+        if bug_candidate is not None or bug_candidate_dir is not None:
+            provided.add("bug-candidate")
 
+        errors: list[str] = []
+        for crs in self.crs_list:
+            if not crs.config.required_inputs:
+                continue
+            missing = set(crs.config.required_inputs) - provided
+            if missing:
+                flags = ", ".join("--" + m for m in sorted(missing))
+                errors.append(
+                    f"CRS '{crs.name}' requires inputs {sorted(missing)} "
+                    f"but they were not provided. "
+                    f"Please provide: {flags}"
+                )
+        if errors:
+            return TaskResult(success=False, error="\n".join(errors))
+        return TaskResult(success=True)
+
+    def __validate_before_run(
+        self,
+        target: Target,
+        *,
+        diff: Optional[Path] = None,
+        pov: Optional[Path] = None,
+        pov_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+    ) -> bool:
         tasks = [
             (
-                "Validate required LLMs for CRS targets",
-                lambda _: self.llm.validate_required_llms(self.crs_list),
-            ),
-            (
-                "Validate required environment variables for LiteLLM",
-                lambda _: self.llm.validate_required_envs(),
+                "Validate required inputs for CRS targets",
+                lambda _: self._validate_required_inputs(
+                    diff=diff,
+                    pov=pov,
+                    pov_dir=pov_dir,
+                    seed_dir=seed_dir,
+                    bug_candidate=bug_candidate,
+                    bug_candidate_dir=bug_candidate_dir,
+                ),
             ),
         ]
+
+        if self.llm.exists():
+            tasks.extend([
+                (
+                    "Validate required LLMs for CRS targets",
+                    lambda _: self.llm.validate_required_llms(self.crs_list),
+                ),
+                (
+                    "Validate required environment variables for LiteLLM",
+                    lambda _: self.llm.validate_required_envs(),
+                ),
+            ])
+
         with MultiTaskProgress(
             tasks=tasks,
             title="Validate Configuration for Running",
         ) as progress:
             return progress.run_added_tasks().success
-
-        return True
 
     def __check_target_built(
         self, target: Target, build_id: str, sanitizer: str
@@ -335,6 +649,7 @@ class CRSCompose:
         diff_path: Optional[Path] = None,
         seed_dir: Optional[Path] = None,
         cgroup_parent: bool = False,
+        bug_candidate: Optional[Path] = None,
     ) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -346,6 +661,7 @@ class CRSCompose:
                 diff_path=diff_path,
                 seed_dir=seed_dir, 
                 cgroup_parent=cgroup_parent,
+                bug_candidate=bug_candidate,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -361,6 +677,7 @@ class CRSCompose:
         diff_path: Optional[Path] = None,
         seed_dir: Optional[Path] = None,
         cgroup_parent: bool = False,
+        bug_candidate: Optional[Path] = None,
     ) -> bool:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -420,6 +737,7 @@ class CRSCompose:
                             diff_path=diff_path,
                             seed_dir=seed_dir,
                             cgroup_parents=cgroup_parents,
+                            bug_candidate=bug_candidate,
                         ),
                     ),
                     (
@@ -628,6 +946,7 @@ class CRSCompose:
         diff_path: Optional[Path] = None,
         seed_dir: Optional[Path] = None,
         cgroup_parents: Optional[dict[str, str]] = None,
+        bug_candidate: Optional[Path] = None,
     ) -> TaskResult:
         def prepare_docker_compose(progress: MultiTaskProgress) -> TaskResult:
             content = renderer.render_run_crs_compose_docker_compose(
@@ -688,6 +1007,20 @@ class CRSCompose:
                     shutil.copy2(f, seed_subdir / f.name)
             return TaskResult(success=True)
 
+        def copy_bug_candidates(progress: MultiTaskProgress) -> TaskResult:
+            bc_subdir = _get_exchange_dir() / "bug-candidates"
+            bc_subdir.mkdir(parents=True, exist_ok=True)
+            if bug_candidate.is_file():
+                shutil.copy2(bug_candidate, bc_subdir / bug_candidate.name)
+            elif bug_candidate.is_dir():
+                for f in bug_candidate.rglob("*"):
+                    if f.is_file():
+                        rel = f.relative_to(bug_candidate)
+                        dst = bc_subdir / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(f, dst)
+            return TaskResult(success=True)
+
         progress.add_task("Clean up exchange directory", cleanup_exchange_dir)
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
 
@@ -699,6 +1032,9 @@ class CRSCompose:
 
         if seed_dir:
             progress.add_task("Copy seed files to exchange dir", copy_seeds)
+
+        if bug_candidate:
+            progress.add_task("Copy bug-candidate SARIF to exchange dir", copy_bug_candidates)
 
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose

@@ -105,6 +105,7 @@ Every CRS repository contains an `oss-crs/crs.yaml` file that declares:
 - **Run phase** — A set of named modules (containers) that constitute the CRS at runtime
 - **Supported targets** — Languages, sanitizers, and architectures the CRS supports
 - **Required LLMs** — Model names the CRS needs (validated against the LiteLLM config before launch)
+- **Required Inputs** — Input channels the CRS depends on (validated before container launch; e.g., `diff`, `bug-candidate`)
 
 ### Resource Isolation
 

@@ -248,6 +248,46 @@ class WorkDir:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def get_build_fetch_dir(
+        self,
+        target: Target,
+        build_id: str,
+        sanitizer: str,
+        create: bool = True,
+    ) -> Path:
+        """Get build-phase FETCH_DIR for target-scoped directed inputs.
+
+        Structure: <sanitizer>/builds/<build_id>/FETCH_DIR/<target_key>/<harness>/
+        """
+        assert target.target_harness, "target_harness must be set for build fetch dir"
+        target_key = self._get_target_key(target)
+        path = (
+            self.get_build_dir(build_id, sanitizer)
+            / "FETCH_DIR"
+            / target_key
+            / target.target_harness
+        )
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def get_build_metadata_file(
+        self,
+        target: Target,
+        build_id: str,
+        sanitizer: str,
+        create_parent: bool = True,
+    ) -> Path:
+        """Get per-target build metadata file path.
+
+        Structure: <sanitizer>/builds/<build_id>/targets/<target_key>/build-metadata.json
+        """
+        target_key = self._get_target_key(target)
+        parent = self.get_build_dir(build_id, sanitizer) / "targets" / target_key
+        if create_parent:
+            parent.mkdir(parents=True, exist_ok=True)
+        return parent / "build-metadata.json"
+
     # -------------------------------------------------------------------------
     # Metadata helpers
     # -------------------------------------------------------------------------

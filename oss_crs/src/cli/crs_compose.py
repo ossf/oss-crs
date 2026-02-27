@@ -60,6 +60,20 @@ def add_target_arguments(parser):
             "source path resolved from Dockerfile WORKDIR."
         ),
     )
+    parser.add_argument(
+        "--bug-candidate",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to a bug-candidate report file.",
+    )
+    parser.add_argument(
+        "--bug-candidate-dir",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to a directory containing bug-candidate report files.",
+    )
 
 
 def add_prepare_command(subparsers):
@@ -92,6 +106,12 @@ def add_build_target_command(subparsers):
         type=str,
         default=None,
         help="Sanitizer to use for build (default: from target config, usually 'address').",
+    )
+    build_target.add_argument(
+        "--diff",
+        type=Path,
+        default=None,
+        help="Diff file for directed build analysis, mounted into build-target containers.",
     )
 
 
@@ -311,14 +331,37 @@ def cli() -> bool:
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
+        if args.bug_candidate and args.bug_candidate_dir:
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
+            return False
+        bug_candidate = args.bug_candidate if hasattr(args, "bug_candidate") else None
+        bug_candidate_dir = (
+            args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
+        )
         if not crs_compose.build_target(
-            target, build_id=args.build_id, sanitizer=args.sanitizer
+            target,
+            build_id=args.build_id,
+            sanitizer=args.sanitizer,
+            bug_candidate=bug_candidate,
+            bug_candidate_dir=bug_candidate_dir,
+            diff=args.diff,
         ):
             return False
     elif args.command == "run":
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
+        if args.bug_candidate and args.bug_candidate_dir:
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
+            return False
+        bug_candidate = args.bug_candidate if hasattr(args, "bug_candidate") else None
+        bug_candidate_dir = (
+            args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
+        )
         if not crs_compose.run(
             target,
             run_id=args.run_id,
@@ -328,6 +371,8 @@ def cli() -> bool:
             pov_dir=args.pov_dir,
             diff=args.diff,
             seed_dir=args.seed_dir,
+            bug_candidate=bug_candidate,
+            bug_candidate_dir=bug_candidate_dir,
         ):
             return False
     elif args.command == "artifacts":

@@ -215,6 +215,10 @@ class CRS:
         progress: MultiTaskProgress,
         build_id: str,
         sanitizer: str,
+        build_fetch_dir: Optional[Path] = None,
+        diff_path: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+        input_hash: Optional[str] = None,
     ) -> "TaskResult":
         if (
             self.config.target_build_phase is None
@@ -251,6 +255,10 @@ class CRS:
                         build_id,
                         sanitizer,
                         p,
+                        build_fetch_dir=build_fetch_dir,
+                        diff_path=diff_path,
+                        bug_candidate_dir=bug_candidate_dir,
+                        input_hash=input_hash,
                     )
                 ),
             )
@@ -336,11 +344,16 @@ class CRS:
         build_id: str,
         sanitizer: str,
         progress: MultiTaskProgress,
+        build_fetch_dir: Optional[Path] = None,
+        diff_path: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+        input_hash: Optional[str] = None,
     ) -> "TaskResult":
         build_out_dir = self.work_dir.get_build_output_dir(
             self.name, target, build_id, sanitizer
         )
-        build_cache_path = build_out_dir / f".{build_name}.cache"
+        input_cache_suffix = f".{input_hash}" if input_hash else ""
+        build_cache_path = build_out_dir / f".{build_name}{input_cache_suffix}.cache"
         docker_compose_output = ""
 
         def prepare_docker_compose_file(
@@ -354,6 +367,7 @@ class CRS:
                 build_out_dir,
                 build_id,
                 sanitizer,
+                build_fetch_dir=build_fetch_dir,
             )
             tmp_docker_compose.docker_compose.write_text(rendered)
             return TaskResult(success=True)

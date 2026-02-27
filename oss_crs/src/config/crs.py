@@ -158,6 +158,9 @@ class CRSType(Enum):
     BUILDER = "builder"
 
 
+VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
+
+
 class CRSConfig(BaseModel):
     """Root configuration for a CRS."""
 
@@ -172,6 +175,7 @@ class CRSConfig(BaseModel):
     supported_target: SupportedTarget
 
     required_llms: Optional[list[str]] = Field(default=None)
+    required_inputs: Optional[list[str]] = Field(default=None)
 
     @property
     def is_builder(self) -> bool:
@@ -216,6 +220,19 @@ class CRSConfig(BaseModel):
         if v is None:
             return v
         return list(set(v))
+
+    @field_validator("required_inputs")
+    @classmethod
+    def validate_required_inputs(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is None:
+            return v
+        invalid = set(v) - VALID_REQUIRED_INPUT_NAMES
+        if invalid:
+            raise ValueError(
+                f"Unknown input names: {sorted(invalid)}. "
+                f"Valid names: {sorted(VALID_REQUIRED_INPUT_NAMES)}"
+            )
+        return list(set(v))  # Remove duplicates
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "CRSConfig":

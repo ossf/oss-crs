@@ -34,6 +34,7 @@ The root `CRSConfig` object contains the following fields:
 | `crs_run_phase` | `CRSRunPhase` | Yes | Configuration for the CRS run phase |
 | `supported_target` | `SupportedTarget` | Yes | Defines what targets this CRS supports |
 | `required_llms` | `list[string]` | No | Minimum required LLM model names (duplicates are automatically removed). This is for dependency validation, not a runtime allowlist. |
+| `required_inputs` | `list[string]` | No | Input channels this CRS requires to function. Valid names: `diff`, `pov`, `seed`, `bug-candidate`. When declared, `oss-crs run` validates that the corresponding CLI flags were provided before spawning containers. |
 
 ### Example
 
@@ -67,6 +68,9 @@ supported_target:
     - x86_64
 required_llms:
   - gpt-5
+required_inputs:
+  - diff
+  - bug-candidate
 ```
 
 ---
@@ -139,6 +143,33 @@ target_build_phase:
     additional_env:
       SANITIZER: coverage
 ```
+
+### Directed Build Inputs
+
+For directed fuzzing workflows, `oss-crs build-target` can stage input artifacts into build containers:
+
+- `--diff <file>`: provide a reference diff
+- `--bug-candidate <file>`: provide a single bug-candidate report
+- `--bug-candidate-dir <dir>`: provide a directory of bug-candidate reports
+
+When provided, these artifacts are mounted into `OSS_CRS_FETCH_DIR` during the build phase.
+Builder scripts should consume them through libCRS fetch commands, for example:
+
+```bash
+libCRS fetch diff /work/diff
+libCRS fetch bug-candidate /work/bug-candidates
+```
+
+### Input Semantics (Capability vs Requirement)
+
+OSS-CRS distinguishes between:
+
+- **Capability**: a CRS can consume a given input type through libCRS (for example `seed`, `pov`, `bug-candidate`, `diff`).
+- **Requirement**: a specific CRS needs that input to function for a given workflow.
+
+Framework-level integration expects CRS containers to support standard input channels where applicable, but input presence is still workflow-dependent.
+For example, initial seeds are optional in general OSS-CRS execution, while a directed fuzzer may require a SARIF bug-candidate to start.
+When an input is required by a CRS, validate and fail fast in CRS logic, and document the requirement in CRS-specific docs.
 
 ---
 

@@ -72,6 +72,7 @@ def render_build_target_docker_compose(
     build_out_dir: Path,
     build_id: str,
     sanitizer: str,
+    build_fetch_dir: Optional[Path] = None,
 ) -> str:
     """Render the docker-compose file for building a target.
 
@@ -82,6 +83,7 @@ def render_build_target_docker_compose(
         build_out_dir (Path): Output directory for the build.
         build_id (str): Build identifier.
         sanitizer (str): Sanitizer to use (e.g., "address", "undefined").
+        build_fetch_dir: Optional path to build-time fetch directory.
 
     Returns:
         str: Rendered docker-compose content as a string.
@@ -108,6 +110,7 @@ def render_build_target_docker_compose(
             "cpuset": crs.resource.cpuset if crs.resource else None,
             "memory": crs.resource.memory if crs.resource else None,
         },
+        "build_fetch_dir": str(build_fetch_dir) if build_fetch_dir else None,
     }
     return render_template(template_path, context)
 
