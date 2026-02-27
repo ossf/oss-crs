@@ -433,6 +433,15 @@ class CRSCompose:
         if seed_dir is not None and not seed_dir.is_dir():
             print(f"Error: Seed directory does not exist: {seed_dir}")
             return False
+        if not self._validate_required_inputs(
+            diff=diff,
+            pov=pov,
+            pov_dir=pov_dir,
+            seed_dir=seed_dir,
+            bug_candidate=bug_candidate,
+            bug_candidate_dir=bug_candidate_dir,
+        ):
+            return False
         if not self.__validate_before_run(target):
             return False
         target.init_repo()
@@ -519,6 +528,45 @@ class CRSCompose:
             seed_dir=seed_dir,
             bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
         )
+
+    def _validate_required_inputs(
+        self,
+        *,
+        diff: Optional[Path] = None,
+        pov: Optional[Path] = None,
+        pov_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+    ) -> bool:
+        """Validate that all CRS-declared required_inputs are provided.
+
+        Returns True if all requirements are satisfied (or no CRS declares any).
+        """
+        provided: set[str] = set()
+        if diff is not None:
+            provided.add("diff")
+        if pov is not None or pov_dir is not None:
+            provided.add("pov")
+        if seed_dir is not None:
+            provided.add("seed")
+        if bug_candidate is not None or bug_candidate_dir is not None:
+            provided.add("bug-candidate")
+
+        all_ok = True
+        for crs in self.crs_list:
+            if not crs.config.required_inputs:
+                continue
+            missing = set(crs.config.required_inputs) - provided
+            if missing:
+                flags = ", ".join("--" + m for m in sorted(missing))
+                print(
+                    f"Error: CRS '{crs.name}' requires inputs {sorted(missing)} "
+                    f"but they were not provided.\n"
+                    f"  Please provide: {flags}"
+                )
+                all_ok = False
+        return all_ok
 
     def __validate_before_run(self, target: Target) -> bool:
         if not self.llm.exists():
