@@ -40,7 +40,7 @@ Multiple runs can share the same build by specifying the same `--build-id`.
 - `FUZZING_ENGINE=libfuzzer`
 - `ARCHITECTURE=x86_64`
 
-Users can override these through compose-level CRS `additional_env` values. There are no dedicated CLI flags for these options.
+Users can override these through `additional_env` (CRS entry level and CRS module/build-step level). There are no dedicated CLI flags for these options.
 
 Only `sanitizer` affects artifact directory partitioning.
 

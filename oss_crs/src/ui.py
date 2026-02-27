@@ -543,7 +543,11 @@ class MultiTaskProgress:
                 remaining = self.deadline - time.monotonic()
                 if remaining <= 0:
                     process.terminate()
-                    process.wait()
+                    try:
+                        process.wait(timeout=20)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
                     error_msg = (
                         f"Deadline already exceeded before running:\n{' '.join(cmd)}"
                     )
@@ -799,20 +803,135 @@ class MultiTaskProgress:
     def docker_compose_down(
         self, project_name: str, docker_compose_path: Path
     ) -> TaskResult:
-        cmd = [
-            "docker",
-            "compose",
-            "-p",
-            project_name,
-            "-f",
-            str(docker_compose_path),
-            "down",
-            "-v",
-        ]
-        return self.run_command_with_streaming_output(
-            cmd=cmd,
-            info_text="Stopping and removing containers with docker-compose down",
-        )
+        task_name = self._current_task
+        down_error: str | None = None
+        if task_name:
+            self.__set_task_info(
+                task_name, "Stopping and removing containers with docker-compose down"
+            )
+            self.__set_cmd_info(
+                task_name,
+                "docker compose down -v --rmi local --remove-orphans",
+                str(docker_compose_path.parent),
+            )
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project_name,
+                    "-f",
+                    str(docker_compose_path),
+                    "down",
+                    "-v",
+                    "--rmi",
+                    "local",
+                    "--remove-orphans",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                down_error = (
+                    f"docker compose down failed with exit code {result.returncode}\n"
+                    f"{result.stdout or ''}\n{result.stderr or ''}"
+                ).strip()
+        except subprocess.TimeoutExpired:
+            down_error = "docker compose down timed out after 120 seconds"
+        except Exception as exc:
+            down_error = f"docker compose down failed: {exc}"
+
+        # Best effort: remove project-scoped compose-built images that can linger.
+        # We intentionally do not fail teardown if image cleanup fails.
+        try:
+            image_refs: set[str] = set()
+
+            # Prefer compose project labels when available.
+            labeled_cmd = [
+                "docker",
+                "image",
+                "ls",
+                "--filter",
+                f"label=com.docker.compose.project={project_name}",
+                "--format",
+                "{{.Repository}}:{{.Tag}}",
+            ]
+            labeled_result = subprocess.run(
+                labeled_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if labeled_result.returncode == 0:
+                image_refs.update(
+                    line.strip()
+                    for line in labeled_result.stdout.splitlines()
+                    if line.strip() and not line.strip().endswith(":<none>")
+                )
+            else:
+                self.add_note("Warning: failed to list compose-labeled images for cleanup.")
+
+            # Fallback discovery: prefix-based repository matching, then verify
+            # compose ownership by image label before deleting.
+            ls_cmd = ["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]
+            ls_result = subprocess.run(
+                ls_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if ls_result.returncode == 0:
+                prefix = f"{project_name}-"
+                for line in ls_result.stdout.splitlines():
+                    ref = line.strip()
+                    if (
+                        ref
+                        and ref.startswith(prefix)
+                        and not ref.endswith(":<none>")
+                    ):
+                        inspect_result = subprocess.run(
+                            [
+                                "docker",
+                                "image",
+                                "inspect",
+                                "--format",
+                                '{{.Id}} {{index .Config.Labels "com.docker.compose.project"}}',
+                                ref,
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        if inspect_result.returncode != 0:
+                            continue
+                        out = inspect_result.stdout.strip().split(maxsplit=1)
+                        if len(out) != 2:
+                            continue
+                        _image_id, project_label = out
+                        if project_label == project_name:
+                            image_refs.add(ref)
+            else:
+                self.add_note("Warning: failed to list docker images for cleanup fallback.")
+
+            if image_refs:
+                rm_result = subprocess.run(
+                    ["docker", "image", "rm", "-f", *sorted(image_refs)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if rm_result.returncode != 0:
+                    self.add_note("Warning: some compose images could not be removed.")
+        except Exception:
+            self.add_note("Warning: compose image cleanup encountered an error.")
+
+        if down_error is not None:
+            if task_name:
+                self.set_error_info(task_name, down_error)
+            return TaskResult(success=False, error=down_error)
+        return TaskResult(success=True)
 
 
 def _count_files(dir_path: Path) -> int:

@@ -401,7 +401,7 @@ uv run oss-crs build-target \
 # Optional: directed build inputs for target build phase
 uv run oss-crs build-target \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --diff ./ref.diff \
   --bug-candidate-dir ./bug-candidates
 
