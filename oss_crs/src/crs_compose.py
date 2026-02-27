@@ -433,7 +433,8 @@ class CRSCompose:
         if seed_dir is not None and not seed_dir.is_dir():
             print(f"Error: Seed directory does not exist: {seed_dir}")
             return False
-        if not self._validate_required_inputs(
+        if not self.__validate_before_run(
+            target,
             diff=diff,
             pov=pov,
             pov_dir=pov_dir,
@@ -441,8 +442,6 @@ class CRSCompose:
             bug_candidate=bug_candidate,
             bug_candidate_dir=bug_candidate_dir,
         ):
-            return False
-        if not self.__validate_before_run(target):
             return False
         target.init_repo()
 
@@ -538,11 +537,8 @@ class CRSCompose:
         seed_dir: Optional[Path] = None,
         bug_candidate: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
-    ) -> bool:
-        """Validate that all CRS-declared required_inputs are provided.
-
-        Returns True if all requirements are satisfied (or no CRS declares any).
-        """
+    ) -> TaskResult:
+        """Validate that all CRS-declared required_inputs are provided."""
         provided: set[str] = set()
         if diff is not None:
             provided.add("diff")
@@ -553,42 +549,64 @@ class CRSCompose:
         if bug_candidate is not None or bug_candidate_dir is not None:
             provided.add("bug-candidate")
 
-        all_ok = True
+        errors: list[str] = []
         for crs in self.crs_list:
             if not crs.config.required_inputs:
                 continue
             missing = set(crs.config.required_inputs) - provided
             if missing:
                 flags = ", ".join("--" + m for m in sorted(missing))
-                print(
-                    f"Error: CRS '{crs.name}' requires inputs {sorted(missing)} "
-                    f"but they were not provided.\n"
-                    f"  Please provide: {flags}"
+                errors.append(
+                    f"CRS '{crs.name}' requires inputs {sorted(missing)} "
+                    f"but they were not provided. "
+                    f"Please provide: {flags}"
                 )
-                all_ok = False
-        return all_ok
+        if errors:
+            return TaskResult(success=False, error="\n".join(errors))
+        return TaskResult(success=True)
 
-    def __validate_before_run(self, target: Target) -> bool:
-        if not self.llm.exists():
-            return True
-
+    def __validate_before_run(
+        self,
+        target: Target,
+        *,
+        diff: Optional[Path] = None,
+        pov: Optional[Path] = None,
+        pov_dir: Optional[Path] = None,
+        seed_dir: Optional[Path] = None,
+        bug_candidate: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+    ) -> bool:
         tasks = [
             (
-                "Validate required LLMs for CRS targets",
-                lambda _: self.llm.validate_required_llms(self.crs_list),
-            ),
-            (
-                "Validate required environment variables for LiteLLM",
-                lambda _: self.llm.validate_required_envs(),
+                "Validate required inputs for CRS targets",
+                lambda _: self._validate_required_inputs(
+                    diff=diff,
+                    pov=pov,
+                    pov_dir=pov_dir,
+                    seed_dir=seed_dir,
+                    bug_candidate=bug_candidate,
+                    bug_candidate_dir=bug_candidate_dir,
+                ),
             ),
         ]
+
+        if self.llm.exists():
+            tasks.extend([
+                (
+                    "Validate required LLMs for CRS targets",
+                    lambda _: self.llm.validate_required_llms(self.crs_list),
+                ),
+                (
+                    "Validate required environment variables for LiteLLM",
+                    lambda _: self.llm.validate_required_envs(),
+                ),
+            ])
+
         with MultiTaskProgress(
             tasks=tasks,
             title="Validate Configuration for Running",
         ) as progress:
             return progress.run_added_tasks().success
-
-        return True
 
     def __check_target_built(
         self, target: Target, build_id: str, sanitizer: str
