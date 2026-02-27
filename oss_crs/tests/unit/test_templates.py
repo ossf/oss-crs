@@ -23,7 +23,7 @@ class TestBuildTargetTemplate:
 
         context = {
             "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
-            "additional_env": {},
+            "effective_env": {},
             "target": {
                 "engine": "libfuzzer",
                 "sanitizer": "address",
@@ -53,7 +53,7 @@ class TestBuildTargetTemplate:
 
         context = {
             "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
-            "additional_env": {},
+            "effective_env": {},
             "target": {
                 "engine": "libfuzzer",
                 "sanitizer": "address",
@@ -83,7 +83,7 @@ class TestBuildTargetTemplate:
 
         context = {
             "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
-            "additional_env": {},
+            "effective_env": {},
             "target": {
                 "engine": "libfuzzer",
                 "sanitizer": "address",

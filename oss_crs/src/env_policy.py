@@ -40,7 +40,7 @@ def _resolve_env(
     if reserved_attempts:
         warning_keys = ", ".join(reserved_attempts)
         warnings.append(
-            f"ENV001 [{phase}/{scope}] Ignoring user overrides for reserved keys: {warning_keys}"
+            f"ENV001 [{phase}/{scope}] Reserved keys were provided; framework-owned values override user-provided values: {warning_keys}"
         )
     unknown_reserved = sorted(
         key

@@ -73,7 +73,6 @@ class _DummyTarget:
             "architecture": "x86_64",
         }
 
-
 class _DummyWorkDir:
     def __init__(self):
         self._base = Path("/tmp/oss-crs-test")

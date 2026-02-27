@@ -76,6 +76,33 @@ def add_target_arguments(parser):
     )
 
 
+def add_target_resolution_arguments(parser):
+    parser.add_argument(
+        "--fuzz-proj-path",
+        "--target-path",
+        "--target-proj-path",
+        dest="target_proj_path",
+        type=Path,
+        required=True,
+        help=(
+            "Path to target project directory "
+            "(contains Dockerfile/build.sh; project.yaml optional). "
+            "--target-path and --target-proj-path are kept as compatibility aliases."
+        ),
+    )
+    parser.add_argument(
+        "--target-source-path",
+        dest="target_repo_path",
+        type=Path,
+        required=False,
+        help=(
+            "Optional local source override path. "
+            "When set, oss-crs overlays this source into the effective target "
+            "source path resolved from Dockerfile WORKDIR."
+        ),
+    )
+
+
 def add_prepare_command(subparsers):
     prepare = subparsers.add_parser(
         "prepare", help="Prepare CRSs defined in CRS Compose file"
@@ -170,7 +197,7 @@ def add_artifacts_command(subparsers):
         "artifacts", help="Show directories for run artifacts (JSON output)"
     )
     add_common_arguments(artifacts)
-    add_target_arguments(artifacts)
+    add_target_resolution_arguments(artifacts)
     artifacts.add_argument(
         "--target-harness",
         type=str,
