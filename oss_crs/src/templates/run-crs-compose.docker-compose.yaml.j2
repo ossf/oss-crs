@@ -43,7 +43,6 @@ services:
       oss-crs-litellm-key-gen:
         condition: service_completed_successfully
 {%- endif %}
-{%- endif %}
 {%- if cgroup_parents and crs.name in cgroup_parents %}
     # Using cgroup-parent mode: resources managed by parent cgroup
     cgroup_parent: "{{ cgroup_parents[crs.name] }}"
