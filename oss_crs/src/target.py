@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 from .config.target import TargetConfig
 from .ui import MultiTaskProgress, TaskResult
-from .utils import generate_random_name, rm_with_docker
+from .utils import generate_random_name, rm_with_docker, log_warning
 from . import ui
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -121,7 +121,10 @@ class Target:
             return
         try:
             cfg = TargetConfig.from_yaml_file(project_yaml)
-        except Exception:
+        except Exception as exc:
+            log_warning(
+                f"Failed to parse {project_yaml}; falling back to framework defaults. ({type(exc).__name__}: {exc})"
+            )
             return
 
         self.main_repo = cfg.main_repo

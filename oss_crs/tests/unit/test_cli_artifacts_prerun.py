@@ -122,16 +122,19 @@ class _FakeWorkDir:
         )
 
 
-def _make_compose(tmp_path, resolved_run_id: str | None):
+def _make_compose(
+    tmp_path, resolved_run_id: str | None, resolved_sanitizer: str = "address"
+):
     return SimpleNamespace(
         work_dir=_FakeWorkDir(tmp_path, resolved_run_id),
         crs_list=[SimpleNamespace(name="crs-a")],
         get_latest_build_id=lambda _target, _sanitizer: None,
+        resolve_effective_sanitizer=lambda _target: resolved_sanitizer,
     )
 
 
-def _make_args(run_id: str) -> SimpleNamespace:
-    return SimpleNamespace(run_id=run_id, build_id=None, sanitizer="address")
+def _make_args(run_id: str, sanitizer: str | None = "address") -> SimpleNamespace:
+    return SimpleNamespace(run_id=run_id, build_id=None, sanitizer=sanitizer)
 
 
 def test_artifacts_accepts_prerun_run_id_and_normalizes(tmp_path, capsys) -> None:
@@ -168,3 +171,15 @@ def test_artifacts_rejects_invalid_prerun_run_id(tmp_path, capsys) -> None:
 
     err = capsys.readouterr().err
     assert "Invalid run id" in err
+
+
+def test_artifacts_resolves_default_sanitizer_from_compose(tmp_path, capsys) -> None:
+    compose = _make_compose(tmp_path, resolved_run_id=None, resolved_sanitizer="memory")
+    args = _make_args("My Pre Run", sanitizer=None)
+    target = _FakeTarget("fuzz_target")
+
+    ok = handle_artifacts(args, compose, target)
+    assert ok is True
+
+    out = capsys.readouterr().out
+    assert '"sanitizer": "memory"' in out

@@ -75,7 +75,12 @@ def select_run_id_interactively(
 def handle_artifacts(args, crs_compose, target: Target) -> bool:
     """Handle the artifacts command."""
     harness = target.target_harness
-    sanitizer = args.sanitizer
+    if args.sanitizer is not None:
+        sanitizer = args.sanitizer
+    else:
+        sanitizer = crs_compose.resolve_effective_sanitizer(target)
+        if sanitizer is None:
+            return False
     work_dir = crs_compose.work_dir
 
     # run_id for SUBMIT/FETCH/SHARED dirs.

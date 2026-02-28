@@ -98,7 +98,7 @@ oss-crs artifacts \
 **Default behavior:**
 - `--run-id`: Interactive selection if omitted
 - `--build-id`: Reads from the run's `BUILD_ID` file, falls back to latest build by sanitizer (timestamp in ID if present, otherwise build directory mtime)
-- `--sanitizer`: Defaults to `address`
+- `--sanitizer`: If omitted, resolves from compose/project defaults (`SANITIZER` in CRS-entry `additional_env` -> `project.yaml` -> `address`)
 
 **Resolution behavior:**
 - `--run-id` supports pre-run deterministic resolution (if the run does not exist yet, paths are still computed)

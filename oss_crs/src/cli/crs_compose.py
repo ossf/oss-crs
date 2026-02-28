@@ -187,8 +187,8 @@ def add_artifacts_command(subparsers):
     artifacts.add_argument(
         "--sanitizer",
         type=str,
-        default="address",
-        help="Sanitizer used for artifact paths (default: 'address').",
+        default=None,
+        help="Sanitizer used for artifact paths (default: resolved from compose/project.yaml, else 'address').",
     )
     artifacts.add_argument(
         "--run-id",

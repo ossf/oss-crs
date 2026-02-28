@@ -73,11 +73,39 @@ class CRSCompose:
         *,
         sanitizer: str | None = None,
     ) -> tuple[str, str, str] | None:
+        target_env = target.get_target_env()
+        if sanitizer is not None:
+            return (
+                sanitizer,
+                target_env.get("engine", Target.DEFAULT_ENGINE),
+                target_env.get("architecture", Target.DEFAULT_ARCHITECTURE),
+            )
+        compose_sanitizers: set[str] = set()
+        for crs in self.crs_list:
+            if crs.resource and crs.resource.additional_env:
+                v = crs.resource.additional_env.get("SANITIZER")
+                if v:
+                    compose_sanitizers.add(str(v))
+        if len(compose_sanitizers) > 1:
+            print(
+                "Error: conflicting SANITIZER values in compose additional_env: "
+                + ", ".join(sorted(compose_sanitizers))
+            )
+            return None
+        compose_sanitizer = next(iter(compose_sanitizers), None)
         return (
-            sanitizer or Target.DEFAULT_SANITIZER,
-            Target.DEFAULT_ENGINE,
-            Target.DEFAULT_ARCHITECTURE,
+            compose_sanitizer or target_env.get("sanitizer", Target.DEFAULT_SANITIZER),
+            target_env.get("engine", Target.DEFAULT_ENGINE),
+            target_env.get("architecture", Target.DEFAULT_ARCHITECTURE),
         )
+
+    def resolve_effective_sanitizer(
+        self, target: Target, sanitizer: str | None = None
+    ) -> str | None:
+        resolved = self._resolve_target_build_options(target, sanitizer=sanitizer)
+        if resolved is None:
+            return None
+        return resolved[0]
 
     def set_deadline(self, deadline: float) -> None:
         self.deadline = deadline
