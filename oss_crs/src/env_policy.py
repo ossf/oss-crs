@@ -117,7 +117,9 @@ def build_target_builder_env(
     return _resolve_env(
         phase="build",
         base_env=base_env,
-        user_layers=[crs_additional_env, build_additional_env],
+        # Keep user (compose entry) precedence consistent across phases.
+        # build_additional_env from crs.yaml acts as default/fallback.
+        user_layers=[build_additional_env, crs_additional_env],
         system_env=system_env,
         scope=scope,
     )

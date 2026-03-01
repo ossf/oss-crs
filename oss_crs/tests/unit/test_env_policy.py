@@ -16,7 +16,7 @@ def test_prepare_env_keeps_version_pinned() -> None:
     assert any("ENV001" in warning for warning in plan.warnings)
 
 
-def test_build_target_env_allows_build_key_override_but_not_reserved_keys() -> None:
+def test_build_target_env_compose_overrides_build_step_and_system_wins() -> None:
     plan = build_target_builder_env(
         target_env={
             "engine": "libfuzzer",
@@ -36,7 +36,8 @@ def test_build_target_env_allows_build_key_override_but_not_reserved_keys() -> N
         },
         scope="test:build",
     )
-    assert plan.effective_env["SANITIZER"] == "undefined"
+    # Compose entry (user) wins over crs.yaml build-step env for user keys.
+    assert plan.effective_env["SANITIZER"] == "memory"
     assert plan.effective_env["OSS_CRS_BUILD_ID"] == "b123"
     assert any("ENV001" in warning for warning in plan.warnings)
     assert any("ENV002" in warning for warning in plan.warnings)
