@@ -335,6 +335,8 @@ class Target:
                 "docker",
                 "buildx",
                 "build",
+                "--build-arg",
+                "BUILDKIT_SYNTAX=docker/dockerfile:1",
                 "--build-context",
                 f"repo_path={self.repo_path}",
                 "-t",
