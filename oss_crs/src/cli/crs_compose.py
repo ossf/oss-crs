@@ -96,6 +96,13 @@ def add_build_target_command(subparsers):
     add_common_arguments(build_target)
     add_target_arguments(build_target)
     build_target.add_argument(
+        "--target-harness",
+        type=str,
+        required=False,
+        default=None,
+        help="Specify the target harness (required when using --bug-candidate or --diff).",
+    )
+    build_target.add_argument(
         "--build-id",
         type=str,
         default=None,
