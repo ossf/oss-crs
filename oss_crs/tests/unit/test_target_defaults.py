@@ -34,9 +34,29 @@ def test_target_env_uses_project_yaml_when_available(tmp_path: Path) -> None:
     target = Target(tmp_path / "work", proj, None)
     env = target.get_target_env()
     assert env["language"] == "jvm"
+    # When "address" is NOT in the list, use first entry
     assert env["sanitizer"] == "memory"
     assert env["architecture"] == "i386"
     assert env["engine"] == "afl"
+
+
+def test_target_env_prefers_address_sanitizer_when_listed(tmp_path: Path) -> None:
+    """When 'address' is in the sanitizers list, prefer it over first entry."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text(
+        "\n".join(
+            [
+                "language: c",
+                "sanitizers: [memory, address, undefined]",
+            ]
+        )
+        + "\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    env = target.get_target_env()
+    # "address" is preferred even though "memory" is first
+    assert env["sanitizer"] == "address"
 
 
 def test_target_env_falls_back_when_project_yaml_invalid(tmp_path: Path) -> None:

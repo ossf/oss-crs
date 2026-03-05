@@ -41,9 +41,10 @@ Multiple runs can share the same build by specifying the same `--build-id`.
 - `ARCHITECTURE=x86_64`
 - `FUZZING_LANGUAGE=c`
 
-If `project.yaml` exists and is parseable, its values are used as fallback target defaults. Users can override through `additional_env` (CRS entry level and CRS module/build-step level). There are no dedicated `build-target`/`run` CLI flags for these options; `artifacts` has optional `--sanitizer` for artifact path resolution.
+If `project.yaml` exists and is parseable, its values are used as fallback target defaults. Users can override through `additional_env` (CRS entry level and CRS module/build-step level), or by using the `--sanitizer` CLI flag on `build-target`, `run`, and `artifacts` commands. The CLI flag takes highest precedence when provided.
 
 Effective precedence:
+- CLI `--sanitizer` flag (highest priority when provided)
 - compose CRS-entry `additional_env` (user)
 - CRS module/build-step `additional_env` (`crs.yaml`)
 - `project.yaml` fallback values

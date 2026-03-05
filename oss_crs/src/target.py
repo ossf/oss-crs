@@ -10,7 +10,7 @@ import git
 import fcntl
 from contextlib import contextmanager
 
-from .config.target import TargetConfig
+from .config.target import TargetConfig, TargetSanitizer
 from .ui import MultiTaskProgress, TaskResult
 from .utils import generate_random_name, rm_with_docker, log_warning
 from . import ui
@@ -132,7 +132,11 @@ class Target:
         if cfg.fuzzing_engines:
             self.engine = cfg.fuzzing_engines[0].value
         if cfg.sanitizers:
-            self.sanitizer = cfg.sanitizers[0].value
+            # Prefer "address" if listed; otherwise use first entry
+            if TargetSanitizer.ASAN in cfg.sanitizers:
+                self.sanitizer = TargetSanitizer.ASAN.value
+            else:
+                self.sanitizer = cfg.sanitizers[0].value
         if cfg.architectures:
             self.architecture = cfg.architectures[0].value
 
