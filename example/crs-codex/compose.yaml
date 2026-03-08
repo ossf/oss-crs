@@ -32,4 +32,7 @@ crs-codex:
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
-  litellm_config: ./example/crs-codex/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-codex/litellm-config.yaml

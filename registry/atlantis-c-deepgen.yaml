@@ -1,0 +1,6 @@
+name: atlantis-c-deepgen
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/atlantis-c-libafl-snapshot.git
+  ref: deepgen

@@ -5,6 +5,7 @@ import os
 
 from .config.crs import CRSConfig
 from .config.crs_compose import CRSEntry, CRSComposeEnv
+from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
@@ -14,13 +15,19 @@ from .workdir import WorkDir
 CRS_YAML_PATH = "oss-crs/crs.yaml"
 
 
-def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exists: bool = False) -> bool:
+def init_crs_repo(
+    name,
+    repo_url: str,
+    branch: str,
+    dest_path: Path,
+    skip_if_exists: bool = False,
+) -> TaskResult:
     # Use file lock to prevent race conditions when multiple runs access same CRS repo
     lock_path = dest_path.parent / f".{name}.lock"
     with file_lock(lock_path):
         # Skip init if repo exists and skip_if_exists is True
         if skip_if_exists and dest_path.exists():
-            return True
+            return TaskResult(success=True)
 
         tasks = []
         if dest_path.exists():
@@ -28,8 +35,8 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 (
                     "Git Fetch",
                     lambda progress: progress.run_command_with_streaming_output(
-                    cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
-                        cwd=dest_path
+                        cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
+                        cwd=dest_path,
                     ),
                 ),
                 (
@@ -58,7 +65,7 @@ def init_crs_repo(name, repo_url: str, branch: str, dest_path: Path, skip_if_exi
                 ),
             ]
         with MultiTaskProgress(tasks, title=f"Init CRS: {name}") as progress:
-            return progress.run_added_tasks().success
+            return progress.run_added_tasks()
 
 
 class CRS:
@@ -83,9 +90,19 @@ class CRS:
         else:
             # crs_src is a sibling directory to the work_dir
             path = work_dir.path / "../crs_src" / name
-            if init_crs_repo(name, entry.source.url, entry.source.ref, path, skip_if_exists=skip_init):
+            init_result = init_crs_repo(
+                name,
+                entry.source.url,
+                entry.source.ref,
+                path,
+                skip_if_exists=skip_init,
+            )
+            if init_result.success:
                 return cls(name, path, work_dir, entry, crs_compose_env)
-        raise ValueError(f"Failed to initialize CRS from entry: {name}")
+            detail = init_result.error or "unknown repository initialization error"
+            raise ValueError(
+                f"Failed to initialize CRS from entry: {name}; reason: {detail}"
+            )
 
     def __init__(
         self,
@@ -164,9 +181,17 @@ class CRS:
                 ]
             )
 
-        # Set up environment with VERSION
-        env = os.environ.copy()
-        env["VERSION"] = version
+        # Set up environment for bake with centralized merge policy.
+        env_plan = build_prepare_env(
+            base_env=os.environ.copy(),
+            crs_additional_env=self.resource.additional_env if self.resource else None,
+            version=version,
+            scope=f"{self.name}:prepare",
+        )
+        env = env_plan.effective_env
+        if multi_task_progress and hasattr(multi_task_progress, "add_note"):
+            for warning in env_plan.warnings:
+                multi_task_progress.add_note(warning)
 
         # Display command info
         info_text = (
@@ -185,7 +210,7 @@ class CRS:
             )
 
     def __is_supported_target(self, target: Target) -> bool:
-        # TODO: implement proper check based on self.config.supported_target
+        _ = target
         return True
 
     def build_target(
@@ -195,14 +220,20 @@ class CRS:
         progress: MultiTaskProgress,
         build_id: str,
         sanitizer: str,
+        build_fetch_dir: Optional[Path] = None,
+        diff_path: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+        input_hash: Optional[str] = None,
     ) -> "TaskResult":
-        if self.config.target_build_phase is None or not self.config.target_build_phase.builds:
+        if (
+            self.config.target_build_phase is None
+            or not self.config.target_build_phase.builds
+        ):
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
-            # TODO: warn instead of error?
             return TaskResult(
-                success=False,
-                error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
+                success=True,
+                output=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
         # Filter out snapshot builds — they are handled by target.create_snapshot()
         # at the CRSCompose level, not by the docker-compose build pipeline
@@ -211,7 +242,9 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        build_work_dir = self.work_dir.get_crs_build_dir(self.name, target, build_id, sanitizer)
+        build_work_dir = self.work_dir.get_crs_build_dir(
+            self.name, target, build_id, sanitizer
+        )
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -226,6 +259,10 @@ class CRS:
                         build_id,
                         sanitizer,
                         p,
+                        build_fetch_dir=build_fetch_dir,
+                        diff_path=diff_path,
+                        bug_candidate_dir=bug_candidate_dir,
+                        input_hash=input_hash,
                     )
                 ),
             )
@@ -239,12 +276,15 @@ class CRS:
         build_id: str,
         sanitizer: str,
     ) -> TaskResult:
-        if self.config.target_build_phase is None or not self.config.target_build_phase.builds:
+        if (
+            self.config.target_build_phase is None
+            or not self.config.target_build_phase.builds
+        ):
             return TaskResult(success=True)
         if not self.__is_supported_target(target):
             return TaskResult(
-                success=False,
-                error=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
+                success=True,
+                output=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
         # Filter out snapshot builds — snapshots produce Docker images, not files in
         # the build-out directory, so they have no outputs to check here
@@ -253,7 +293,9 @@ class CRS:
         ]
         if not non_snapshot_builds:
             return TaskResult(success=True)
-        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
+        build_out_dir = self.work_dir.get_build_output_dir(
+            self.name, target, build_id, sanitizer
+        )
         for build_config in non_snapshot_builds:
             build_name = build_config.name
             progress.add_task(
@@ -306,15 +348,22 @@ class CRS:
         build_id: str,
         sanitizer: str,
         progress: MultiTaskProgress,
+        build_fetch_dir: Optional[Path] = None,
+        diff_path: Optional[Path] = None,
+        bug_candidate_dir: Optional[Path] = None,
+        input_hash: Optional[str] = None,
     ) -> "TaskResult":
-        build_out_dir = self.work_dir.get_build_output_dir(self.name, target, build_id, sanitizer)
-        build_cache_path = build_out_dir / f".{build_name}.cache"
+        build_out_dir = self.work_dir.get_build_output_dir(
+            self.name, target, build_id, sanitizer
+        )
+        input_cache_suffix = f".{input_hash}" if input_hash else ""
+        build_cache_path = build_out_dir / f".{build_name}{input_cache_suffix}.cache"
         docker_compose_output = ""
 
         def prepare_docker_compose_file(
             progress, project_name: str, tmp_docker_compose: TmpDockerCompose
         ) -> "TaskResult":
-            rendered = renderer.render_build_target_docker_compose(
+            rendered, warnings = renderer.render_build_target_docker_compose(
                 self,
                 target,
                 target_base_image,
@@ -322,7 +371,10 @@ class CRS:
                 build_out_dir,
                 build_id,
                 sanitizer,
+                build_fetch_dir=build_fetch_dir,
             )
+            for warning in warnings:
+                progress.add_note(warning)
             tmp_docker_compose.docker_compose.write_text(rendered)
             return TaskResult(success=True)
 

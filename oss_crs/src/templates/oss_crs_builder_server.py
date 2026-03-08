@@ -13,6 +13,7 @@ to prevent races on shared source tree state. Build artifacts are
 saved per job ID at /builds/{job_id}/out/ so multiple builds can
 coexist and be tested independently.
 """
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -31,11 +32,37 @@ job_queue: queue.Queue = queue.Queue()
 job_results: dict = {}
 
 BUILDS_DIR = Path("/builds")
+PREBUILT_OUT_DIR = Path("/OSS_CRS_BUILD_OUT_DIR/build")
+OSS_CRS_PROJ_PATH = Path(os.environ.get("OSS_CRS_PROJ_PATH", "/OSS_CRS_PROJ_PATH"))
 
 
 def _ignore_build_junk(directory, contents):
     """Skip source/git directories when copying build artifacts — only binaries needed."""
     return [c for c in contents if c in (".git", "src")]
+
+
+def _seed_base_out_if_needed() -> tuple[bool, str]:
+    """Create /builds/base/out from prebuilt incremental build artifacts."""
+    base_out = BUILDS_DIR / "base" / "out"
+    if base_out.exists():
+        return True, f"Base build artifacts already exist: {base_out}"
+    if not PREBUILT_OUT_DIR.exists():
+        return False, f"Prebuilt output path is missing: {PREBUILT_OUT_DIR}"
+    if not PREBUILT_OUT_DIR.is_dir():
+        return False, f"Prebuilt output path is not a directory: {PREBUILT_OUT_DIR}"
+    try:
+        if not any(PREBUILT_OUT_DIR.iterdir()):
+            return False, f"Prebuilt output directory is empty: {PREBUILT_OUT_DIR}"
+    except Exception as exc:
+        return False, f"Failed to inspect prebuilt output directory: {exc}"
+    base_out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copytree(str(PREBUILT_OUT_DIR), str(base_out), dirs_exist_ok=True)
+    except Exception as exc:
+        return False, f"Failed to copy prebuilt artifacts into {base_out}: {exc}"
+    msg = f"Seeded base build artifacts from prebuilt output: {PREBUILT_OUT_DIR}"
+    print(msg)
+    return True, msg
 
 
 class JobSubmitResponse(BaseModel):
@@ -110,12 +137,16 @@ async def submit_run_pov(
     if not _HARNESS_NAME_RE.match(harness_name):
         return JSONResponse(
             status_code=400,
-            content={"error": "Invalid harness_name: must be alphanumeric, hyphens, underscores, or dots only"},
+            content={
+                "error": "Invalid harness_name: must be alphanumeric, hyphens, underscores, or dots only"
+            },
         )
     if not _BUILD_ID_RE.match(build_id):
         return JSONResponse(
             status_code=400,
-            content={"error": "Invalid build_id: must be alphanumeric, hyphens, or underscores only"},
+            content={
+                "error": "Invalid build_id: must be alphanumeric, hyphens, or underscores only"
+            },
         )
     build_out = BUILDS_DIR / build_id / "out"
     if not build_out.exists():
@@ -146,7 +177,9 @@ async def submit_run_test(
     if not _BUILD_ID_RE.match(build_id):
         return JSONResponse(
             status_code=400,
-            content={"error": "Invalid build_id: must be alphanumeric, hyphens, or underscores only"},
+            content={
+                "error": "Invalid build_id: must be alphanumeric, hyphens, or underscores only"
+            },
         )
     build_out = BUILDS_DIR / build_id / "out"
     if not build_out.exists():
@@ -180,17 +213,23 @@ def get_job_status(job_id: str):
 # Job handlers (run inside the worker thread)
 # ---------------------------------------------------------------------------
 
+
 def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     """Apply patch and compile via oss_crs_handler.sh."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
             capture_output=True,
             text=True,
             timeout=600,
         )
-    except subprocess.TimeoutExpired:
-        return {"build_exit_code": 1, "build_log": "Build timed out"}
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "build_exit_code": 1,
+            "build_log": "Build timed out",
+            "build_stdout": exc.stdout or "",
+            "build_stderr": exc.stderr or "",
+        }
 
     response = {}
     for name, key, parse in [
@@ -201,6 +240,14 @@ def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
         if f.exists():
             response[key] = parse(f.read_text().strip())
     response.setdefault("build_exit_code", 1)
+    response["build_stdout"] = result.stdout or ""
+    response["build_stderr"] = result.stderr or ""
+    response.setdefault(
+        "build_log",
+        "\n".join(
+            part for part in [response["build_stdout"], response["build_stderr"]] if part
+        ),
+    )
 
     # Save build artifacts for later POV/test runs
     if response["build_exit_code"] == 0:
@@ -251,6 +298,7 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "pov_exit_code": 124,
+            "pov_stdout": "",
             "pov_stderr": "POV execution timed out",
         }
 
@@ -260,11 +308,12 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     build_id = (req_dir / "build_id").read_text().strip()
     test_timeout = int(os.environ.get("TEST_TIMEOUT", "120"))
 
-    test_path = Path("/project_dir/test.sh")
+    test_path = OSS_CRS_PROJ_PATH / "test.sh"
     if not test_path.exists():
         return {
             "test_exit_code": 0,
-            "test_stderr": "skipped: no test.sh found in /project_dir/",
+            "test_stdout": "",
+            "test_stderr": f"skipped: no test.sh found in {OSS_CRS_PROJ_PATH}/",
         }
 
     build_out = BUILDS_DIR / build_id / "out"
@@ -282,11 +331,13 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
         )
         return {
             "test_exit_code": result.returncode,
+            "test_stdout": result.stdout,
             "test_stderr": result.stderr,
         }
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         return {
             "test_exit_code": 124,
+            "test_stdout": exc.stdout or "",
             "test_stderr": "Test execution timed out",
         }
 
@@ -326,46 +377,32 @@ if __name__ == "__main__":
     try:
         result = subprocess.run(
             ["libCRS", "register-shared-dir", str(BUILDS_DIR), "builds"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
     except subprocess.CalledProcessError as exc:
-        print(f"Warning: libCRS register-shared-dir failed (rc={exc.returncode}): {exc.stderr.strip()}")
+        print(
+            f"Warning: libCRS register-shared-dir failed (rc={exc.returncode}): {exc.stderr.strip()}"
+        )
         BUILDS_DIR.mkdir(parents=True, exist_ok=True)
     except FileNotFoundError:
         print("Warning: libCRS not found, falling back to local mkdir")
         BUILDS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Build the unpatched source once at startup so run-pov can reproduce
-    # crashes with --build-id base without a prior /build call.
+    # Seed the unpatched base build from prebuilt incremental build artifacts
+    # mounted at /OSS_CRS_BUILD_OUT_DIR/build by oss-crs compose.
+    # This avoids relying on startup compile side effects to populate /out.
     base_out = BUILDS_DIR / "base" / "out"
     if not base_out.exists():
-        print("Building base (unpatched) artifacts...")
-        req_dir = Path("/tmp/base_build_req")
-        resp_dir = Path("/tmp/base_build_resp")
-        req_dir.mkdir(parents=True, exist_ok=True)
-        resp_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            # Pre-configure git safe.directory to avoid "dubious ownership" errors.
-            subprocess.run(
-                ["git", "config", "--global", "--add", "safe.directory", "*"],
-                capture_output=True,
+        seeded, reason = _seed_base_out_if_needed()
+        if not seeded:
+            raise RuntimeError(
+                "Failed to initialize base build from prebuilt artifacts.\n"
+                f"Reason: {reason}\n"
+                "Expected: /OSS_CRS_BUILD_OUT_DIR/build is a non-empty directory "
+                "mounted by oss-crs compose."
             )
-            result = subprocess.run(
-                ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
-                capture_output=True, text=True, timeout=600,
-            )
-            out_files = list(Path("/out").iterdir()) if Path("/out").exists() else []
-            if out_files:
-                base_out.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree("/out", str(base_out), ignore=_ignore_build_junk, dirs_exist_ok=True)
-                print("Base build complete: %s" % base_out)
-            else:
-                print("Warning: /out is empty after compile, base build skipped")
-        except Exception as exc:
-            print("Warning: base build failed: %s" % exc)
-        finally:
-            shutil.rmtree(req_dir, ignore_errors=True)
-            shutil.rmtree(resp_dir, ignore_errors=True)
 
     threading.Thread(target=job_worker, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=8080)

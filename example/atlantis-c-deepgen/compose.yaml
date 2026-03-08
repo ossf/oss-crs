@@ -1,0 +1,30 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#          Example for atlantis-c-libafl-snapshot (bug-finding)              #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (atlantis-c-libafl-snapshot) ---------------------------------------
+# LibAFL fuzzer with DeepGen LLM-powered seed generation
+# Uses multi-core CPU splitting: 1-2 cores for DeepGen, rest for fuzzer
+atlantis-c-deepgen:
+  cpuset: "0-8"
+  memory: "32G"
+  llm_budget: 100
+  additional_env:
+    # DeepGen can use multiple models with weights (format: model:weight,model:weight)
+    # Default: claude-sonnet-4-20250514:1
+    LLM_MODELS: "claude-sonnet-4-5-20250929:1"
+    # SANITIZER: undefined
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/atlantis-c-deepgen/litellm-config.yaml

@@ -3,19 +3,7 @@ services:
     privileged: true
     shm_size: 2g
     environment:
-      - HELPER=True
-      - RUN_FUZZER_MODE=interactive
-      - FUZZING_ENGINE={{ target.engine }}
-      - SANITIZER={{ target.sanitizer }}
-      - ARCHITECTURE={{ target.architecture }}
-      - PROJECT_NAME={{ target.name }}
-      - FUZZING_LANGUAGE={{ target.language }}
-      - OSS_CRS_RUN_ENV_TYPE={{ crs_compose_env.type }}
-      - OSS_CRS_BUILD_ID={{ build_id }}
-      - OSS_CRS_BUILD_OUT_DIR=/OSS_CRS_BUILD_OUT_DIR
-      - OSS_CRS_TARGET={{ target.name }}
-      - OSS_CRS_TARGET_PROJ_DIR=/project_dir
-{%- for key, value in additional_env.items() %}
+{%- for key, value in effective_env.items() %}
       - {{ key }}={{ value }}
 {%- endfor %}
     build:
@@ -26,5 +14,14 @@ services:
         - crs_version={{ crs.version }}
       additional_contexts:
         libcrs: {{ libCRS_path }}
+{%- if resource.cpuset %}
+    cpuset: "{{ resource.cpuset }}"
+{%- endif %}
+{%- if resource.memory %}
+    mem_limit: "{{ resource.memory }}"
+{%- endif %}
     volumes:
       - {{build_out_dir}}:/OSS_CRS_BUILD_OUT_DIR
+{%- if build_fetch_dir %}
+      - {{ build_fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
+{%- endif %}

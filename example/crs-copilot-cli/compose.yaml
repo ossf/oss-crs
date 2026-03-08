@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#             Example for crs-copilot-cli (bug-fixing)                       #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-copilot-cli) -------------------------------------------------
+# Builder sidecar is declared in crs.yaml (inc-builder-asan with run_snapshot: true).
+# No separate oss-crs-builder compose entry needed.
+crs-copilot-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here.
+    CRS_AGENT: copilot_cli
+    COPILOT_MODEL: gpt-5.3-codex
+    COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
+    # COPILOT_SUBSCRIPTION_TOKEN: ${COPILOT_SUBSCRIPTION_TOKEN}  # Compatibility alias
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-copilot-cli/litellm-config.yaml

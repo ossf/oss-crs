@@ -29,4 +29,7 @@ crs-gemini-cli:
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
-  litellm_config: ./example/crs-gemini-cli/litellm-config.yaml
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-gemini-cli/litellm-config.yaml

@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 from oss_crs.src.config.crs import (
+    CRSConfig,
     PreparePhase,
     BuildConfig,
     CRSRunPhaseModule,
@@ -57,6 +58,14 @@ class TestBuildConfig:
         snapshot = BuildConfig(name="build", dockerfile="Dockerfile", snapshot=True)
         assert snapshot.snapshot is True
 
+    def test_rejects_invalid_additional_env_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            BuildConfig(
+                name="build",
+                dockerfile="Dockerfile",
+                additional_env={"BAD-KEY": "value"},
+            )
+
 
 class TestCRSRunPhaseModule:
     """Tests for CRSRunPhaseModule - run phase service configuration."""
@@ -70,3 +79,71 @@ class TestCRSRunPhaseModule:
         """Non-snapshot modules must specify a Dockerfile."""
         with pytest.raises(ValidationError, match="dockerfile is required"):
             CRSRunPhaseModule(run_snapshot=False)
+
+    def test_rejects_invalid_additional_env_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            CRSRunPhaseModule(
+                run_snapshot=True,
+                additional_env={"BAD-KEY": "value"},
+            )
+
+
+def _minimal_crs_config(**overrides) -> dict:
+    """Return minimal valid CRSConfig dict, with optional overrides."""
+    base = {
+        "name": "test-crs",
+        "type": ["bug-finding"],
+        "version": "1.0.0",
+        "crs_run_phase": {
+            "main": {"dockerfile": "Dockerfile"},
+        },
+        "supported_target": {
+            "mode": ["full"],
+            "language": ["c"],
+            "sanitizer": ["address"],
+            "architecture": ["x86_64"],
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+class TestRequiredInputs:
+    """Tests for required_inputs field validation."""
+
+    def test_none_by_default(self):
+        """required_inputs defaults to None when not specified."""
+        config = CRSConfig.from_dict(_minimal_crs_config())
+        assert config.required_inputs is None
+
+    def test_accepts_valid_input_names(self):
+        """All valid input names are accepted."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(required_inputs=["diff", "pov", "seed", "bug-candidate"])
+        )
+        assert set(config.required_inputs) == {"diff", "pov", "seed", "bug-candidate"}
+
+    def test_removes_duplicates(self):
+        """Duplicate input names are removed."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(required_inputs=["diff", "diff", "pov"])
+        )
+        assert len(config.required_inputs) == 2
+        assert set(config.required_inputs) == {"diff", "pov"}
+
+    def test_rejects_unknown_input_names(self):
+        """Unknown input names raise a validation error."""
+        with pytest.raises(ValidationError, match="Unknown input names"):
+            CRSConfig.from_dict(
+                _minimal_crs_config(required_inputs=["diff", "unknown-input"])
+            )
+
+    def test_empty_list_accepted(self):
+        """required_inputs=[] is valid and distinct from None."""
+        config = CRSConfig.from_dict(_minimal_crs_config(required_inputs=[]))
+        assert config.required_inputs == []
+
+    def test_single_item_accepted(self):
+        """A single-element list is accepted."""
+        config = CRSConfig.from_dict(_minimal_crs_config(required_inputs=["pov"]))
+        assert config.required_inputs == ["pov"]
