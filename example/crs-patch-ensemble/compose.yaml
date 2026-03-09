@@ -39,6 +39,8 @@ crs-patch-ensemble:
   cpuset: "20-23"
   memory: "8G"
   llm_budget: 10
+  additional_env:
+    ANTHROPIC_MODEL: claude-sonnet-4-6
 
 # --- LLM Configuration -----------------------------------------------------
 llm_config:
