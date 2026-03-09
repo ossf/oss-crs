@@ -544,29 +544,6 @@ class CRSCompose:
             if check.returncode != 0:
                 need_build = True
 
-        if input_sha256 is not None and build_id and not need_build:
-            metadata = self._read_build_metadata(target, build_id, sanitizer)
-            if metadata is None:
-                print(
-                    "Error: build metadata is missing for this build. "
-                    "Rebuild with directed inputs to run directed fuzzing safely."
-                )
-                return False
-            build_input_sha256 = metadata.get("input_sha256")
-            if not build_input_sha256:
-                build_input_sha256 = self._hash_directed_inputs(
-                    metadata.get("diff_sha256"),
-                    metadata.get("bug_candidate_sha256"),
-                )
-            if build_input_sha256 != input_sha256:
-                print(
-                    "Error: directed input set does not match the one used for the selected build.\n"
-                    f"  expected_input_sha256: {build_input_sha256}\n"
-                    f"  actual_input_sha256:   {input_sha256}\n"
-                    "Rebuild with the requested directed inputs or choose a matching build-id."
-                )
-                return False
-
         if need_build:
             # Generate new build_id if we don't have one
             if not build_id:

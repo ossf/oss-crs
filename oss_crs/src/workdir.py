@@ -257,16 +257,10 @@ class WorkDir:
     ) -> Path:
         """Get build-phase FETCH_DIR for target-scoped directed inputs.
 
-        Structure: <sanitizer>/builds/<build_id>/FETCH_DIR/<target_key>/<harness>/
+        Structure: <sanitizer>/builds/<build_id>/FETCH_DIR/<target_key>/
         """
-        assert target.target_harness, "target_harness must be set for build fetch dir"
         target_key = self._get_target_key(target)
-        path = (
-            self.get_build_dir(build_id, sanitizer)
-            / "FETCH_DIR"
-            / target_key
-            / target.target_harness
-        )
+        path = self.get_build_dir(build_id, sanitizer) / "FETCH_DIR" / target_key
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
