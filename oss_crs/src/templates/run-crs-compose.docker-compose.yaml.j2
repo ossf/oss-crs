@@ -67,6 +67,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 15s
+{%- elif crs.resource and not crs.resource.attach %}
+    attach: false
 {%- endif %}
     networks:
       {{ crs_compose_name }}-{{ crs.name }}-network:

@@ -96,6 +96,7 @@ class CRSEntry(ResourceConfig):
     """
 
     source: Optional[CRSSource] = None
+    attach: bool = True
     additional_env: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("additional_env", mode="before")
