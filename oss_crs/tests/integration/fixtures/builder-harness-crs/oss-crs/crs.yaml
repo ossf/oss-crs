@@ -1,0 +1,25 @@
+name: builder-harness
+type:
+  - bug-fixing
+version: "1.0.0"
+docker_registry: local
+
+target_build_phase:
+  - name: snapshot
+    dockerfile: oss-crs-infra:default-builder
+    snapshot: true
+
+crs_run_phase: {}
+
+supported_target:
+  mode:
+    - full
+    - delta
+  language:
+    - c
+    - c++
+    - jvm
+  sanitizer:
+    - address
+  architecture:
+    - x86_64
