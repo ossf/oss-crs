@@ -183,6 +183,45 @@ def test_compose_sanitizer_wins_over_snapshot_build_step_sanitizer(
     assert crs.build_sanitizers == ["memory"]
 
 
+class TestPatchEnsembleAutoAttach:
+    """Tests for auto-attach=false when a patch-ensemble CRS is present."""
+
+    @staticmethod
+    def _make_crs(*, is_ensemble=False, is_builder=False, attach=True):
+        config = SimpleNamespace(is_ensemble=is_ensemble, is_builder=is_builder)
+        resource = SimpleNamespace(attach=attach)
+        return SimpleNamespace(name="crs", config=config, resource=resource)
+
+    def test_ensemble_sets_attach_false_on_other_crs(self):
+        patch_crs = self._make_crs()
+        patch_ensemble_crs = self._make_crs(is_ensemble=True)
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [patch_crs, patch_ensemble_crs]
+        compose._apply_patch_ensemble_auto_attach()
+
+        assert patch_crs.resource.attach is False
+        assert patch_ensemble_crs.resource.attach is True  # ensemble itself unchanged
+
+    def test_no_ensemble_leaves_attach_unchanged(self):
+        crs_a = self._make_crs()
+        crs_b = self._make_crs()
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [crs_a, crs_b]
+        compose._apply_patch_ensemble_auto_attach()
+
+        assert crs_a.resource.attach is True
+        assert crs_b.resource.attach is True
+
+    def test_builder_not_affected_by_auto_attach(self):
+        builder = self._make_crs(is_builder=True)
+        patch_ensemble_crs = self._make_crs(is_ensemble=True)
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [builder, patch_ensemble_crs]
+        compose._apply_patch_ensemble_auto_attach()
+
+        assert builder.resource.attach is True
+
+
 def test_explicit_sanitizer_wins_over_conflicting_compose_sanitizers(monkeypatch) -> None:
     compose = _make_compose_with_two_crs(
         {"SANITIZER": "memory"},
