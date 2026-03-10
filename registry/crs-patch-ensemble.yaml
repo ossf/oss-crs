@@ -1,0 +1,6 @@
+name: crs-patch-ensemble
+type:
+  - bug-fixing-ensemble
+source:
+  url: https://github.com/Team-Atlanta/crs-patch-ensemble.git
+  ref: main

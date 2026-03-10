@@ -1,0 +1,48 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#        Ensemble test: crs-claude-code + crs-codex + crs-patch-ensemble     #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (crs-claude-code) -------------------------------------------------
+crs-claude-code:
+  cpuset: "4-11"
+  memory: "16G"
+  llm_budget: 10
+
+  additional_env:
+    CRS_AGENT: claude_code
+    ANTHROPIC_MODEL: claude-sonnet-4-6
+
+# --- CRS (crs-codex) -------------------------------------------------------
+crs-codex:
+  cpuset: "12-19"
+  memory: "16G"
+  llm_budget: 10
+
+  additional_env:
+    CRS_AGENT: codex
+    CODEX_MODEL: gpt-5.2-codex
+
+# --- CRS (crs-patch-ensemble) ----------------------------------------------
+crs-patch-ensemble:
+  cpuset: "20-23"
+  memory: "8G"
+  llm_budget: 10
+  additional_env:
+    ANTHROPIC_MODEL: claude-sonnet-4-6
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-patch-ensemble/litellm-config.yaml

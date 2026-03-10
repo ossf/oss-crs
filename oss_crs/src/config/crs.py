@@ -162,6 +162,7 @@ class CRSType(Enum):
     BUG_FINDING = "bug-finding"
     BUG_FIXING = "bug-fixing"
     BUILDER = "builder"
+    BUG_FIXING_ENSEMBLE = "bug-fixing-ensemble"
 
 
 VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
@@ -186,6 +187,14 @@ class CRSConfig(BaseModel):
     @property
     def is_builder(self) -> bool:
         return CRSType.BUILDER in self.type
+
+    @property
+    def is_bug_fixing(self) -> bool:
+        return CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
+
+    @property
+    def is_bug_fixing_ensemble(self) -> bool:
+        return CRSType.BUG_FIXING_ENSEMBLE in self.type
 
     @property
     def snapshot_builds(self) -> list[BuildConfig]:

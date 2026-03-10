@@ -67,6 +67,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 15s
+{%- elif bug_fix_ensemble and not crs.config.is_bug_fixing_ensemble and not crs.config.is_builder %}
+    attach: false
 {%- endif %}
     networks:
       {{ crs_compose_name }}-{{ crs.name }}-network:
@@ -157,10 +159,38 @@ services:
     volumes:
       - {{ exchange_dir }}:/exchange:rw
 {%- for crs in crs_list %}
-{%- if not crs.config.is_builder %}
+{%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
 {%- endfor %}
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+{%- endif %}
+  ###########################################
+  # OSS-CRS-LIFECYCLE SIDECAR
+  ###########################################
+{#- Collect non-builder, non-snapshot, non-ensemble bug-fixing CRS services #}
+{%- set watch_services = [] %}
+{%- for crs in crs_list %}
+{%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble and crs.config.is_bug_fixing %}
+{%- for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
+{%- if module_config.dockerfile and not module_config.run_snapshot %}
+{%- if watch_services.append(crs.name ~ "_" ~ module_name) %}{% endif %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- if bug_fix_ensemble and exchange_dir and watch_services %}
+  oss-crs-lifecycle:
+    build:
+      context: {{ oss_crs_infra_root_path }}/lifecycle
+    attach: false
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - {{ exchange_dir }}:/exchange:rw
+    environment:
+      - COMPOSE_PROJECT={{ crs_compose_name }}
+      - WATCH_SERVICES={{ watch_services | join(",") }}
     networks:
       {{ crs_compose_name }}-infra-only-network:
 {%- endif %}

@@ -6,7 +6,7 @@ import string
 import secrets
 import yaml
 
-from ..config.crs import OSS_CRS_INFRA_PREFIX
+from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
 from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
 
@@ -207,8 +207,19 @@ def render_run_crs_compose_docker_compose(
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
 
-    # Exchange dir is shared across all CRSs
-    exchange_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
+    # Deployment conditions for infra sidecars
+    bug_finding_crs_count = sum(
+        1 for crs in crs_compose.crs_list
+        if CRSType.BUG_FINDING in crs.config.type and not crs.config.is_builder
+    )
+    bug_finding_ensemble = bug_finding_crs_count > 1
+    bug_fix_ensemble = any(crs.config.is_bug_fixing_ensemble for crs in crs_compose.crs_list)
+    needs_exchange = bug_finding_ensemble or bug_fix_ensemble
+    exchange_dir = (
+        str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
+        if needs_exchange
+        else ""
+    )
 
     target_env = target.get_target_env()
     context = {
@@ -226,6 +237,8 @@ def render_run_crs_compose_docker_compose(
         "snapshot_image_tag": target.snapshot_image_tag or "",
         "resolve_dockerfile": _resolve_module_dockerfile,
         "exchange_dir": exchange_dir,
+        "bug_finding_ensemble": bug_finding_ensemble,
+        "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
     }
 
