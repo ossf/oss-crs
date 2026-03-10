@@ -159,7 +159,7 @@ services:
     volumes:
       - {{ exchange_dir }}:/exchange:rw
 {%- for crs in crs_list %}
-{%- if not crs.config.is_builder %}
+{%- if not crs.config.is_builder and not crs.config.is_ensemble %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
 {%- endfor %}
@@ -169,10 +169,10 @@ services:
   ###########################################
   # OSS-CRS-LIFECYCLE SIDECAR
   ###########################################
-{#- Collect non-builder, non-snapshot services from bug-fixing CRSes (excluding ensembles) #}
+{#- Collect non-builder, non-snapshot, non-ensemble bug-fixing CRS services #}
 {%- set watch_services = [] %}
 {%- for crs in crs_list %}
-{%- if not crs.config.is_builder and not crs.config.is_ensemble %}
+{%- if not crs.config.is_builder and not crs.config.is_ensemble and crs.config.is_bug_fixing %}
 {%- for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
 {%- if module_config.dockerfile and not module_config.run_snapshot %}
 {%- if watch_services.append(crs.name ~ "_" ~ module_name) %}{% endif %}
@@ -180,7 +180,7 @@ services:
 {%- endfor %}
 {%- endif %}
 {%- endfor %}
-{%- if exchange_dir and watch_services %}
+{%- if bug_fix_ensemble and exchange_dir and watch_services %}
   oss-crs-lifecycle:
     build:
       context: {{ oss_crs_infra_root_path }}/lifecycle

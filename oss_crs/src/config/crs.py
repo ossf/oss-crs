@@ -189,6 +189,10 @@ class CRSConfig(BaseModel):
         return CRSType.BUILDER in self.type
 
     @property
+    def is_bug_fixing(self) -> bool:
+        return CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
+
+    @property
     def is_ensemble(self) -> bool:
         return CRSType.BUG_FIXING_ENSEMBLE in self.type
 

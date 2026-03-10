@@ -147,3 +147,77 @@ class TestRequiredInputs:
         """A single-element list is accepted."""
         config = CRSConfig.from_dict(_minimal_crs_config(required_inputs=["pov"]))
         assert config.required_inputs == ["pov"]
+
+
+class TestCRSTypeProperties:
+    """Tests for CRSConfig type-based properties."""
+
+    def test_bug_finding_is_not_bug_fixing(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-finding"]))
+        assert config.is_bug_fixing is False
+        assert config.is_ensemble is False
+
+    def test_bug_fixing(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-fixing"]))
+        assert config.is_bug_fixing is True
+        assert config.is_ensemble is False
+
+    def test_bug_fixing_ensemble_implies_bug_fixing(self):
+        """bug-fixing-ensemble alone is sufficient — no need to also list bug-fixing."""
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-fixing-ensemble"]))
+        assert config.is_bug_fixing is True
+        assert config.is_ensemble is True
+
+
+class TestSidecarDeploymentConditions:
+    """Tests for exchange/lifecycle sidecar deployment logic.
+
+    These conditions are computed in renderer.py and passed to the run template.
+    We test the logic directly here to avoid heavy template rendering setup.
+    """
+
+    @staticmethod
+    def _configs(*type_lists) -> list[CRSConfig]:
+        return [
+            CRSConfig.from_dict(_minimal_crs_config(name=f"crs-{i}", type=types))
+            for i, types in enumerate(type_lists)
+        ]
+
+    @staticmethod
+    def _compute_conditions(configs):
+        from oss_crs.src.config.crs import CRSType
+
+        bug_finding_count = sum(
+            1 for c in configs
+            if CRSType.BUG_FINDING in c.type and not c.is_builder
+        )
+        bug_finding_ensemble = bug_finding_count > 1
+        bug_fix_ensemble = any(c.is_ensemble for c in configs)
+        needs_exchange = bug_finding_ensemble or bug_fix_ensemble
+        return bug_finding_ensemble, bug_fix_ensemble, needs_exchange
+
+    def test_single_bug_fixing_no_sidecars(self):
+        """Single bug-fixing CRS needs no exchange or lifecycle."""
+        configs = self._configs(["bug-fixing"])
+        bf_ens, bfix_ens, exchange = self._compute_conditions(configs)
+        assert bf_ens is False
+        assert bfix_ens is False
+        assert exchange is False
+
+    def test_multiple_bug_finding_gets_exchange_only(self):
+        """Multiple bug-finding CRSes need exchange but not lifecycle."""
+        configs = self._configs(["bug-finding"], ["bug-finding"])
+        bf_ens, bfix_ens, exchange = self._compute_conditions(configs)
+        assert bf_ens is True
+        assert bfix_ens is False
+        assert exchange is True
+
+    def test_bug_fix_ensemble_gets_exchange_and_lifecycle(self):
+        """Bug-fix ensemble scenario needs both exchange and lifecycle."""
+        configs = self._configs(
+            ["bug-fixing"], ["bug-fixing"], ["bug-fixing-ensemble"],
+        )
+        bf_ens, bfix_ens, exchange = self._compute_conditions(configs)
+        assert bf_ens is False
+        assert bfix_ens is True
+        assert exchange is True
