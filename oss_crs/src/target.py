@@ -282,6 +282,9 @@ class Target:
 
         If the working directory is clean, returns the current commit hash.
         Otherwise, returns a hash combining the commit hash and the diff of changes.
+        Benchmark-side Dockerfile/build.sh/test.sh are always folded into the
+        result so project script changes invalidate cached images even when the
+        target source repo itself is unchanged.
         When no repo is available, delegates to __get_proj_hash().
         """
         if self.repo_hash is not None:
@@ -293,16 +296,18 @@ class Target:
 
         repo = git.Repo(self.repo_path)
         commit_hash = repo.head.commit.hexsha
+        proj_hash = self.__get_proj_hash()
+
+        hasher = hashlib.sha256()
+        hasher.update(commit_hash.encode())
+        hasher.update(f"\n--- project-hash\n{proj_hash}\n".encode())
 
         # Check if working directory is clean
         if not repo.is_dirty(untracked_files=True):
-            self.repo_hash = commit_hash[:12]
+            self.repo_hash = hasher.hexdigest()[:12]
             return self.repo_hash
 
-        # Dirty working directory - combine commit hash with changes
-        hasher = hashlib.sha256()
-        hasher.update(commit_hash.encode())
-
+        # Dirty working directory - combine commit hash, project hash, and repo changes.
         # Get list of changed tracked files (modified + deleted + staged)
         changed_files = set()
         # Unstaged changes
