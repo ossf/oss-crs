@@ -37,7 +37,12 @@ stricter subset of Keep a Changelog).
 - Removed legacy CLI alias `--target-repo-path`; use `--target-source-path`.
 
 ### Fixed
-- N/A
+- The local run path now passes a `Path` compose-file object consistently into
+  `docker_compose_up()`, so helper-sidecar teardown classification applies on
+  the main local run path.
+- `libCRS download-source repo` now prefers the live runtime source workspace
+  (`$SRC` / `/src`) over build-output snapshots and preserves workspace layout
+  consistently for nested `WORKDIR` targets.
 
 ### Security
 - N/A
