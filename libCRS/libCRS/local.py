@@ -127,9 +127,7 @@ class LocalCRSUtils(CRSUtils):
         if not candidate.exists() or not source_root.exists():
             return None
 
-        try:
-            candidate.relative_to(source_root)
-        except ValueError:
+        if not candidate.is_relative_to(source_root):
             return candidate if candidate.exists() else None
 
         repo_dir = source_root / "repo"
