@@ -33,7 +33,7 @@ def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
     - File path: resolved relative to crs_path
     """
     if dockerfile.startswith(OSS_CRS_INFRA_PREFIX):
-        module_name = dockerfile[len(OSS_CRS_INFRA_PREFIX):]
+        module_name = dockerfile[len(OSS_CRS_INFRA_PREFIX) :]
         return str(OSS_CRS_ROOT_PATH / "oss-crs-infra" / module_name / "Dockerfile")
     return str(crs_path / dockerfile)
 
@@ -209,17 +209,17 @@ def render_run_crs_compose_docker_compose(
 
     # Deployment conditions for infra sidecars
     bug_finding_crs_count = sum(
-        1 for crs in crs_compose.crs_list
+        1
+        for crs in crs_compose.crs_list
         if CRSType.BUG_FINDING in crs.config.type and not crs.config.is_builder
     )
     bug_finding_ensemble = bug_finding_crs_count > 1
-    bug_fix_ensemble = any(crs.config.is_bug_fixing_ensemble for crs in crs_compose.crs_list)
-    needs_exchange = bug_finding_ensemble or bug_fix_ensemble
-    exchange_dir = (
-        str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
-        if needs_exchange
-        else ""
+    bug_fix_ensemble = any(
+        crs.config.is_bug_fixing_ensemble for crs in crs_compose.crs_list
     )
+    needs_exchange = bug_finding_ensemble or bug_fix_ensemble
+    fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
+    exchange_dir = fetch_dir if needs_exchange else ""
 
     target_env = target.get_target_env()
     context = {
@@ -236,6 +236,7 @@ def render_run_crs_compose_docker_compose(
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
         "snapshot_image_tag": target.snapshot_image_tag or "",
         "resolve_dockerfile": _resolve_module_dockerfile,
+        "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
@@ -255,7 +256,11 @@ def render_run_crs_compose_docker_compose(
             service_name = f"{crs.name}_{module_name}"
             include_snapshot = (
                 target.snapshot_image_tag
-                if (target.snapshot_image_tag and not module_config.run_snapshot and not crs.config.is_builder)
+                if (
+                    target.snapshot_image_tag
+                    and not module_config.run_snapshot
+                    and not crs.config.is_builder
+                )
                 else None
             )
             llm_url = None
@@ -275,7 +280,7 @@ def render_run_crs_compose_docker_compose(
                 module_additional_env=module_config.additional_env,
                 crs_additional_env=crs.resource.additional_env,
                 harness=target_env.get("harness"),
-                include_fetch_dir=bool(exchange_dir),
+                include_fetch_dir=bool(fetch_dir),
                 include_snapshot_image=include_snapshot,
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,

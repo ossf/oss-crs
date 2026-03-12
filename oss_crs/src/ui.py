@@ -1,10 +1,13 @@
+import json
 import subprocess
 import time
 import threading
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional
 
+import yaml
 from rich.console import Console, Group
 
 from .utils import bold, get_console, green, log_error, yellow
@@ -13,6 +16,8 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+FRAMEWORK_HELPER_SERVICE_PREFIX = "oss-crs-"
 
 
 class TaskStatus(Enum):
@@ -721,6 +726,15 @@ class MultiTaskProgress:
         project_name: str,
         docker_compose_path: Path,
     ) -> TaskResult:
+        helper_services = self._get_teardown_helper_services(docker_compose_path)
+        (
+            event_lines,
+            stop_event_collection,
+            event_collection_started,
+        ) = self._start_compose_event_collection(project_name, docker_compose_path)
+        running_helpers_before_stop = self._get_running_helper_services(
+            project_name, docker_compose_path, helper_services
+        )
         cmd = [
             "docker",
             "compose",
@@ -755,11 +769,18 @@ class MultiTaskProgress:
             )
         except subprocess.TimeoutExpired:
             pass
+        stop_event_collection()
+        if event_collection_started and event_lines:
+            ignored_helper_exit_services = self._get_ignored_helper_exit_services(
+                event_lines, helper_services
+            )
+        else:
+            ignored_helper_exit_services = running_helpers_before_stop
 
         # If compose returned success, double-check no containers failed
         if result.success:
             check_result = self._check_failed_containers(
-                project_name, docker_compose_path
+                project_name, docker_compose_path, ignored_helper_exit_services
             )
             if not check_result.success:
                 check_result.error = result.output + "\n\n" + check_result.error
@@ -768,7 +789,10 @@ class MultiTaskProgress:
         return result
 
     def _check_failed_containers(
-        self, project_name: str, docker_compose_path: Path
+        self,
+        project_name: str,
+        docker_compose_path: Path,
+        ignored_helper_exit_services: Optional[set[str]] = None,
     ) -> TaskResult:
         """Check if any containers exited with non-zero exit code."""
         cmd = [
@@ -781,16 +805,30 @@ class MultiTaskProgress:
             "ps",
             "-a",
             "--format",
-            "{{.Name}}:{{.ExitCode}}",
+            "{{.Service}}:{{.ExitCode}}:{{.Name}}",
         ]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
             failed_containers = []
             for line in result.stdout.strip().split("\n"):
-                if ":" in line:
-                    name, exit_code = line.rsplit(":", 1)
-                    if exit_code.strip() not in ("", "0"):
-                        failed_containers.append(f"{name} (exit {exit_code})")
+                if not line.strip():
+                    continue
+                parts = line.split(":", 2)
+                if len(parts) == 3:
+                    service_name, exit_code, name = parts
+                elif len(parts) == 2:
+                    service_name = ""
+                    name, exit_code = parts
+                else:
+                    continue
+                exit_code = exit_code.strip()
+                if exit_code in ("", "0"):
+                    continue
+                if service_name in (
+                    ignored_helper_exit_services or set()
+                ) and exit_code in {"137", "143"}:
+                    continue
+                failed_containers.append(f"{name} (exit {exit_code})")
             if failed_containers:
                 error_msg = "Containers exited with errors:\n" + "\n".join(
                     failed_containers
@@ -799,6 +837,219 @@ class MultiTaskProgress:
         except Exception:
             pass  # If check fails, assume success
         return TaskResult(success=True)
+
+    def _get_teardown_helper_services(self, docker_compose_path: Path) -> set[str]:
+        """Return helper services whose teardown exits should not fail the run."""
+        try:
+            compose_data = yaml.safe_load(docker_compose_path.read_text()) or {}
+        except Exception:
+            return set()
+
+        services = compose_data.get("services", {})
+        helper_services = set()
+        for service_name, service_config in services.items():
+            if not isinstance(service_config, dict):
+                continue
+            # Framework-managed helper sidecars must keep the reserved
+            # "oss-crs-" prefix so teardown classification can exempt their
+            # expected non-zero exits during compose shutdown.
+            if service_name.startswith(FRAMEWORK_HELPER_SERVICE_PREFIX):
+                helper_services.add(service_name)
+                continue
+            if service_config.get("attach") is False and (
+                "restart" in service_config or "healthcheck" in service_config
+            ):
+                helper_services.add(service_name)
+        return helper_services
+
+    def _start_compose_event_collection(
+        self, project_name: str, docker_compose_path: Path
+    ) -> tuple[list[str], Callable[[], None], bool]:
+        event_lines: list[str] = []
+        event_process = None
+        event_thread = None
+        started = False
+
+        try:
+            event_process = subprocess.Popen(
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project_name,
+                    "-f",
+                    str(docker_compose_path),
+                    "events",
+                    "--json",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+
+            def _collect_events() -> None:
+                if event_process is None or event_process.stdout is None:
+                    return
+                for line in iter(event_process.stdout.readline, ""):
+                    line = line.strip()
+                    if line:
+                        event_lines.append(line)
+
+            event_thread = threading.Thread(target=_collect_events, daemon=True)
+            event_thread.start()
+            started = True
+        except Exception:
+            event_process = None
+            event_thread = None
+
+        def _stop_collection() -> None:
+            if event_process is None:
+                return
+            try:
+                event_process.terminate()
+                event_process.wait(timeout=5)
+            except Exception:
+                try:
+                    event_process.kill()
+                    event_process.wait(timeout=5)
+                except Exception:
+                    pass
+            if event_thread is not None:
+                event_thread.join(timeout=5)
+
+        return event_lines, _stop_collection, started
+
+    def _get_running_helper_services(
+        self,
+        project_name: str,
+        docker_compose_path: Path,
+        helper_services: set[str],
+    ) -> set[str]:
+        if not helper_services:
+            return set()
+
+        cmd = [
+            "docker",
+            "compose",
+            "-p",
+            project_name,
+            "-f",
+            str(docker_compose_path),
+            "ps",
+            "--format",
+            "{{.Service}}",
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except Exception:
+            return set()
+
+        running = {
+            line.strip()
+            for line in result.stdout.splitlines()
+            if line.strip() in helper_services
+        }
+        return running
+
+    def _get_ignored_helper_exit_services(
+        self, event_lines: list[str], helper_services: set[str]
+    ) -> set[str]:
+        if not event_lines or not helper_services:
+            return set()
+
+        die_events: list[tuple[int, str, str, bool]] = []
+        for line in event_lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if event.get("type") != "container" or event.get("action") != "die":
+                continue
+
+            attrs = event.get("attributes", {})
+            service_name = (
+                event.get("service")
+                or attrs.get("service")
+                or attrs.get("com.docker.compose.service")
+            )
+            if not service_name:
+                continue
+
+            exit_code = str(attrs.get("exitCode", event.get("exitCode", ""))).strip()
+            event_time = self._parse_compose_event_time(event)
+            if event_time == 0:
+                continue
+            die_events.append(
+                (event_time, service_name, exit_code, service_name in helper_services)
+            )
+
+        primary_success_time = min(
+            (
+                event_time
+                for event_time, _service_name, exit_code, is_helper in die_events
+                if not is_helper and exit_code == "0"
+            ),
+            default=None,
+        )
+
+        if primary_success_time is None:
+            return set()
+
+        helper_failures_before_primary: set[str] = set()
+        helper_signal_exits_after_primary: set[str] = set()
+        for event_time, service_name, exit_code, is_helper in sorted(die_events):
+            if not is_helper:
+                continue
+            if event_time < primary_success_time:
+                if exit_code not in ("", "0"):
+                    helper_failures_before_primary.add(service_name)
+                continue
+            if exit_code in {"137", "143"}:
+                helper_signal_exits_after_primary.add(service_name)
+
+        return helper_signal_exits_after_primary - helper_failures_before_primary
+
+    def _parse_compose_event_time(self, event: dict) -> int:
+        time_nano = event.get("timeNano")
+        if isinstance(time_nano, int):
+            return time_nano
+        if isinstance(time_nano, str) and time_nano.isdigit():
+            return int(time_nano)
+
+        raw_time = event.get("time")
+        if isinstance(raw_time, int):
+            return raw_time * 1_000_000_000
+        if isinstance(raw_time, float):
+            return int(raw_time * 1_000_000_000)
+        if isinstance(raw_time, str):
+            stripped = raw_time.strip()
+            if stripped.isdigit():
+                return int(stripped) * 1_000_000_000
+            try:
+                normalized = stripped
+                if normalized.endswith("Z"):
+                    normalized = normalized[:-1] + "+00:00"
+                if "." in normalized:
+                    main, suffix = normalized.split(".", 1)
+                    frac = suffix
+                    tz = ""
+                    for marker in ("+", "-"):
+                        idx = frac.find(marker)
+                        if idx != -1:
+                            tz = frac[idx:]
+                            frac = frac[:idx]
+                            break
+                    frac = (frac[:6]).ljust(6, "0")
+                    normalized = f"{main}.{frac}{tz}"
+                dt = datetime.fromisoformat(normalized)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return int(dt.timestamp() * 1_000_000_000)
+            except ValueError:
+                return 0
+        return 0
 
     def docker_compose_down(
         self, project_name: str, docker_compose_path: Path
@@ -871,7 +1122,9 @@ class MultiTaskProgress:
                     if line.strip() and not line.strip().endswith(":<none>")
                 )
             else:
-                self.add_note("Warning: failed to list compose-labeled images for cleanup.")
+                self.add_note(
+                    "Warning: failed to list compose-labeled images for cleanup."
+                )
 
             # Fallback discovery: prefix-based repository matching, then verify
             # compose ownership by image label before deleting.
@@ -886,11 +1139,7 @@ class MultiTaskProgress:
                 prefix = f"{project_name}-"
                 for line in ls_result.stdout.splitlines():
                     ref = line.strip()
-                    if (
-                        ref
-                        and ref.startswith(prefix)
-                        and not ref.endswith(":<none>")
-                    ):
+                    if ref and ref.startswith(prefix) and not ref.endswith(":<none>"):
                         inspect_result = subprocess.run(
                             [
                                 "docker",
@@ -913,7 +1162,9 @@ class MultiTaskProgress:
                         if project_label == project_name:
                             image_refs.add(ref)
             else:
-                self.add_note("Warning: failed to list docker images for cleanup fallback.")
+                self.add_note(
+                    "Warning: failed to list docker images for cleanup fallback."
+                )
 
             if image_refs:
                 rm_result = subprocess.run(

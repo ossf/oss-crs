@@ -1118,7 +1118,7 @@ class CRSCompose:
         progress: MultiTaskProgress,
     ) -> TaskResult:
         ret = progress.docker_compose_up(
-            project_name, str(tmp_docker_compose.docker_compose)
+            project_name, tmp_docker_compose.docker_compose
         )
         if ret.success:
             return ret

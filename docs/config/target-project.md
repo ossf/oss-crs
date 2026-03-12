@@ -61,6 +61,10 @@ Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/proj
   the target image.
 - `WORKDIR` resolution follows Dockerfile semantics, with fallback chain:
   final `WORKDIR` -> `$SRC` -> `/src` (when `SRC` is not provided).
+- `libCRS download-source repo` prefers the live runtime source workspace
+  rooted at `$SRC`/`/src`. When `OSS_CRS_REPO_PATH` is inside that workspace,
+  the downloaded tree preserves the workspace layout rather than flattening a
+  nested `WORKDIR`.
 - When `--target-source-path` is set, the override source is synchronized into
   `OSS_CRS_REPO_PATH` via `rsync -a --delete`.
 

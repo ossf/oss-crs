@@ -615,6 +615,10 @@ my-patcher-crs:
 
 No separate `oss-crs-builder` entry is needed — each CRS declares its own builder sidecars in `crs.yaml`.
 
+Framework-generated helper sidecars reserve the `oss-crs-` service-name prefix.
+If you add new OSS-CRS-managed helper containers, keep that prefix so teardown
+classification treats their expected shutdown exits as non-fatal.
+
 ### Using Builder Commands in Your Patcher
 
 ```bash

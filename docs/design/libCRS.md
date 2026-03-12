@@ -160,7 +160,7 @@ $ libCRS download-source <target|repo> <dst_path>
 | Argument | Description |
 |---|---|
 | `target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
-| `repo` | Source from `OSS_CRS_REPO_PATH` (effective target source path) |
+| `repo` | Source from the live repo workspace rooted at `$SRC` / `/src`, using `OSS_CRS_REPO_PATH` as the effective workdir hint |
 | `dst_path` | Destination path inside the container |
 
 **Example** — Retrieve effective source tree for patch analysis:
