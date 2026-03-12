@@ -39,6 +39,7 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_BUILD_OUT_DIR` | Shared filesystem path for build outputs |
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
+| `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
 | `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) |
 
@@ -57,12 +58,12 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 │                                       │                  │
 └───────────────────────────────────────┼──────────────────┘
                                         │
-               ┌────────────┬───────────┼──────────┐
-               ▼            ▼           ▼          ▼
-          ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌─────────┐
-          │  Build  │ │ Submit / │ │ Shared  │ │ Network │
-          │ Output  │ │  Fetch   │ │   FS    │ │ (DNS)   │
-          └─────────┘ └──────────┘ └─────────┘ └─────────┘
+               ┌────────────┬───────────┼──────────┬──────────┐
+               ▼            ▼           ▼          ▼          ▼
+          ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+          │  Build  │ │ Submit / │ │ Shared  │ │  Log    │ │ Network │
+          │ Output  │ │  Fetch   │ │   FS    │ │   Dir   │ │ (DNS)   │
+          └─────────┘ └──────────┘ └─────────┘ └─────────┘ └─────────┘
 ```
 
 libCRS uses the **strategy pattern** via the abstract `CRSUtils` base class. Currently, `LocalCRSUtils` implements all operations for local Docker Compose deployments. An `AzureCRSUtils` implementation is planned to support Azure-based deployments (e.g., using Azure Blob Storage for shared filesystems and Azure Container Instances for CRS execution). New deployment backends can be added by implementing the `CRSUtils` interface without changing the CLI or any CRS code.
@@ -243,6 +244,30 @@ $ libCRS register-shared-dir /shared-corpus corpus
 
 # In the analyzer container:
 $ libCRS register-shared-dir /shared-corpus corpus
+```
+
+#### `register-log-dir` ✅
+
+Create a symlink from a local path to a subdirectory under `LOG_DIR`, so that any files written to the local path are persisted on the host and available via `oss-crs artifacts`.
+
+```bash
+$ libCRS register-log-dir <local_path>
+```
+
+| Argument | Description |
+|---|---|
+| `local_path` | Local directory path inside the container (must not already exist) |
+
+**How it works:**
+1. Creates a subdirectory named after `local_path`'s basename under `$OSS_CRS_LOG_DIR`.
+2. Creates a symlink from `local_path` → `$OSS_CRS_LOG_DIR/<basename>`.
+3. Any files written to `local_path` are persisted on the host and visible via `oss-crs artifacts`.
+
+**Example** — Persist agent logs from a patcher module:
+```bash
+# In the patcher container:
+$ libCRS register-log-dir /var/log/agent
+# Now writing to /var/log/agent/trace.log persists to the host
 ```
 
 #### `register-fetch-dir` ✅
@@ -497,6 +522,7 @@ libCRS submit patch /tmp/patch.diff
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
 | `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
+| `register-log-dir` | ✅ Implemented | Symlink-based log persistence to host |
 | `submit` | ✅ Implemented | Single-file submission |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
 | `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |

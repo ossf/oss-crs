@@ -167,6 +167,7 @@ def build_run_service_env(
         "OSS_CRS_BUILD_OUT_DIR": "/OSS_CRS_BUILD_OUT_DIR",
         "OSS_CRS_SUBMIT_DIR": "/OSS_CRS_SUBMIT_DIR",
         "OSS_CRS_SHARED_DIR": "/OSS_CRS_SHARED_DIR",
+        "OSS_CRS_LOG_DIR": "/OSS_CRS_LOG_DIR",
     }
     if harness:
         system_env["OSS_CRS_TARGET_HARNESS"] = harness

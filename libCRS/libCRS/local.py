@@ -198,6 +198,16 @@ class LocalCRSUtils(CRSUtils):
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.symlink_to(shared_path)
 
+    def register_log_dir(self, local_path: Path) -> None:
+        if local_path.exists():
+            raise FileExistsError(f"Local path '{local_path}' already exists")
+
+        OSS_CRS_LOG_DIR = Path(get_env("OSS_CRS_LOG_DIR"))
+        log_target = OSS_CRS_LOG_DIR / local_path.name
+        log_target.mkdir(parents=True, exist_ok=True)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.symlink_to(log_target)
+
     def __init_fetch_helper(self, data_type: DataType) -> FetchHelper:
         return FetchHelper(data_type, self.infra_client)
 

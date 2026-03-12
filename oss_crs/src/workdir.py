@@ -15,7 +15,8 @@ logic for the CRS Compose work directory structure:
                 ├── EXCHANGE_DIR/<target_key>/<harness>/
                 └── crs/<crs_name>/<target_key>/
                     ├── SUBMIT_DIR/<harness>/
-                    └── SHARED_DIR/<harness>/
+                    ├── SHARED_DIR/<harness>/
+                    └── LOG_DIR/<harness>/
 """
 
 from pathlib import Path
@@ -193,6 +194,28 @@ class WorkDir:
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SHARED_DIR"
+            / target.target_harness
+        )
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def get_log_dir(
+        self,
+        crs_name: str,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+        create: bool = True,
+    ) -> Path:
+        """Get the LOG_DIR for a CRS run (agent/internal logs).
+
+        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/LOG_DIR/<harness>/
+        """
+        assert target.target_harness, "target_harness must be set for log dir"
+        path = (
+            self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
+            / "LOG_DIR"
             / target.target_harness
         )
         if create:

@@ -121,6 +121,28 @@ class _FakeWorkDir:
             / target.target_harness
         )
 
+    def get_log_dir(
+        self,
+        crs_name: str,
+        target,
+        run_id: str,
+        sanitizer: str,
+        *,
+        create: bool = False,
+    ):
+        _ = create
+        return (
+            self._tmp
+            / sanitizer
+            / "runs"
+            / run_id
+            / "crs"
+            / crs_name
+            / target.get_docker_image_name().replace(":", "_")
+            / "LOG_DIR"
+            / target.target_harness
+        )
+
 
 def _make_compose(
     tmp_path, resolved_run_id: str | None, resolved_sanitizer: str = "address"

@@ -274,6 +274,9 @@ libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
 
+# 3b. Persist agent logs to the host (visible via oss-crs artifacts)
+libCRS register-log-dir /var/log/agent
+
 # 4. Resolve other module endpoints (if needed)
 ANALYZER_HOST=$(libCRS get-service-domain analyzer)
 
@@ -306,6 +309,7 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |
+| `OSS_CRS_LOG_DIR` | Log directory for persisting CRS agent/internal logs to the host | `/OSS_CRS_LOG_DIR` |
 | `OSS_CRS_FETCH_DIR` | Inter-CRS data exchange + bootup data (read-only, shared across all CRSs) | `/OSS_CRS_FETCH_DIR` |
 | `FUZZING_ENGINE` | OSS-Fuzz fuzzing engine | `libfuzzer` |
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
@@ -338,6 +342,7 @@ libCRS skip-build-output <dst_path>
 # Automatic directory submission (runs as daemon)
 libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
 libCRS register-shared-dir <local_path> <shared_path>
+libCRS register-log-dir <local_path>             # persist logs to host
 
 # Fetch directory registration (daemon poller for FETCH_DIR)
 libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, patch, diff

@@ -54,6 +54,7 @@ services:
       - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
+      - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
 {%- if fetch_dir %}
       - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}

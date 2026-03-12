@@ -72,6 +72,7 @@ class CRSArtifacts(BaseModel):
     patch: Optional[str] = None
     fetch: Optional[str] = None
     shared: Optional[str] = None
+    log_dir: Optional[str] = None
     run_logs: Optional[str] = None
 
     @classmethod
@@ -106,6 +107,11 @@ class CRSArtifacts(BaseModel):
             artifacts.fetch = exchange_dir_base
             artifacts.shared = str(
                 work_dir.get_shared_dir(
+                    crs_name, target, run_id, sanitizer, create=False
+                )
+            )
+            artifacts.log_dir = str(
+                work_dir.get_log_dir(
                     crs_name, target, run_id, sanitizer, create=False
                 )
             )

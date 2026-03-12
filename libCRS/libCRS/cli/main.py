@@ -188,6 +188,20 @@ def main():
         )
     )
 
+    # register-log-dir command (symlink a local directory into LOG_DIR)
+    register_log_dir_parser = subparsers.add_parser(
+        "register-log-dir",
+        help="Register a local directory for persisting CRS agent/internal logs",
+    )
+    register_log_dir_parser.add_argument(
+        "local_path",
+        type=Path,
+        help="Local directory path inside the container to symlink into LOG_DIR",
+    )
+    register_log_dir_parser.set_defaults(
+        func=lambda args: crs_utils.register_log_dir(args.local_path)
+    )
+
     # register-fetch-dir command (auto-fetch shared data from other CRS)
     register_fetch_dir_parser = subparsers.add_parser(
         "register-fetch-dir",

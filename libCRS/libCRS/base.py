@@ -77,6 +77,16 @@ class CRSUtils(ABC):
         pass
 
     @abstractmethod
+    def register_log_dir(self, local_path: Path) -> None:
+        """Register a local directory as a log directory.
+
+        Creates a symlink from local_path to a subdirectory under LOG_DIR,
+        so that any files written to local_path are persisted on the host
+        and available via ``oss-crs artifacts``.
+        """
+        pass
+
+    @abstractmethod
     def register_fetch_dir(self, data_type: DataType, path: Path) -> None:
         """Register a directory for automatic fetching of shared data from oss-crs-infra."""
         pass

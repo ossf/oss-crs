@@ -149,6 +149,11 @@ $ libCRS submit patch <patch_file_path>
 $ libCRS register-shared-dir <local_dir_path> <shared_fs_path>
 ```
 
+#### ✅ Persisting CRS Agent Logs
+```
+$ libCRS register-log-dir <local_dir_path>
+```
+
 #### ✅ Fetching Functions
 ```
 # Register a daemon to poll FETCH_DIR/<type>/ for new files
