@@ -36,6 +36,31 @@ class ExchangeDir(BaseModel):
         )
 
 
+class RunLogs(BaseModel):
+    """Run-scoped compose/container logs (outside exchange/submit mounts)."""
+
+    base: Optional[str] = None
+    compose_stdout_log: Optional[str] = None
+    compose_stderr_log: Optional[str] = None
+    service_logs: Optional[str] = None
+
+    @classmethod
+    def from_work_dir(
+        cls,
+        work_dir: WorkDir,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+    ) -> "RunLogs":
+        base_path = work_dir.get_run_logs_dir(target, run_id, sanitizer, create=False)
+        return cls(
+            base=str(base_path),
+            compose_stdout_log=str(base_path / "docker-compose.stdout.log"),
+            compose_stderr_log=str(base_path / "docker-compose.stderr.log"),
+            service_logs=str(base_path / "services"),
+        )
+
+
 class CRSArtifacts(BaseModel):
     """Artifacts for a single CRS."""
 
@@ -47,6 +72,8 @@ class CRSArtifacts(BaseModel):
     patch: Optional[str] = None
     fetch: Optional[str] = None
     shared: Optional[str] = None
+    log_dir: Optional[str] = None
+    run_logs: Optional[str] = None
 
     @classmethod
     def from_work_dir(
@@ -63,18 +90,35 @@ class CRSArtifacts(BaseModel):
         artifacts = cls()
 
         if build_id:
-            build_path = work_dir.get_build_output_dir(crs_name, target, build_id, sanitizer, create=False)
+            build_path = work_dir.get_build_output_dir(
+                crs_name, target, build_id, sanitizer, create=False
+            )
             artifacts.build = str(build_path)
 
         if target.target_harness:
-            submit_path = work_dir.get_submit_dir(crs_name, target, run_id, sanitizer, create=False)
+            submit_path = work_dir.get_submit_dir(
+                crs_name, target, run_id, sanitizer, create=False
+            )
             artifacts.submit_dir = str(submit_path)
             artifacts.pov = str(submit_path / "povs")
             artifacts.seed = str(submit_path / "seeds")
             artifacts.bug_candidate = str(submit_path / "bug-candidates")
             artifacts.patch = str(submit_path / "patches")
             artifacts.fetch = exchange_dir_base
-            artifacts.shared = str(work_dir.get_shared_dir(crs_name, target, run_id, sanitizer, create=False))
+            artifacts.shared = str(
+                work_dir.get_shared_dir(
+                    crs_name, target, run_id, sanitizer, create=False
+                )
+            )
+            artifacts.log_dir = str(
+                work_dir.get_log_dir(
+                    crs_name, target, run_id, sanitizer, create=False
+                )
+            )
+            run_logs_root = work_dir.get_run_logs_dir(
+                target, run_id, sanitizer, create=False
+            )
+            artifacts.run_logs = str(run_logs_root / "crs" / crs_name)
 
         return artifacts
 
@@ -86,6 +130,7 @@ class ArtifactsOutput(BaseModel):
     run_id: str
     sanitizer: Optional[str] = None
     exchange_dir: Optional[ExchangeDir] = None
+    run_logs: Optional[RunLogs] = None
     crs: dict[str, CRSArtifacts] = Field(default_factory=dict)
 
     def to_json(self, indent: int = 2) -> str:

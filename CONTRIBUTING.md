@@ -67,6 +67,20 @@ For commit messages, we use [Conventional Commits](https://www.conventionalcommi
 
 When you create a PR, assign a reviewer (typically @azchin).
 
+### Changelog and release-note policy
+
+For user-facing changes (CLI flags, config behavior, API contracts, runtime
+semantics, or migration-impacting docs), add an entry to `CHANGELOG.md` under
+`[Unreleased]`.
+
+We follow [Common Changelog](https://common-changelog.org/) (lightly, to keep
+contributor overhead low) for release notes.
+
+When the change is deprecating or breaking:
+- clearly mark it in the changelog
+- provide the replacement path
+- include planned removal timing/version when known
+
 ### Developer Certificate of Origin (DCO)
 
 All contributions to this project must be accompanied by a Developer Certificate of Origin sign-off. The DCO is a lightweight mechanism to certify that you wrote or have the right to submit the code you are contributing. The full text is available at [developercertificate.org](http://developercertificate.org).

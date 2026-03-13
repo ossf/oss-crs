@@ -88,7 +88,7 @@ CRS Compose is the top-level orchestrator that manages the entire lifecycle of a
 - `docker_registry` — Registry for caching/publishing CRS images
 - `oss_crs_infra` — Resource allocation (cpuset, memory) for shared infrastructure
 - Per-CRS entries — Each CRS with its source (git URL + ref, or local path), resource limits (`cpuset`, `memory`), and optional `llm_budget` (in dollars)
-- `llm_config` — Path to a LiteLLM configuration file defining available LLM models
+- `llm_config` — Optional LiteLLM integration settings (`internal` or `external` mode)
 
 For the full configuration reference, see [docs/config/crs-compose.md](../config/crs-compose.md).
 
@@ -105,6 +105,7 @@ Every CRS repository contains an `oss-crs/crs.yaml` file that declares:
 - **Run phase** — A set of named modules (containers) that constitute the CRS at runtime
 - **Supported targets** — Languages, sanitizers, and architectures the CRS supports
 - **Required LLMs** — Model names the CRS needs (validated against the LiteLLM config before launch)
+- **Required Inputs** — Input channels the CRS depends on (validated before container launch; e.g., `diff`, `bug-candidate`)
 
 ### Resource Isolation
 
@@ -146,6 +147,11 @@ $ libCRS submit patch <patch_file_path>
 #### ✅ Sharing File between Containers in a CRS
 ```
 $ libCRS register-shared-dir <local_dir_path> <shared_fs_path>
+```
+
+#### ✅ Persisting CRS Agent Logs
+```
+$ libCRS register-log-dir <local_dir_path>
 ```
 
 #### ✅ Fetching Functions
@@ -194,6 +200,14 @@ LLM setup flow during `oss-crs run`:
 2. The `litellm-key-gen` service registers keys and budgets in LiteLLM
 3. CRS containers receive their API key via `OSS_CRS_LLM_API_KEY` and endpoint via `OSS_CRS_LLM_API_URL`
 4. All LLM requests are proxied through LiteLLM, which enforces budgets and logs usage
+
+`required_llms` is only used for model-availability validation; internal per-CRS key generation does not depend on `required_llms` being set.
+
+LiteLLM integration modes:
+
+- **Internal mode**: OSS-CRS starts LiteLLM/PostgreSQL/key-gen sidecars and injects per-CRS API keys.
+- **External mode**: OSS-CRS injects externally provided `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY`, and does not start internal LiteLLM sidecars.
+- **Disabled mode** (`llm_config: null`): OSS-CRS performs no LiteLLM validation or sidecar setup.
 
 ### 📝 Seed Deduplication Service (Planned) — [seed-dedup.md](oss-crs-infra/seed-dedup.md)
 

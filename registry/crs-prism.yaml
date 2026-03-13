@@ -1,0 +1,6 @@
+name: crs-prism
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-prism.git
+  ref: main

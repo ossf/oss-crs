@@ -1,0 +1,102 @@
+model_list:
+  #########################################
+  # ANTHROPIC models (for crs-claude-code + crs-patch-ensemble)
+  #########################################
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-opus-4-5-20251101
+    litellm_params:
+      model: anthropic/claude-opus-4-5-20251101
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-opus-4-1-20250805
+    litellm_params:
+      model: anthropic/claude-opus-4-1-20250805
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-sonnet-4-5-20250929
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  #########################################
+  # OPENAI models (for crs-codex)
+  #########################################
+  - model_name: gpt-5-2025-08-07
+    litellm_params:
+      model: openai/gpt-5-2025-08-07
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5-mini-2025-08-07
+    litellm_params:
+      model: openai/gpt-5-mini-2025-08-07
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5-pro-2025-10-06
+    litellm_params:
+      model: openai/gpt-5-pro-2025-10-06
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5-codex
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5.1-2025-11-13
+    litellm_params:
+      model: openai/gpt-5.1-2025-11-13
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5.1-codex
+    litellm_params:
+      model: openai/gpt-5.1-codex
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5.1-codex-mini
+    litellm_params:
+      model: openai/gpt-5.1-codex-mini
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5.2-2025-12-11
+    litellm_params:
+      model: openai/gpt-5.2-2025-12-11
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5.2-codex
+    litellm_params:
+      model: openai/gpt-5.2-codex
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY

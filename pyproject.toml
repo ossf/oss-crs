@@ -28,13 +28,6 @@ dependencies = [
 [project.scripts]
 oss-crs = "oss_crs.src.cli.crs_compose:main"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "watchdog>=4.0.0",
-]
-
 [tool.setuptools.packages.find]
 include = ["oss_crs*"]
 
@@ -43,6 +36,9 @@ include = ["oss_crs*"]
 
 [dependency-groups]
 dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "watchdog>=4.0.0",
     "ty>=0.0.4",
 ]
 

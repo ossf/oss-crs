@@ -107,10 +107,17 @@ supported_target:
   architecture:
     - x86_64
 
-# Only needed if your CRS uses LLMs
+# Only needed if your CRS uses LLMs.
+# This is a minimum dependency list (validation baseline), not an allowlist.
 required_llms:
   - gpt-4.1
   - claude-sonnet-4-20250514
+
+# Only needed if your CRS requires specific directed inputs to function.
+# OSS-CRS will fail fast before spawning containers if these are missing.
+required_inputs:
+  - diff
+  - bug-candidate
 ```
 
 ### Configuration Fields
@@ -125,7 +132,8 @@ required_llms:
 | `target_build_phase` | List of build steps, each with a Dockerfile and expected outputs |
 | `crs_run_phase` | Dictionary of named modules (containers) that run at runtime |
 | `supported_target` | Languages, sanitizers, architectures, and modes your CRS supports |
-| `required_llms` | *(Optional)* LLM model names your CRS needs |
+| `required_llms` | *(Optional)* Minimum required LLM model names your CRS needs (validation baseline) |
+| `required_inputs` | *(Optional)* Input channels the CRS requires (`diff`, `pov`, `seed`, `bug-candidate`). Validated before run. |
 
 For the complete schema reference, see [config/crs.md](config/crs.md).
 
@@ -217,6 +225,7 @@ fi
 - Use `libCRS submit-build-output <src> <dst>` to make build artifacts available to the run phase.
 - Use `libCRS skip-build-output <dst>` to mark optional outputs as intentionally skipped.
 - The `outputs` list in `crs.yaml` declares what paths the build step is expected to produce. Every output must either be submitted or explicitly skipped.
+- For directed fuzzers, `oss-crs build-target --diff <file>` plus `--bug-candidate <file>` or `--bug-candidate-dir <dir>` stages inputs into build-phase `OSS_CRS_FETCH_DIR`; consume them with `libCRS fetch diff <dir>` / `libCRS fetch bug-candidate <dir>`.
 
 ---
 
@@ -265,6 +274,9 @@ libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
 
+# 3b. Persist agent logs to the host (visible via oss-crs artifacts)
+libCRS register-log-dir /var/log/agent
+
 # 4. Resolve other module endpoints (if needed)
 ANALYZER_HOST=$(libCRS get-service-domain analyzer)
 
@@ -297,12 +309,18 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |
+| `OSS_CRS_LOG_DIR` | Log directory for persisting CRS agent/internal logs to the host | `/OSS_CRS_LOG_DIR` |
 | `OSS_CRS_FETCH_DIR` | Inter-CRS data exchange + bootup data (read-only, shared across all CRSs) | `/OSS_CRS_FETCH_DIR` |
 | `FUZZING_ENGINE` | OSS-Fuzz fuzzing engine | `libfuzzer` |
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
 | `ARCHITECTURE` | Target architecture | `x86_64` |
 | `FUZZING_LANGUAGE` | Target language | `c` |
-| `OSS_CRS_SNAPSHOT_IMAGE` | Snapshot Docker image tag (set on non-builder modules when the CRS has builder sidecars) | `my-crs-snapshot-asan:latest` |
+| `OSS_CRS_SNAPSHOT_IMAGE` | Snapshot Docker image tag (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) | `my-crs-snapshot-asan:latest` |
+
+Notes:
+- `additional_env` keys are validated with pattern `[A-Za-z_][A-Za-z0-9_]*`.
+- `OSS_CRS_*` keys are reserved. If provided by users, `oss-crs` emits warnings (`ENV001`/`ENV002`).
+- Framework-owned `OSS_CRS_*` keys override user values for that phase; unknown reserved keys are warned and may pass through.
 
 ### LLM Environment Variables (if configured)
 
@@ -324,6 +342,7 @@ libCRS skip-build-output <dst_path>
 # Automatic directory submission (runs as daemon)
 libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
 libCRS register-shared-dir <local_path> <shared_path>
+libCRS register-log-dir <local_path>             # persist logs to host
 
 # Fetch directory registration (daemon poller for FETCH_DIR)
 libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, patch, diff
@@ -370,7 +389,11 @@ my-crs:
 
 # Uncomment if using LLMs
 # llm_config:
-#   litellm_config: /path/to/litellm-config.yaml
+#   litellm:
+#     mode: internal
+#     internal:
+#       config_path: /path/to/litellm-config.yaml
+#   litellm_config: /path/to/litellm-config.yaml  # Backward-compatible legacy key; will be deprecated after gen-compose is fully implemented.
 ```
 
 ### Run the Three Phases
@@ -383,25 +406,32 @@ uv run oss-crs prepare \
 # 2. Build target — compile the target with your instrumentation
 uv run oss-crs build-target \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
+
+# Optional: directed build inputs for target build phase
+uv run oss-crs build-target \
+  --compose-file ./my-crs-compose.yaml \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --diff ./ref.diff \
+  --bug-candidate-dir ./bug-candidates
 
 # 3. Run — launch the CRS
 uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --timeout 3600
 
 # 4. Query artifacts — find PoVs and seeds
 uv run oss-crs artifacts \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 
 # Optional: pass POVs, diffs, or seed files to CRS containers
 uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
-  --target-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
   --pov-dir ./povs \
   --diff ./ref.diff \
@@ -590,6 +620,10 @@ my-patcher-crs:
 
 No separate `oss-crs-builder` entry is needed — each CRS declares its own builder sidecars in `crs.yaml`.
 
+Framework-generated helper sidecars reserve the `oss-crs-` service-name prefix.
+If you add new OSS-CRS-managed helper containers, keep that prefix so teardown
+classification treats their expected shutdown exits as non-fatal.
+
 ### Using Builder Commands in Your Patcher
 
 ```bash
@@ -613,6 +647,11 @@ libCRS run-pov /tmp/crash-input /tmp/pov-result \
 # 4. Run the project's test suite against the patched build
 libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
 ```
+
+`run-test` contract notes:
+- Builder sidecar resolves the test script at `/OSS_CRS_PROJ_PATH/test.sh`.
+- `/OSS_CRS_PROJ_PATH` must exist inside the runtime snapshot image used by the builder sidecar.
+- If `test.sh` is missing, sidecar returns skipped-success (`test_exit_code=0`) by contract.
 
 ### Multi-Sanitizer Setup
 
@@ -740,9 +779,13 @@ Your CRS should submit findings through libCRS:
 
 ## Fetching Data
 
-CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to all non-builder containers. Data arrives from two sources:
+CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to run-phase CRS containers. During `build-target`, it is also mounted to builder containers when directed inputs are provided (`--diff`, `--bug-candidate`, `--bug-candidate-dir`).
 
-1. **Bootup data** — Files passed via `oss-crs run` flags (`--pov-dir`, `--diff`, `--seed-dir`), pre-populated by the host before containers start.
+Data arrives from two sources:
+
+1. **Bootup data** — Files passed via CLI flags, pre-populated by the host before containers start.
+run-phase: `oss-crs run --pov-dir/--diff/--seed-dir/--bug-candidate/--bug-candidate-dir`
+build-phase: `oss-crs build-target --diff/--bug-candidate/--bug-candidate-dir`
 2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
 
 ### Bootup Data (oss-crs run flags)
@@ -751,6 +794,11 @@ The operator passes data via `oss-crs run`:
 - `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/povs/`
 - `--diff <file>` — Reference diff → `FETCH_DIR/diffs/ref.diff`
 - `--seed-dir <dir>` — Seed files → `FETCH_DIR/seeds/`
+- `--bug-candidate <file>` — Bug-candidate report file → `FETCH_DIR/bug-candidates/`
+- `--bug-candidate-dir <dir>` — Bug-candidate report directory → `FETCH_DIR/bug-candidates/`
+
+TODO: Standardize the bug-candidate format across CRSs (for example, SARIF 2.1.0) and define validation policy.
+Reference implementation: [`libCRS/libCRS/sarif.py`](../libCRS/libCRS/sarif.py).
 
 ### Using register-fetch-dir (Daemon Poller)
 
@@ -786,6 +834,7 @@ NEW_FILES=$(libCRS fetch pov /my-povs)
 | `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/povs/` |
 | `--diff` | `diff` | `FETCH_DIR/diffs/` |
 | `--seed-dir` | `seed` | `FETCH_DIR/seeds/` |
+| `--bug-candidate`, `--bug-candidate-dir` | `bug-candidate` | `FETCH_DIR/bug-candidates/` |
 
 ---
 
@@ -801,6 +850,7 @@ Before publishing your CRS, verify:
 - [ ] Artifact directories are registered with `libCRS register-submit-dir`
 - [ ] `supported_target` accurately reflects your CRS capabilities
 - [ ] `required_llms` lists all models used (if any)
+- [ ] `required_inputs` lists inputs the CRS depends on (if any)
 - [ ] The CRS runs successfully against at least one OSS-Fuzz project
 
 **Additional checks for incremental builds:**

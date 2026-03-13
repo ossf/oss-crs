@@ -1,0 +1,36 @@
+# Example CRS Compose file for testing dummy-crs with cgroup-parent
+#
+# Usage:
+#   # Without cgroup-parent (each container gets 1G individually)
+#   oss-crs run --compose-file oss_crs/tests/integration/fixtures/dummy-crs/example-compose.yaml \
+#     --fuzz-proj-path <path-to-oss-fuzz-project> \
+#     --target-harness <harness-name>
+#
+#   # With cgroup-parent (all 3 containers share 1G)
+#   oss-crs run --cgroup-parent --compose-file oss_crs/tests/integration/fixtures/dummy-crs/example-compose.yaml \
+#     --fuzz-proj-path <path-to-oss-fuzz-project> \
+#     --target-harness <harness-name>
+#
+# Expected results:
+#   Without --cgroup-parent: Each container can allocate ~1G (3G total possible)
+#   With --cgroup-parent: Combined allocation across all containers limited to ~1G
+
+run_env: local
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0"
+  memory: "256M"
+
+# The dummy-crs will have 3 containers (fuzzer, analyzer, monitor)
+# Each tries to allocate 40MB chunks (up to 30 chunks = 1.2GB) and logs when it fails
+#
+# Without --cgroup-parent: each gets 1G limit (total potential: 3G)
+#   - Each container can allocate ~25 chunks (1GB) before OOM
+#
+# With --cgroup-parent: all share the 1G limit (total: 1G)
+#   - Combined across all 3 containers, only ~25 chunks total before OOM
+#   - Containers will hit limit much sooner as they compete for memory
+dummy-crs:
+  cpuset: "0-3"
+  memory: "1G"

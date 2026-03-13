@@ -1,0 +1,32 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#               Example for crs-prism (bug-fixing)                           #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-prism) -------------------------------------------------------
+# Builder sidecars are declared in crs.yaml (snapshot: true / run_snapshot: true)
+# and handled automatically by the framework — no separate entry needed.
+crs-prism:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: prism
+    PRISM_MODEL: o4-mini
+    PRISM_BACKUP_MODEL: claude-sonnet-4-20250514
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-prism/litellm-config.yaml

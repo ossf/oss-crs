@@ -5,7 +5,8 @@ from typing import Optional, Set
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .target import TargetLangauge, TargetSanitizer, TargetArch
+from ..env_schema import validate_additional_env_keys
+from .target import FuzzingEngine, TargetLangauge, TargetSanitizer, TargetArch
 
 # Prefix for framework-provided infrastructure modules (e.g., "oss-crs-infra:default-builder")
 OSS_CRS_INFRA_PREFIX = "oss-crs-infra:"
@@ -75,6 +76,11 @@ class BuildConfig(BaseModel):
                 raise ValueError(f"output path cannot contain '..': {output}")
         return v
 
+    @field_validator("additional_env")
+    @classmethod
+    def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return validate_additional_env_keys(v, scope="BuildConfig.additional_env")
+
 
 class TargetBuildPhase(BaseModel):
     """Configuration for the target build phase."""
@@ -122,8 +128,7 @@ class CRSRunPhaseModule(BaseModel):
     @field_validator("additional_env")
     @classmethod
     def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
-        # TODO: check for valid env var names/values if needed (do not allow pre-defined vars)
-        return v
+        return validate_additional_env_keys(v, scope="CRSRunPhaseModule.additional_env")
 
 
 class CRSRunPhase(BaseModel):
@@ -150,12 +155,17 @@ class SupportedTarget(BaseModel):
     language: Set[TargetLangauge]
     sanitizer: Set[TargetSanitizer]
     architecture: Set[TargetArch]
+    fuzzing_engine: Set[FuzzingEngine] = Field(default_factory=lambda: set(FuzzingEngine))
 
 
 class CRSType(Enum):
     BUG_FINDING = "bug-finding"
     BUG_FIXING = "bug-fixing"
     BUILDER = "builder"
+    BUG_FIXING_ENSEMBLE = "bug-fixing-ensemble"
+
+
+VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
 
 
 class CRSConfig(BaseModel):
@@ -172,10 +182,19 @@ class CRSConfig(BaseModel):
     supported_target: SupportedTarget
 
     required_llms: Optional[list[str]] = Field(default=None)
+    required_inputs: Optional[list[str]] = Field(default=None)
 
     @property
     def is_builder(self) -> bool:
         return CRSType.BUILDER in self.type
+
+    @property
+    def is_bug_fixing(self) -> bool:
+        return CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
+
+    @property
+    def is_bug_fixing_ensemble(self) -> bool:
+        return CRSType.BUG_FIXING_ENSEMBLE in self.type
 
     @property
     def snapshot_builds(self) -> list[BuildConfig]:
@@ -216,6 +235,19 @@ class CRSConfig(BaseModel):
         if v is None:
             return v
         return list(set(v))
+
+    @field_validator("required_inputs")
+    @classmethod
+    def validate_required_inputs(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is None:
+            return v
+        invalid = set(v) - VALID_REQUIRED_INPUT_NAMES
+        if invalid:
+            raise ValueError(
+                f"Unknown input names: {sorted(invalid)}. "
+                f"Valid names: {sorted(VALID_REQUIRED_INPUT_NAMES)}"
+            )
+        return list(set(v))  # Remove duplicates
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "CRSConfig":

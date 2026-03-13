@@ -1,0 +1,31 @@
+name: crs-resource-limits
+type:
+  - bug-finding
+version: 1.0.0
+docker_registry: local
+
+# Build phase: single builder that logs memory info
+target_build_phase:
+  - name: build
+    dockerfile: oss-crs/dockerfiles/builder.Dockerfile
+    outputs:
+      - build_info.txt
+
+# Run phase: multiple modules to test cgroup sharing
+crs_run_phase:
+  fuzzer:
+    dockerfile: oss-crs/dockerfiles/runner.Dockerfile
+  analyzer:
+    dockerfile: oss-crs/dockerfiles/analyzer.Dockerfile
+  monitor:
+    dockerfile: oss-crs/dockerfiles/monitor.Dockerfile
+
+supported_target:
+  mode:
+    - full
+  language:
+    - c
+  sanitizer:
+    - address
+  architecture:
+    - x86_64

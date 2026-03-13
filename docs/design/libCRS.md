@@ -39,8 +39,9 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_BUILD_OUT_DIR` | Shared filesystem path for build outputs |
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
-| `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (not set on builder sidecars) |
-| `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules when the CRS has builder sidecars) |
+| `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
+| `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
+| `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) |
 
 ## Architecture
 
@@ -57,15 +58,45 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 │                                       │                  │
 └───────────────────────────────────────┼──────────────────┘
                                         │
-               ┌────────────┬───────────┼──────────┐
-               ▼            ▼           ▼          ▼
-          ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌─────────┐
-          │  Build  │ │ Submit / │ │ Shared  │ │ Network │
-          │ Output  │ │  Fetch   │ │   FS    │ │ (DNS)   │
-          └─────────┘ └──────────┘ └─────────┘ └─────────┘
+               ┌────────────┬───────────┼──────────┬──────────┐
+               ▼            ▼           ▼          ▼          ▼
+          ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+          │  Build  │ │ Submit / │ │ Shared  │ │  Log    │ │ Network │
+          │ Output  │ │  Fetch   │ │   FS    │ │   Dir   │ │ (DNS)   │
+          └─────────┘ └──────────┘ └─────────┘ └─────────┘ └─────────┘
 ```
 
 libCRS uses the **strategy pattern** via the abstract `CRSUtils` base class. Currently, `LocalCRSUtils` implements all operations for local Docker Compose deployments. An `AzureCRSUtils` implementation is planned to support Azure-based deployments (e.g., using Azure Blob Storage for shared filesystems and Azure Container Instances for CRS execution). New deployment backends can be added by implementing the `CRSUtils` interface without changing the CLI or any CRS code.
+
+### Data Exchange Flow
+
+CRS containers never communicate directly. All inter-CRS data flows through a two-tier filesystem managed by the exchange sidecar:
+
+```
+  CRS-A Container                                              CRS-B Container
+ ┌──────────────────┐                                        ┌──────────────────┐
+ │                  │                                        │                  │
+ │  SubmitHelper    │                                        │  FetchHelper     │
+ │  (watchdog +     │                                        │  (poll every 5s) │
+ │   MD5 dedup +    │                                        │                  │
+ │   batch flush)   │                                        │  InfraClient     │
+ │       │          │                                        │    .fetch_new()  │
+ │       ▼          │                                        │       ▲          │
+ │  SUBMIT_DIR/     │       Exchange Sidecar                 │  FETCH_DIR/      │
+ │  ├─ povs/        │      (oss-crs-infra)                   │  ├─ povs/        │
+ │  ├─ seeds/       │    ┌──────────────────┐                │  ├─ seeds/       │
+ │  ├─ patches/     │───▶│  EXCHANGE_DIR/   │───▶            │  ├─ patches/     │
+ │  └─ bug-         │    │  (shared global) │                │  └─ bug-         │
+ │     candidates/  │    └──────────────────┘                │     candidates/  │
+ │                  │                                        │                  │
+ │  (per-CRS,       │                                        │  (per-CRS,       │
+ │   write-only)    │                                        │   read-only)     │
+ └──────────────────┘                                        └──────────────────┘
+```
+
+- **SUBMIT_DIR** — Per-CRS write area. `SubmitHelper` watches a local directory for new files, deduplicates by MD5 hash, batches them (100 files or 10 seconds), and copies to `SUBMIT_DIR/<type>/` with hash-based filenames.
+- **EXCHANGE_DIR** — Global shared area managed by the exchange sidecar. The sidecar copies files from each CRS's SUBMIT_DIR into EXCHANGE_DIR and distributes them to other CRSs' FETCH_DIRs.
+- **FETCH_DIR** — Per-CRS read-only area. `FetchHelper` polls every 5 seconds via `InfraClient`, deduplicates by filename (hash-based names from submit provide natural content dedup), and copies new files to the local directory.
 
 ### Data Types
 
@@ -117,6 +148,25 @@ $ libCRS download-build-output <src_path> <dst_path>
 **Example** — Retrieve a compiled binary during the run phase:
 ```bash
 $ libCRS download-build-output /fuzzer /opt/fuzzer
+```
+
+#### `download-source` ✅
+
+Download target source tree into the container from canonical source paths.
+
+```bash
+$ libCRS download-source <target|repo> <dst_path>
+```
+
+| Argument | Description |
+|---|---|
+| `target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
+| `repo` | Source from the live repo workspace rooted at `$SRC` / `/src`, using `OSS_CRS_REPO_PATH` as the effective workdir hint |
+| `dst_path` | Destination path inside the container |
+
+**Example** — Retrieve effective source tree for patch analysis:
+```bash
+$ libCRS download-source repo /work/src
 ```
 
 #### `skip-build-output` ✅
@@ -194,6 +244,30 @@ $ libCRS register-shared-dir /shared-corpus corpus
 
 # In the analyzer container:
 $ libCRS register-shared-dir /shared-corpus corpus
+```
+
+#### `register-log-dir` ✅
+
+Create a symlink from a local path to a subdirectory under `LOG_DIR`, so that any files written to the local path are persisted on the host and available via `oss-crs artifacts`.
+
+```bash
+$ libCRS register-log-dir <local_path>
+```
+
+| Argument | Description |
+|---|---|
+| `local_path` | Local directory path inside the container (must not already exist) |
+
+**How it works:**
+1. Creates a subdirectory named after `local_path`'s basename under `$OSS_CRS_LOG_DIR`.
+2. Creates a symlink from `local_path` → `$OSS_CRS_LOG_DIR/<basename>`.
+3. Any files written to `local_path` are persisted on the host and visible via `oss-crs artifacts`.
+
+**Example** — Persist agent logs from a patcher module:
+```bash
+# In the patcher container:
+$ libCRS register-log-dir /var/log/agent
+# Now writing to /var/log/agent/trace.log persists to the host
 ```
 
 #### `register-fetch-dir` ✅
@@ -367,6 +441,11 @@ $ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
 $ libCRS run-test /tmp/test-result --build-id abc123 --builder builder-asan
 ```
 
+`run-test` contract notes:
+- `test.sh` is resolved by the builder sidecar at `/OSS_CRS_PROJ_PATH/test.sh`.
+- `/OSS_CRS_PROJ_PATH` must be present inside the runtime snapshot image used by the sidecar.
+- If `test.sh` is missing, the sidecar returns a skipped-success result (`test_exit_code=0`) by contract.
+
 ## Typical Usage in a CRS
 
 ### During Target Build Phase
@@ -439,9 +518,11 @@ libCRS submit patch /tmp/patch.diff
 |---|---|---|
 | `submit-build-output` | ✅ Implemented | Uses `rsync` for file copying |
 | `download-build-output` | ✅ Implemented | Uses `rsync` for file copying |
+| `download-source` | ✅ Implemented | Copies from `OSS_CRS_PROJ_PATH` or `OSS_CRS_REPO_PATH` |
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
 | `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
+| `register-log-dir` | ✅ Implemented | Symlink-based log persistence to host |
 | `submit` | ✅ Implemented | Single-file submission |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
 | `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |

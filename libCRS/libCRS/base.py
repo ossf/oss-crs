@@ -27,6 +27,14 @@ class DataType(str, Enum):
         return _DIR_NAMES[self.value]
 
 
+class SourceType(str, Enum):
+    TARGET = "target"
+    REPO = "repo"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class CRSUtils(ABC):
     def __init__(self):
         # InfraClient handles fetching from FETCH_DIR (read-only).
@@ -36,6 +44,20 @@ class CRSUtils(ABC):
     @abstractmethod
     def download_build_output(self, src_path: str, dst_path: Path) -> None:
         """Download build output from src_path (in infra) to dst_path (in local)."""
+        pass
+
+    @abstractmethod
+    def download_source(self, source_type: SourceType, dst_path: Path) -> Path:
+        """Download source tree to local destination path.
+
+        source_type:
+            - target: OSS_CRS_PROJ_PATH
+            - repo: OSS_CRS_REPO_PATH
+
+        Returns:
+            The primary source directory inside ``dst_path`` that callers should
+            operate on after the copy completes.
+        """
         pass
 
     @abstractmethod
@@ -56,6 +78,16 @@ class CRSUtils(ABC):
     @abstractmethod
     def register_shared_dir(self, local_path: Path, shared_path: str) -> None:
         """Register a directory for sharing data between containers in a CRS."""
+        pass
+
+    @abstractmethod
+    def register_log_dir(self, local_path: Path) -> None:
+        """Register a local directory as a log directory.
+
+        Creates a symlink from local_path to a subdirectory under LOG_DIR,
+        so that any files written to local_path are persisted on the host
+        and available via ``oss-crs artifacts``.
+        """
         pass
 
     @abstractmethod
@@ -94,7 +126,8 @@ class CRSUtils(ABC):
         Args:
             patch_path: Path to a unified diff file.
             response_dir: Directory to receive results:
-                - build_exit_code, build.log, build_id
+                - build_exit_code, build.log, build_stdout.log, build_stderr.log
+                - build_id (present only when build_exit_code is 0)
             builder: Builder sidecar module name (resolved to URL internally).
 
         Returns:
@@ -118,7 +151,7 @@ class CRSUtils(ABC):
             harness_name: Harness binary name in /out/.
             build_id: Build ID from a prior apply_patch_build call.
             response_dir: Directory to receive results:
-                - pov_exit_code, pov_stderr.log
+                - pov_exit_code, pov_stdout.log, pov_stderr.log
             builder: Builder sidecar module name (resolved to URL internally).
 
         Returns:
@@ -138,7 +171,7 @@ class CRSUtils(ABC):
         Args:
             build_id: Build ID from a prior apply_patch_build call.
             response_dir: Directory to receive results:
-                - test_exit_code, test_stderr.log
+                - test_exit_code, test_stdout.log, test_stderr.log
             builder: Builder sidecar module name (resolved to URL internally).
 
         Returns:

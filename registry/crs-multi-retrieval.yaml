@@ -1,0 +1,6 @@
+name: crs-multi-retrieval
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-multi-retrieval.git
+  ref: main

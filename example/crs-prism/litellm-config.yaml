@@ -1,0 +1,18 @@
+model_list:
+  #########################################
+  # Prism models routed via LiteLLM
+  # model_name = what the agent sends in API requests
+  # litellm_params.model = provider/model used by LiteLLM
+  #########################################
+
+  - model_name: o4-mini
+    litellm_params:
+      model: openai/o4-mini
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY

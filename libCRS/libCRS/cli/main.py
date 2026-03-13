@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from ..base import DataType, CRSUtils
+from ..base import DataType, SourceType, CRSUtils
 from ..local import LocalCRSUtils
 from ..common import get_run_env_type, EnvType
 
@@ -115,6 +115,27 @@ def main():
         func=lambda args: crs_utils.download_build_output(args.src_path, args.dst_path)
     )
 
+    # download-source command
+    download_source_parser = subparsers.add_parser(
+        "download-source",
+        help="Download source tree from target/repo source path to destination",
+    )
+    download_source_parser.add_argument(
+        "type",
+        type=SourceType,
+        choices=list(SourceType),
+        metavar="TYPE",
+        help="Source type: target, repo",
+    )
+    download_source_parser.add_argument(
+        "dst_path",
+        type=Path,
+        help="Destination path in docker container",
+    )
+    download_source_parser.set_defaults(
+        func=lambda args: crs_utils.download_source(args.type, args.dst_path)
+    )
+
     # =========================================================================
     # Data registration commands (auto-sync directories)
     # =========================================================================
@@ -165,6 +186,20 @@ def main():
         func=lambda args: crs_utils.register_shared_dir(
             args.local_path, args.shared_path
         )
+    )
+
+    # register-log-dir command (symlink a local directory into LOG_DIR)
+    register_log_dir_parser = subparsers.add_parser(
+        "register-log-dir",
+        help="Register a local directory for persisting CRS agent/internal logs",
+    )
+    register_log_dir_parser.add_argument(
+        "local_path",
+        type=Path,
+        help="Local directory path inside the container to symlink into LOG_DIR",
+    )
+    register_log_dir_parser.set_defaults(
+        func=lambda args: crs_utils.register_log_dir(args.local_path)
     )
 
     # register-fetch-dir command (auto-fetch shared data from other CRS)

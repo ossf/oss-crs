@@ -35,59 +35,28 @@ services:
         - snapshot_image={{ snapshot_image_tag }}
 {%- endif %}
     environment:
-      ###########################################
-      # OSS_FUZZ standard environment variables
-      ###########################################
-      - HELPER=True
-      - RUN_FUZZER_MODE=interactive
-      - FUZZING_ENGINE={{ target_env.engine }}
-      - SANITIZER={{ sanitizer }}
-      - ARCHITECTURE={{ target_env.architecture }}
-      - PROJECT_NAME={{ target_env.name }}
-      - FUZZING_LANGUAGE={{ target_env.language }}
-      ###########################################
-      # OSS_CRS specific environment variables
-      ###########################################
-      - OSS_CRS_RUN_ENV_TYPE={{ crs_compose_env.type }}
-      - OSS_CRS_NAME={{ crs.name }}
-      - OSS_CRS_SERVICE_NAME={{ crs.name }}_{{ module_name }}
-      - OSS_CRS_TARGET={{ target_env.name }}
-      - OSS_CRS_TARGET_HARNESS={{ target_env.harness }}
-      - OSS_CRS_RUN_ID={{ run_id }}
-      - OSS_CRS_CPUSET="{{ crs.resource.cpuset }}"
-      - OSS_CRS_MEMORY_LIMIT="{{ crs.resource.memory }}"
-      - OSS_CRS_BUILD_OUT_DIR=/OSS_CRS_BUILD_OUT_DIR
-      - OSS_CRS_SUBMIT_DIR=/OSS_CRS_SUBMIT_DIR
-      - OSS_CRS_SHARED_DIR=/OSS_CRS_SHARED_DIR
-{%- if exchange_dir %}
-      - OSS_CRS_FETCH_DIR=/OSS_CRS_FETCH_DIR
-{%- endif %}
-{%- if snapshot_image_tag and not module_config.run_snapshot and not crs.config.is_builder %}
-      - OSS_CRS_SNAPSHOT_IMAGE={{ snapshot_image_tag }}
-{%- endif %}
-      ###########################################
-{%- for env_key, env_value in module_config.additional_env.items() %}
+{%- for env_key, env_value in module_envs[crs.name + "_" + module_name].items() %}
       - {{ env_key }}={{ env_value }}
 {%- endfor %}
-{%- for env_key, env_value in crs.resource.additional_env.items() %}
-      - {{ env_key }}={{ env_value }}
-{%- endfor %}
-{%- if llm_context is defined and not crs.config.is_builder %}
-      - OSS_CRS_LLM_API_URL=http://litellm.oss-crs:4000
-      - OSS_CRS_LLM_API_KEY={{ llm_context.api_keys[crs.name] }}
+{%- if llm_context is defined and llm_context.mode == "internal" and not crs.config.is_builder %}
     depends_on:
       oss-crs-litellm-key-gen:
         condition: service_completed_successfully
 {%- endif %}
+{%- if cgroup_parents and crs.name in cgroup_parents %}
+    # Using cgroup-parent mode: resources managed by parent cgroup
+    cgroup_parent: "{{ cgroup_parents[crs.name] }}"
+{%- else %}
     cpuset: "{{ crs.resource.cpuset }}"
-    # TODO: Check memory limit because it's for all services in a single CRS
     mem_limit: "{{ crs.resource.memory }}"
+{%- endif %}
     volumes:
       - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
-{%- if exchange_dir %}
-      - {{ exchange_dir }}:/OSS_CRS_FETCH_DIR:ro
+      - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
+{%- if fetch_dir %}
+      - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
 {%- if module_config.run_snapshot or crs.config.is_builder %}
     attach: false
@@ -99,6 +68,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 15s
+{%- elif bug_fix_ensemble and not crs.config.is_bug_fixing_ensemble and not crs.config.is_builder %}
+    attach: false
 {%- endif %}
     networks:
       {{ crs_compose_name }}-{{ crs.name }}-network:
@@ -112,7 +83,7 @@ services:
   # OSS-CRS-INFRA-SERVICES
   # - oss-crs-litellm
   # - oss-crs-postgres
-{% if llm_context is defined %}
+{% if llm_context is defined and llm_context.mode == "internal" %}
   ###########################################
   # OSS-CRS-LITELLM
   ###########################################
@@ -160,7 +131,7 @@ services:
         aliases:
           - postgres.oss-crs-infra-only
   oss-crs-litellm-key-gen:
-    image: oss-crs-litellm-key-gen:latest
+    image: {{ crs_compose_name }}-oss-crs-litellm-key-gen:latest
     attach: false
     build:
       context: {{ oss_crs_infra_root_path }}/litellm-key-gen
@@ -189,10 +160,38 @@ services:
     volumes:
       - {{ exchange_dir }}:/exchange:rw
 {%- for crs in crs_list %}
-{%- if not crs.config.is_builder %}
+{%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
 {%- endfor %}
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+{%- endif %}
+  ###########################################
+  # OSS-CRS-LIFECYCLE SIDECAR
+  ###########################################
+{#- Collect non-builder, non-snapshot, non-ensemble bug-fixing CRS services #}
+{%- set watch_services = [] %}
+{%- for crs in crs_list %}
+{%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble and crs.config.is_bug_fixing %}
+{%- for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
+{%- if module_config.dockerfile and not module_config.run_snapshot %}
+{%- if watch_services.append(crs.name ~ "_" ~ module_name) %}{% endif %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- if bug_fix_ensemble and exchange_dir and watch_services %}
+  oss-crs-lifecycle:
+    build:
+      context: {{ oss_crs_infra_root_path }}/lifecycle
+    attach: false
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - {{ exchange_dir }}:/exchange:rw
+    environment:
+      - COMPOSE_PROJECT={{ crs_compose_name }}
+      - WATCH_SERVICES={{ watch_services | join(",") }}
     networks:
       {{ crs_compose_name }}-infra-only-network:
 {%- endif %}

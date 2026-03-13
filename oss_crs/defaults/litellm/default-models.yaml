@@ -1,0 +1,301 @@
+# LiteLLM default bundled model config (internal mode fallback).
+#
+# Provider groups: openai -> anthropic -> gemini -> xai
+# Within each provider, newer variants are listed first.
+#
+# Environment Variables Required:
+#   OPENAI_API_KEY
+#   ANTHROPIC_API_KEY
+#   GEMINI_API_KEY
+#   XAI_API_KEY
+
+model_list:
+  # OpenAI
+  - model_name: gpt-5.2-pro-2025-12-11
+    litellm_params:
+      model: openai/gpt-5.2-pro-2025-12-11
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.2-2025-12-11
+    litellm_params:
+      model: openai/gpt-5.2-2025-12-11
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.1-2025-11-13
+    litellm_params:
+      model: openai/gpt-5.1-2025-11-13
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-pro-2025-10-06
+    litellm_params:
+      model: openai/gpt-5-pro-2025-10-06
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-2025-08-07
+    litellm_params:
+      model: openai/gpt-5-2025-08-07
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-mini-2025-08-07
+    litellm_params:
+      model: openai/gpt-5-mini-2025-08-07
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-nano-2025-08-07
+    litellm_params:
+      model: openai/gpt-5-nano-2025-08-07
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.2-pro
+    litellm_params:
+      model: openai/gpt-5.2-pro
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.2-codex
+    litellm_params:
+      model: openai/gpt-5.2-codex
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.2
+    litellm_params:
+      model: openai/gpt-5.2
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.1-codex-max
+    litellm_params:
+      model: openai/gpt-5.1-codex-max
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.1-codex
+    litellm_params:
+      model: openai/gpt-5.1-codex
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5.1
+    litellm_params:
+      model: openai/gpt-5.1
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-pro
+    litellm_params:
+      model: openai/gpt-5-pro
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-chat-latest
+    litellm_params:
+      model: openai/gpt-5-chat-latest
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-codex
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5
+    litellm_params:
+      model: openai/gpt-5
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4.5-preview
+    litellm_params:
+      model: openai/gpt-4.5-preview
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4.1-mini
+    litellm_params:
+      model: openai/gpt-4.1-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4.1-nano
+    litellm_params:
+      model: openai/gpt-4.1-nano
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4-turbo
+    litellm_params:
+      model: openai/gpt-4-turbo
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4-0613
+    litellm_params:
+      model: openai/gpt-4-0613
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4
+    litellm_params:
+      model: openai/gpt-4
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o4-mini
+    litellm_params:
+      model: openai/o4-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: openai/gpt-3.5-turbo
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o3-pro
+    litellm_params:
+      model: openai/o3-pro
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o3
+    litellm_params:
+      model: openai/o3
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o3-mini
+    litellm_params:
+      model: openai/o3-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: text-embedding-3-small
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: text-embedding-3-large
+    litellm_params:
+      model: openai/text-embedding-3-large
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o1-pro
+    litellm_params:
+      model: openai/o1-pro
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o1-preview
+    litellm_params:
+      model: openai/o1-preview
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o1
+    litellm_params:
+      model: openai/o1
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: o1-mini
+    litellm_params:
+      model: openai/o1-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: codex-mini-latest
+    litellm_params:
+      model: openai/codex-mini-latest
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Anthropic/Claude
+  - model_name: claude-opus-4-5-20251101
+    litellm_params:
+      model: anthropic/claude-opus-4-5-20251101
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-5-20250929
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-1-20250805
+    litellm_params:
+      model: anthropic/claude-opus-4-1-20250805
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-20250514
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-3-haiku-20240307
+    litellm_params:
+      model: anthropic/claude-3-haiku-20240307
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-5
+    litellm_params:
+      model: anthropic/claude-opus-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-1
+    litellm_params:
+      model: anthropic/claude-opus-4-1
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-0
+    litellm_params:
+      model: anthropic/claude-opus-4-0
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-0
+    litellm_params:
+      model: anthropic/claude-sonnet-4-0
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Google/Gemini
+  - model_name: gemini-3.1-pro-preview
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-3-pro-preview
+    litellm_params:
+      model: gemini/gemini-3-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-3-flash-preview
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-2.5-flash-lite
+    litellm_params:
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+
+  # xAI
+  - model_name: grok-4-0709
+    litellm_params:
+      model: xai/grok-4-0709
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-4-1-fast-non-reasoning
+    litellm_params:
+      model: xai/grok-4-1-fast-non-reasoning
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-4-1-fast-reasoning
+    litellm_params:
+      model: xai/grok-4-1-fast-reasoning
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-4-fast-non-reasoning
+    litellm_params:
+      model: xai/grok-4-fast-non-reasoning
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-4-fast-reasoning
+    litellm_params:
+      model: xai/grok-4-fast-reasoning
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-3
+    litellm_params:
+      model: xai/grok-3
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-3-mini
+    litellm_params:
+      model: xai/grok-3-mini
+      api_key: os.environ/XAI_API_KEY
+  - model_name: grok-code-fast-1
+    litellm_params:
+      model: xai/grok-code-fast-1
+      api_key: os.environ/XAI_API_KEY
+
+litellm_settings:
+  json_logs: true
+  log_responses: true
+  store_model_in_db: false
+  telemetry: false

@@ -1,0 +1,28 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for atlantis-java-main (bug-finding)                  #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+# Resource limits for infrastructure services (LiteLLM proxy, PostgreSQL, Exchange sidecar)
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (atlantis-java-main) ----------------------------------------------
+# Java bug-finding CRS with multiple Jazzer fuzzer variants, LLM-powered PoC
+# generation, exploitation kit (expkit), static analysis, CodeQL, and more.
+atlantis-java-main:
+  source:
+    local_path: /tmp/atlantis-java-snapshot
+  cpuset: "4-11"
+  memory: "32G"
+  llm_budget: 100
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/atlantis-java-main/litellm-config.yaml

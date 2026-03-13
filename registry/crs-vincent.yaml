@@ -1,0 +1,6 @@
+name: crs-vincent
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-vincent.git
+  ref: main

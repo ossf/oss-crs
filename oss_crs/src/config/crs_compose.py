@@ -4,10 +4,11 @@ import json
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator, model_validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
+from ..env_schema import validate_additional_env_keys
 
 
 class CRSSource(BaseModel):
@@ -102,6 +103,11 @@ class CRSEntry(ResourceConfig):
     def coerce_none_env(cls, v):
         return v if v is not None else {}
 
+    @field_validator("additional_env")
+    @classmethod
+    def validate_additional_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return validate_additional_env_keys(v, scope="CRSEntry.additional_env")
+
 
 class RunEnv(Enum):
     LOCAL = "local"
@@ -111,17 +117,68 @@ class RunEnv(Enum):
 class LLMConfig(BaseModel):
     """Configuration for LLMs used in CRS."""
 
-    litellm_config: str
+    class LiteLLMConfig(BaseModel):
+        class Mode(Enum):
+            INTERNAL = "internal"
+            EXTERNAL = "external"
 
-    @field_validator("litellm_config")
-    @classmethod
-    def validate_litellm_config(cls, v: str) -> str:
-        path = Path(v).expanduser().resolve()
-        if not path.exists():
-            raise ValueError(f"litellm_config path does not exist: '{v}'")
-        if not path.is_file():
-            raise ValueError(f"litellm_config path is not a file: '{v}'")
-        return str(path)
+        class InternalConfig(BaseModel):
+            config_path: Optional[str] = None
+
+            @field_validator("config_path")
+            @classmethod
+            def validate_config_path(cls, v: Optional[str]) -> Optional[str]:
+                if v is None:
+                    return None
+                path = Path(v).expanduser().resolve()
+                if not path.exists():
+                    raise ValueError(f"config_path does not exist: '{v}'")
+                if not path.is_file():
+                    raise ValueError(f"config_path is not a file: '{v}'")
+                return str(path)
+
+        class ExternalConfig(BaseModel):
+            url: Optional[str] = None
+            url_env: Optional[str] = None
+            key: Optional[str] = None
+            key_env: Optional[str] = None
+
+            @model_validator(mode="after")
+            def validate_external_fields(self):
+                if (self.url is None) == (self.url_env is None):
+                    raise ValueError(
+                        "litellm.external must set exactly one of 'url' or 'url_env'"
+                    )
+                if (self.key is None) == (self.key_env is None):
+                    raise ValueError(
+                        "litellm.external must set exactly one of 'key' or 'key_env'"
+                    )
+                return self
+
+        mode: Mode
+        model_check: bool = True
+        internal: Optional[InternalConfig] = None
+        external: Optional[ExternalConfig] = None
+
+        @model_validator(mode="after")
+        def validate_mode_blocks(self):
+            if self.mode == self.Mode.INTERNAL:
+                if self.external is not None:
+                    raise ValueError(
+                        "litellm.external cannot be set when litellm.mode=internal"
+                    )
+            if self.mode == self.Mode.EXTERNAL:
+                if self.external is None:
+                    raise ValueError(
+                        "litellm.external is required when litellm.mode=external"
+                    )
+                if self.internal is not None:
+                    raise ValueError(
+                        "litellm.internal cannot be set when litellm.mode=external"
+                    )
+            return self
+
+    litellm: LiteLLMConfig
 
 
 class CRSComposeConfig(BaseModel):
@@ -173,6 +230,19 @@ class CRSComposeConfig(BaseModel):
         docker_registry = data.get(DOCKER_REGISTRY)
         oss_crs_infra = data.get(OSS_CRS_INFRA)
         llm_config = data.get(LLM_CONFIG)
+        # Backward compatibility: old llm_config format
+        # llm_config:
+        #   litellm_config: /path/to/config.yaml
+        if isinstance(llm_config, dict) and "litellm" not in llm_config:
+            if "litellm_config" in llm_config:
+                llm_config = {
+                    "litellm": {
+                        "mode": "internal",
+                        "internal": {
+                            "config_path": llm_config["litellm_config"],
+                        },
+                    }
+                }
 
         reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
         crs_entries = {

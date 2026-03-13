@@ -4,8 +4,10 @@ import pytest
 from pydantic import ValidationError
 from oss_crs.src.config.crs_compose import (
     CRSSource,
+    CRSComposeConfig,
     ResourceConfig,
     CRSEntry,
+    LLMConfig,
     remove_keys,
 )
 
@@ -76,6 +78,80 @@ class TestCRSEntry:
         """additional_env should default to empty dict, even if None."""
         entry = CRSEntry(cpuset="0-3", memory="8G", additional_env=None)
         assert entry.additional_env == {}
+
+    def test_additional_env_rejects_invalid_key(self):
+        with pytest.raises(ValidationError, match="invalid env var key"):
+            CRSEntry(
+                cpuset="0-3",
+                memory="8G",
+                additional_env={"BAD-KEY": "value"},
+            )
+
+
+class TestLLMConfig:
+    """Tests for LLMConfig mode selection and validation."""
+
+    def test_accepts_internal_mode_with_config_path(self, tmp_path):
+        litellm_file = tmp_path / "litellm.yaml"
+        litellm_file.write_text("model_list: []\n")
+        config = LLMConfig(
+            litellm={
+                "mode": "internal",
+                "internal": {"config_path": str(litellm_file)},
+            }
+        )
+        assert config.litellm.mode.value == "internal"
+
+    def test_accepts_external_mode_with_env_sources(self):
+        config = LLMConfig(
+            litellm={
+                "mode": "external",
+                "external": {
+                    "url_env": "LITELLM_URL",
+                    "key_env": "LITELLM_API_KEY",
+                },
+            }
+        )
+        assert config.litellm.mode.value == "external"
+
+    def test_rejects_external_without_oneof_sources(self):
+        with pytest.raises(ValidationError, match="exactly one of 'url' or 'url_env'"):
+            LLMConfig(
+                litellm={
+                    "mode": "external",
+                    "external": {
+                        "key_env": "LITELLM_API_KEY",
+                    },
+                }
+            )
+
+    def test_backward_compatible_old_litellm_config_shape(self, tmp_path):
+        litellm_file = tmp_path / "litellm.yaml"
+        litellm_file.write_text("model_list: []\n")
+        data = {
+            "run_env": "local",
+            "docker_registry": "local",
+            "oss_crs_infra": {"cpuset": "0-1", "memory": "8G"},
+            "llm_config": {"litellm_config": str(litellm_file)},
+            "dummy-crs": {
+                "cpuset": "2-3",
+                "memory": "8G",
+                "source": {"local_path": "/tmp/dummy-crs"},
+            },
+        }
+        config = CRSComposeConfig.from_dict(data)
+        assert config.llm_config is not None
+        assert config.llm_config.litellm.mode.value == "internal"
+
+        with pytest.raises(ValidationError, match="exactly one of 'key' or 'key_env'"):
+            LLMConfig(
+                litellm={
+                    "mode": "external",
+                    "external": {
+                        "url": "https://litellm.example.com",
+                    },
+                }
+            )
 
 
 class TestRemoveKeys:

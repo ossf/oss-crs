@@ -1,0 +1,32 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for crs-vincent (bug-fixing)                          #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-vincent) -----------------------------------------------------
+# Builder sidecars are declared in crs.yaml (snapshot: true / run_snapshot: true)
+# and handled automatically by the framework — no separate entry needed.
+crs-vincent:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: vincent
+    VINCENT_MODEL: gemini-2.5-pro
+    # VINCENT_EMBEDDING_MODEL: text-embedding-3-large
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-vincent/litellm-config.yaml

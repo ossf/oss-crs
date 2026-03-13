@@ -1,0 +1,6 @@
+name: atlantis-java-main
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/atlantis-java-snapshot.git
+  ref: main

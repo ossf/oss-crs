@@ -33,7 +33,8 @@ The root `CRSConfig` object contains the following fields:
 | `target_build_phase` | `TargetBuildPhase` | Yes | Configuration for the target build phase |
 | `crs_run_phase` | `CRSRunPhase` | Yes | Configuration for the CRS run phase |
 | `supported_target` | `SupportedTarget` | Yes | Defines what targets this CRS supports |
-| `required_llms` | `list[string]` | No | List of required LLM names (duplicates are automatically removed) |
+| `required_llms` | `list[string]` | No | Minimum required LLM model names (duplicates are automatically removed). This is for dependency validation, not a runtime allowlist. |
+| `required_inputs` | `list[string]` | No | Input channels this CRS requires to function. Valid names: `diff`, `pov`, `seed`, `bug-candidate`. When declared, `oss-crs run` validates that the corresponding CLI flags were provided before spawning containers. |
 
 ### Example
 
@@ -67,6 +68,9 @@ supported_target:
     - x86_64
 required_llms:
   - gpt-5
+required_inputs:
+  - diff
+  - bug-candidate
 ```
 
 ---
@@ -104,7 +108,7 @@ The target build phase is a list of `BuildConfig` objects, each defining a named
 | `dockerfile` | `string` | Yes | - | Path to the Dockerfile (must contain "Dockerfile" or end with `.Dockerfile`). Use an `oss-crs-infra:` prefix for framework-provided builds (e.g., `oss-crs-infra:default-builder`). |
 | `outputs` | `list[string]` | No | `[]` | List of output paths. Can be empty for snapshot builds where no explicit outputs are needed. |
 | `snapshot` | `bool` | No | `false` | When `true`, creates a snapshot Docker image during the build phase. The snapshot captures the fully compiled target and is used as the base image for incremental builds. |
-| `additional_env` | `dict[string, string]` | No | `{}` | Additional environment variables to pass during the build |
+| `additional_env` | `dict[string, string]` | No | `{}` | Additional environment variables to pass during the build. Keys must match `[A-Za-z_][A-Za-z0-9_]*`. |
 
 ### Example
 
@@ -140,6 +144,33 @@ target_build_phase:
       SANITIZER: coverage
 ```
 
+### Directed Build Inputs
+
+For directed fuzzing workflows, `oss-crs build-target` can stage input artifacts into build containers:
+
+- `--diff <file>`: provide a reference diff
+- `--bug-candidate <file>`: provide a single bug-candidate report
+- `--bug-candidate-dir <dir>`: provide a directory of bug-candidate reports
+
+When provided, these artifacts are mounted into `OSS_CRS_FETCH_DIR` during the build phase.
+Builder scripts should consume them through libCRS fetch commands, for example:
+
+```bash
+libCRS fetch diff /work/diff
+libCRS fetch bug-candidate /work/bug-candidates
+```
+
+### Input Semantics (Capability vs Requirement)
+
+OSS-CRS distinguishes between:
+
+- **Capability**: a CRS can consume a given input type through libCRS (for example `seed`, `pov`, `bug-candidate`, `diff`).
+- **Requirement**: a specific CRS needs that input to function for a given workflow.
+
+Framework-level integration expects CRS containers to support standard input channels where applicable, but input presence is still workflow-dependent.
+For example, initial seeds are optional in general OSS-CRS execution, while a directed fuzzer may require a SARIF bug-candidate to start.
+When an input is required by a CRS, validate and fail fast in CRS logic, and document the requirement in CRS-specific docs.
+
 ---
 
 ## CRS Run Phase
@@ -156,7 +187,7 @@ The CRS run phase is a dictionary where each key is a module name and each value
 |-------|------|----------|---------|-------------|
 | `dockerfile` | `string` | Conditional | - | Path to the Dockerfile (must contain "Dockerfile" or end with `.Dockerfile`). Can use `oss-crs-infra:` prefix for framework-provided services. **Required** when `run_snapshot` is `false`; **optional** when `run_snapshot` is `true`. |
 | `run_snapshot` | `bool` | No | `false` | When `true`, uses the snapshot image from the build phase as this module's base image. Enables the module to use builder sidecar commands (`apply-patch-build`, `run-pov`, `run-test`). |
-| `additional_env` | `dict[string, string]` | No | `{}` | Additional environment variables to pass to the module |
+| `additional_env` | `dict[string, string]` | No | `{}` | Additional environment variables to pass to the module. Keys must match `[A-Za-z_][A-Za-z0-9_]*`. |
 
 ### Example
 
@@ -190,6 +221,16 @@ crs_run_phase:
     run_snapshot: true
 ```
 
+### `additional_env` Key Rules
+
+- Key format is validated: `[A-Za-z_][A-Za-z0-9_]*`.
+- Build-option keys such as `SANITIZER`, `FUZZING_ENGINE`, `ARCHITECTURE`, and
+  `FUZZING_LANGUAGE` can be overridden through `additional_env`.
+- `OSS_CRS_*` namespace is reserved for framework-managed values. If users set
+  those keys in `additional_env`, `oss-crs` warns (`ENV001`/`ENV002`).
+- For framework-owned `OSS_CRS_*` keys in a given phase, framework values take
+  precedence. Unknown `OSS_CRS_*` keys are warned and may pass through.
+
 ---
 
 ## Supported Target
@@ -202,6 +243,7 @@ The `supported_target` section defines what types of targets the CRS can work wi
 | `language` | `Set[TargetLanguage]` | Yes | Supported programming languages (see [TargetLanguage](#targetlanguage)) |
 | `sanitizer` | `Set[TargetSanitizer]` | Yes | Supported sanitizers (see [TargetSanitizer](#targetsanitizer)) |
 | `architecture` | `Set[TargetArch]` | Yes | Supported CPU architectures (see [TargetArch](#targetarch)) |
+| `fuzzing_engine` | `Set[FuzzingEngine]` | No | Supported fuzzing engines (see [FuzzingEngine](#fuzzingengine)). Defaults to all engines when omitted. |
 
 ### Example
 
@@ -219,6 +261,9 @@ supported_target:
     - undefined
   architecture:
     - x86_64
+  fuzzing_engine:
+    - libfuzzer
+    - afl
 ```
 
 ---
@@ -233,6 +278,7 @@ Defines the type of CRS:
 |-------|-------------|
 | `bug-finding` | CRS designed for finding bugs |
 | `bug-fixing` | CRS designed for fixing bugs |
+| `builder` | Builder-side CRS for incremental patch build/test workflows |
 
 ### TargetMode
 
@@ -277,3 +323,14 @@ Supported CPU architectures (based on [OSS-Fuzz architecture support](https://go
 |-------|-------------|
 | `x86_64` | 64-bit x86 architecture |
 | `i386` | 32-bit x86 architecture |
+
+### FuzzingEngine
+
+Supported fuzzing engines (based on [OSS-Fuzz fuzzing engine support](https://google.github.io/oss-fuzz/getting-started/new-project-guide/#fuzzing_engines-optional)):
+
+| Value | Description |
+|-------|-------------|
+| `libfuzzer` | LLVM libFuzzer |
+| `afl` | American Fuzzy Lop |
+| `honggfuzz` | Honggfuzz |
+| `centipede` | Centipede |

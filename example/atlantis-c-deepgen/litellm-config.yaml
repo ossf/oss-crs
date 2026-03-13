@@ -1,0 +1,66 @@
+model_list:
+  #########################################
+  # ANTHROPIC API (via external LiteLLM)
+  #########################################
+  - model_name: claude-sonnet-4-5-20250929
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  #########################################
+  # OPENAI MODELS
+  #########################################
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: o3
+    litellm_params:
+      model: openai/o3
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: o4-mini
+    litellm_params:
+      model: openai/o4-mini
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  #########################################
+  # GOOGLE MODELS
+  #########################################
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  #########################################
+  # OPENAI EMBEDDINGS
+  #########################################
+  - model_name: text-embedding-3-large
+    litellm_params:
+      model: openai/text-embedding-3-large
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY

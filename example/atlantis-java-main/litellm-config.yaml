@@ -1,0 +1,48 @@
+model_list:
+  #########################################
+  # OPENAI API (via external LiteLLM)
+  #########################################
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: gpt-5
+    litellm_params:
+      model: openai/gpt-5
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: o3
+    litellm_params:
+      model: openai/o3
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: o4-mini
+    litellm_params:
+      model: openai/o4-mini
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  #########################################
+  # ANTHROPIC API (via external LiteLLM)
+  #########################################
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+
+  - model_name: claude-opus-4-20250514
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+      api_key: os.environ/EXTERNAL_LITELLM_API_KEY

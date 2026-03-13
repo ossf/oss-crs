@@ -11,6 +11,7 @@ For a quick introduction and setup instructions, see the [project README](../REA
 | Topic | Description |
 |---|---|
 | [Quick Start](../README.md#quick-start) | Install prerequisites and run your first CRS in minutes |
+| [Setup Command](setup.md) | Configure system for enhanced resource management (cgroup-parent support) |
 | [CRS Development Guide](crs-development-guide.md) | Build or integrate your own CRS into the OSS-CRS framework |
 | [CRS Registry](registry.md) | Browse available CRSs ready to use out of the box |
 
@@ -21,7 +22,7 @@ For a quick introduction and setup instructions, see the [project README](../REA
 | [CRS Compose (`crs-compose.yaml`)](config/crs-compose.md) | Orchestration config — define CRS entries, resources, and ensemble campaigns |
 | [CRS (`crs.yaml`)](config/crs.md) | Per-CRS config — prepare, build, and run phases for a single CRS |
 | [Target Project (`project.yaml`)](config/target-project.md) | Target project setup — OSS-Fuzz format and `project.yaml` schema |
-| [LLM (`litellm_config.yaml`)](config/llm.md) | LLM provider setup — model routing, API keys, and custom endpoints via LiteLLM |
+| [LLM (`litellm_config.yaml`)](config/llm.md) | LiteLLM config file format for internal mode (provider routing, API keys, custom endpoints) |
 
 ## Architecture & Design
 
@@ -53,6 +54,8 @@ Each CRS runs in its own containerized environment with strict resource boundari
 - **Memory** — Hard memory cap via `mem_limit`
 - **LLM Budget** — Per-CRS dollar-denominated limits enforced by LiteLLM
 - **Network** — Private Docker network per CRS; shared network for infrastructure access
+
+Run `oss-crs setup` to enable [cgroup-parent mode](setup.md) for flexible resource sharing within each CRS.
 
 ### Ensemble Campaigns
 

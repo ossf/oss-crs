@@ -43,6 +43,12 @@ The `source` field in compose is only needed to **override** the registry (e.g.,
 | **crs-libfuzzer** | bug-finding | A lightweight CRS that runs libFuzzer on the target. Good starting point and baseline for evaluation. |
 | **atlantis-multilang-wo-concolic** | bug-finding | A multi-language LLM-powered CRS that generates and refines fuzz harnesses without concolic execution. |
 | **crs-claude-code** | bug-fixing | An LLM-powered CRS that uses Claude Code to generate patches for vulnerabilities. Language-agnostic via a builder sidecar. |
+| **crs-codex** | bug-fixing | An LLM-powered CRS that uses Codex CLI to analyze crashes, edit code, and validate patches through a builder sidecar. |
+| **crs-copilot-cli** | bug-fixing | An LLM-powered CRS that uses GitHub Copilot CLI to generate and validate patches through a builder sidecar. |
+| **crs-gemini-cli** | bug-fixing | An LLM-powered CRS that uses Gemini CLI to generate and validate patches through a builder sidecar. |
+| **crs-multi-retrieval** | bug-fixing | A two-step CRS that first analyzes crashes to gather code context, then iteratively generates and refines patches using multiple retrieval mechanisms. |
+| **crs-prism** | bug-fixing | A cyclic CRS that rotates between analysis, patching, and evaluation agents to progressively converge on a validated fix. |
+| **crs-vincent** | bug-fixing | A three-stage CRS that combines root-cause analysis, project-specific property analysis, and patch generation to target semantic correctness. |
 
 ### Planned
 
@@ -55,11 +61,14 @@ The following CRSs are planned for inclusion in the registry:
 | atlantis-c-deepgen | Planned |
 | atlantis-c-libafl | Planned |
 | crs-claude-code | Registered |
+| crs-codex | Registered |
+| crs-copilot-cli | Registered |
+| crs-gemini-cli | Registered |
+| crs-multi-retrieval | Registered |
+| crs-prism | Registered |
+| crs-vincent | Registered |
 | atlantis-java-atljazzer | Planned |
 | atlantis-java-main | Planned |
-| atlantis-multi-retrieval | Planned |
-| atlantis-prism | Planned |
-| atlantis-vincent | Planned |
 | buttercup-patcher | Planned |
 | swe-agent | Planned |
 
@@ -72,10 +81,10 @@ To use a CRS from the registry, reference it in your [compose file](config/crs-c
 uv run oss-crs prepare --compose-file <compose-file>
 
 # Build the target
-uv run oss-crs build-target --compose-file <compose-file> --target-proj-path <target-path>
+uv run oss-crs build-target --compose-file <compose-file> --fuzz-proj-path <fuzz-proj-path>
 
 # Run the CRS
-uv run oss-crs run --compose-file <compose-file> --target-proj-path <target-path> --target-harness <harness>
+uv run oss-crs run --compose-file <compose-file> --fuzz-proj-path <fuzz-proj-path> --target-harness <harness>
 ```
 
 See the [Quick Start](../README.md#quick-start) for a complete walkthrough.
