@@ -54,8 +54,8 @@ services:
       - OSS_CRS_TARGET={{ target_env.name }}
       - OSS_CRS_TARGET_HARNESS={{ target_env.harness }}
       - OSS_CRS_RUN_ID={{ run_id }}
-      - OSS_CRS_CPUSET="{{ crs.resource.cpuset }}"
-      - OSS_CRS_MEMORY_LIMIT="{{ crs.resource.memory }}"
+      - OSS_CRS_CPUSET={{ crs.resource.cpuset }}
+      - OSS_CRS_MEMORY_LIMIT={{ crs.resource.memory }}
       - OSS_CRS_PROJ_PATH=/OSS_CRS_PROJ_PATH
       - OSS_CRS_REPO_PATH={{ target_env.repo_path }}
       - OSS_CRS_BUILD_OUT_DIR=/OSS_CRS_BUILD_OUT_DIR
