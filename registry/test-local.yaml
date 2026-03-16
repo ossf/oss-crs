@@ -1,0 +1,6 @@
+name: crs-libfuzzer
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-libfuzzer.git
+  ref: test-local

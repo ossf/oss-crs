@@ -1,0 +1,26 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for test-local                                        #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (test-local) -------------------------------------------------------
+test-local:
+  cpuset: "4-15"
+  memory: "48G"
+  llm_budget: 1
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/test-local/litellm-config.yaml
