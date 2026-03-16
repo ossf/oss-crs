@@ -1,0 +1,19 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for crs-libfuzzer (bug-finding)                       #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (crs-libfuzzer) ---------------------------------------------------
+# Pure fuzzer — no LLM or builder sidecar needed.
+crs-jazzer:
+  cpuset: "4-7"
+  memory: "16G"
