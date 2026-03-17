@@ -223,6 +223,16 @@ jobs:
             echo "WARNING: No patches found (may be expected if LLM could not fix)"
           fi
 
+      - name: Upload smoke-c workdir artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-c-workdir
+          path: |
+            /tmp/oss-crs-work/crs_compose/**/builds/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**
+          if-no-files-found: warn
+
   smoke-java:
     name: Smoke test (Java)
     runs-on: ubuntu-latest
@@ -393,3 +403,13 @@ jobs:
           else
             echo "WARNING: No patches found (may be expected if LLM could not fix)"
           fi
+
+      - name: Upload smoke-java workdir artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-java-workdir
+          path: |
+            /tmp/oss-crs-work/crs_compose/**/builds/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**
+          if-no-files-found: warn
