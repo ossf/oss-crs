@@ -26,6 +26,4 @@ services:
       - {{ build_fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
       - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
-{%- if target_source_path %}
       - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
-{%- endif %}

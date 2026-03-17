@@ -90,7 +90,6 @@ def build_target_builder_env(
     build_additional_env: Mapping[str, str] | None,
     harness: str | None = None,
     include_fetch_dir: bool = False,
-    include_target_source: bool = False,
     scope: str,
 ) -> EnvPlan:
     base_env = {
@@ -111,13 +110,12 @@ def build_target_builder_env(
         "OSS_CRS_TARGET_PROJ_DIR": "/OSS_CRS_PROJ_PATH",
         "OSS_CRS_REPO_PATH": target_env["repo_path"],
         "OSS_CRS_FUZZ_PROJ": "/OSS_CRS_FUZZ_PROJ",
+        "OSS_CRS_TARGET_SOURCE": "/OSS_CRS_TARGET_SOURCE",
     }
     if harness:
         system_env["OSS_CRS_TARGET_HARNESS"] = harness
     if include_fetch_dir:
         system_env["OSS_CRS_FETCH_DIR"] = "/OSS_CRS_FETCH_DIR"
-    if include_target_source:
-        system_env["OSS_CRS_TARGET_SOURCE"] = "/OSS_CRS_TARGET_SOURCE"
     return _resolve_env(
         phase="build",
         base_env=base_env,
@@ -144,7 +142,6 @@ def build_run_service_env(
     scope: str,
     harness: str | None = None,
     include_fetch_dir: bool = False,
-    include_target_source: bool = False,
     include_snapshot_image: str | None = None,
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
@@ -174,13 +171,12 @@ def build_run_service_env(
         "OSS_CRS_SHARED_DIR": "/OSS_CRS_SHARED_DIR",
         "OSS_CRS_LOG_DIR": "/OSS_CRS_LOG_DIR",
         "OSS_CRS_FUZZ_PROJ": "/OSS_CRS_FUZZ_PROJ",
+        "OSS_CRS_TARGET_SOURCE": "/OSS_CRS_TARGET_SOURCE",
     }
     if harness:
         system_env["OSS_CRS_TARGET_HARNESS"] = harness
     if include_fetch_dir:
         system_env["OSS_CRS_FETCH_DIR"] = "/OSS_CRS_FETCH_DIR"
-    if include_target_source:
-        system_env["OSS_CRS_TARGET_SOURCE"] = "/OSS_CRS_TARGET_SOURCE"
     if include_snapshot_image:
         system_env["OSS_CRS_SNAPSHOT_IMAGE"] = include_snapshot_image
     if llm_api_url:
