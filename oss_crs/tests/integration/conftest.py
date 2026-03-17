@@ -27,10 +27,19 @@ def docker_available():
 def init_git_repo(dst):
     """Initialize a directory as a git repo with initial commit."""
     subprocess.run(["git", "init"], cwd=dst, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=dst, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=dst, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=dst,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=dst, check=True, capture_output=True
+    )
     subprocess.run(["git", "add", "."], cwd=dst, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=dst, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=dst, check=True, capture_output=True
+    )
 
 
 @pytest.fixture
@@ -73,6 +82,7 @@ def cli_runner(request):
                 result.returncode, cmd, result.stdout, result.stderr
             )
         return result
+
     return run
 
 

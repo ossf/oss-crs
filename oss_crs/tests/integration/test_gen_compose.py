@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent
 @pytest.fixture
 def cli_runner():
     """Return a function to run the oss-crs CLI."""
+
     def run(*args, check=False):
         cmd = [sys.executable, "-m", "oss_crs.src.cli.crs_compose"] + list(args)
         result = subprocess.run(
@@ -27,6 +28,7 @@ def cli_runner():
                 result.returncode, cmd, result.stdout, result.stderr
             )
         return result
+
     return run
 
 
@@ -68,9 +70,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(simple_compose),
-            "--cpus", "20-27",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(simple_compose),
+            "--cpus",
+            "20-27",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode == 0
@@ -88,9 +93,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(ensemble_compose),
-            "--cpus", "100-111",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(ensemble_compose),
+            "--cpus",
+            "100-111",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode == 0
@@ -110,9 +118,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(simple_compose),
-            "--cpus", "1-4,10-13",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(simple_compose),
+            "--cpus",
+            "1-4,10-13",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode == 0
@@ -129,9 +140,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(ensemble_compose),
-            "--cpus", "0-11",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(ensemble_compose),
+            "--cpus",
+            "0-11",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode == 0
@@ -150,9 +164,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(ensemble_compose),
-            "--cpus", "0-3",  # Only 4 CPUs, but needs 12
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(ensemble_compose),
+            "--cpus",
+            "0-3",  # Only 4 CPUs, but needs 12
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode != 0
@@ -165,9 +182,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(simple_compose),
-            "--cpus", "invalid-format",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            str(simple_compose),
+            "--cpus",
+            "invalid-format",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode != 0
@@ -180,9 +200,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", "/nonexistent/file.yaml",
-            "--cpus", "0-7",
-            "--compose-output", str(output_file),
+            "--compose-template",
+            "/nonexistent/file.yaml",
+            "--cpus",
+            "0-7",
+            "--compose-output",
+            str(output_file),
         )
 
         assert result.returncode != 0
@@ -195,9 +218,12 @@ class TestGenComposeCommand:
 
         result = cli_runner(
             "gen-compose",
-            "--compose-template", str(simple_compose),
-            "--cpus", "0-7",
-            "--compose-output", str(nested_output),
+            "--compose-template",
+            str(simple_compose),
+            "--cpus",
+            "0-7",
+            "--compose-output",
+            str(nested_output),
         )
 
         assert result.returncode == 0

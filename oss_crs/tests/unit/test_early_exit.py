@@ -1,13 +1,10 @@
 """Tests for early exit functionality."""
-import tempfile
-import threading
+
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
-from oss_crs.src.ui import EarlyExitConfig, MultiTaskProgress, TaskResult
+from oss_crs.src.ui import EarlyExitConfig, MultiTaskProgress
 
 
 class TestEarlyExitCLIFlag:
@@ -23,13 +20,18 @@ class TestEarlyExitCLIFlag:
         add_run_command(subparsers)
 
         # Parse with --early-exit flag
-        args = parser.parse_args([
-            "run",
-            "--compose-file", "compose.yaml",
-            "--fuzz-proj-path", "/tmp/target",
-            "--target-harness", "test_harness",
-            "--early-exit",
-        ])
+        args = parser.parse_args(
+            [
+                "run",
+                "--compose-file",
+                "compose.yaml",
+                "--fuzz-proj-path",
+                "/tmp/target",
+                "--target-harness",
+                "test_harness",
+                "--early-exit",
+            ]
+        )
         assert args.early_exit is True
 
     def test_early_exit_flag_default_false(self):
@@ -42,12 +44,17 @@ class TestEarlyExitCLIFlag:
         add_run_command(subparsers)
 
         # Parse without --early-exit flag
-        args = parser.parse_args([
-            "run",
-            "--compose-file", "compose.yaml",
-            "--fuzz-proj-path", "/tmp/target",
-            "--target-harness", "test_harness",
-        ])
+        args = parser.parse_args(
+            [
+                "run",
+                "--compose-file",
+                "compose.yaml",
+                "--fuzz-proj-path",
+                "/tmp/target",
+                "--target-harness",
+                "test_harness",
+            ]
+        )
         assert args.early_exit is False
 
 

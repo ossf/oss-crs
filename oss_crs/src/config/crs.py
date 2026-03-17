@@ -36,7 +36,7 @@ def _validate_dockerfile_value(v: Optional[str]) -> Optional[str]:
     if v is None:
         return None
     if v.startswith(OSS_CRS_INFRA_PREFIX):
-        module_name = v[len(OSS_CRS_INFRA_PREFIX):]
+        module_name = v[len(OSS_CRS_INFRA_PREFIX) :]
         if not module_name:
             raise ValueError("oss-crs-infra: module name cannot be empty")
         return v
@@ -155,7 +155,9 @@ class SupportedTarget(BaseModel):
     language: Set[TargetLangauge]
     sanitizer: Set[TargetSanitizer]
     architecture: Set[TargetArch]
-    fuzzing_engine: Set[FuzzingEngine] = Field(default_factory=lambda: set(FuzzingEngine))
+    fuzzing_engine: Set[FuzzingEngine] = Field(
+        default_factory=lambda: set(FuzzingEngine)
+    )
 
 
 class CRSType(Enum):
@@ -190,7 +192,9 @@ class CRSConfig(BaseModel):
 
     @property
     def is_bug_fixing(self) -> bool:
-        return CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
+        return (
+            CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
+        )
 
     @property
     def is_bug_fixing_ensemble(self) -> bool:

@@ -50,9 +50,7 @@ def resolve_source_from_registry(crs_name: str) -> CRSSource:
         data = yaml.safe_load(f)
     source_data = data.get("source")
     if source_data is None:
-        raise ValueError(
-            f"Registry file {registry_file} is missing 'source' field"
-        )
+        raise ValueError(f"Registry file {registry_file} is missing 'source' field")
     return CRSSource(**source_data)
 
 
@@ -267,7 +265,10 @@ class CRSComposeConfig(BaseModel):
     def md5_hash(self) -> str:
         """Compute MD5 hash of the configuration."""
         config_json = self.model_dump(exclude_none=True, mode="json")
-        config_json = remove_keys(config_json, ["cpuset", "llm_budget", "memory", "additional_env", "llm_config"])
+        config_json = remove_keys(
+            config_json,
+            ["cpuset", "llm_budget", "memory", "additional_env", "llm_config"],
+        )
         config_json = json.dumps(config_json)
         return hashlib.md5(config_json.encode()).hexdigest()[:12]
 

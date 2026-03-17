@@ -33,7 +33,9 @@ class TestCRSSource:
 
         # Invalid - combined with url
         with pytest.raises(ValidationError, match="cannot be combined"):
-            CRSSource(local_path="/path", url="https://github.com/org/repo.git", ref="main")
+            CRSSource(
+                local_path="/path", url="https://github.com/org/repo.git", ref="main"
+            )
 
     def test_must_specify_source(self):
         """Must provide either url or local_path."""

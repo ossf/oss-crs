@@ -59,7 +59,12 @@ def test_create_snapshot_reuses_cached_image(monkeypatch, tmp_path: Path) -> Non
             self.stderr = ""
 
     def _fake_subprocess_run(cmd, capture_output=False, text=False, cwd=None):
-        if cmd[:4] == ["docker", "image", "inspect", "demo-target:abc123-address-snapshot"]:
+        if cmd[:4] == [
+            "docker",
+            "image",
+            "inspect",
+            "demo-target:abc123-address-snapshot",
+        ]:
             return _Result(0)
         return _Result(0)
 
@@ -103,7 +108,9 @@ def test_create_snapshot_uses_deterministic_intermediate_tag_and_atomic_cache(
 
     assert result.success is True
     assert target.snapshot_image_tag == "demo-target:abc123-address-snapshot"
-    assert (tmp_path / ".snapshot-address-bb7bb490183a.cache").read_text() == "base-hash"
+    assert (
+        tmp_path / ".snapshot-address-bb7bb490183a.cache"
+    ).read_text() == "base-hash"
     assert not list(tmp_path.glob(".snapshot-address-bb7bb490183a.cache.tmp-*"))
 
     commit_cmds = [

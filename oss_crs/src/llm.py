@@ -39,7 +39,11 @@ class LLM:
         self.model_check_enabled = llm_config.litellm.model_check
 
         if self.mode == "internal":
-            config_path = llm_config.litellm.internal.config_path if llm_config.litellm.internal else None
+            config_path = (
+                llm_config.litellm.internal.config_path
+                if llm_config.litellm.internal
+                else None
+            )
             if config_path is None:
                 config_path = str(DEFAULT_LITELLM_CONFIG_PATH)
             litellm_path = Path(config_path).expanduser().resolve()
@@ -126,7 +130,9 @@ class LLM:
             if not self.get_crs_api_url():
                 return TaskResult(success=False, error="External LiteLLM URL is empty")
             if not self.get_crs_api_key():
-                return TaskResult(success=False, error="External LiteLLM API key is empty")
+                return TaskResult(
+                    success=False, error="External LiteLLM API key is empty"
+                )
             return TaskResult(success=True)
 
         return TaskResult(success=True)
@@ -148,7 +154,11 @@ class LLM:
             return TaskResult(success=True)
 
         if self.mode == "internal":
-            if self.llm_config and self.llm_config.litellm.internal and self.llm_config.litellm.internal.config_path is None:
+            if (
+                self.llm_config
+                and self.llm_config.litellm.internal
+                and self.llm_config.litellm.internal.config_path is None
+            ):
                 if not DEFAULT_LITELLM_CONFIG_PATH.exists():
                     return TaskResult(
                         success=False,
@@ -214,7 +224,12 @@ class LLM:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ):
             return None
 
         model_entries = payload.get("data", [])

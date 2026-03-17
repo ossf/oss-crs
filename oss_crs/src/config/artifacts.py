@@ -111,9 +111,7 @@ class CRSArtifacts(BaseModel):
                 )
             )
             artifacts.log_dir = str(
-                work_dir.get_log_dir(
-                    crs_name, target, run_id, sanitizer, create=False
-                )
+                work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
             )
             run_logs_root = work_dir.get_run_logs_dir(
                 target, run_id, sanitizer, create=False

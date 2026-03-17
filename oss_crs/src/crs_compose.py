@@ -12,7 +12,15 @@ from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
 from .target import Target
 from .templates import renderer
-from .utils import TmpDockerCompose, normalize_run_id, generate_run_id, rm_with_docker, log_success, log_warning, log_dim
+from .utils import (
+    TmpDockerCompose,
+    normalize_run_id,
+    generate_run_id,
+    rm_with_docker,
+    log_success,
+    log_warning,
+    log_dim,
+)
 from .workdir import WorkDir
 from .cgroup import (
     check_cgroup_parent_available,
@@ -376,7 +384,9 @@ class CRSCompose:
                 )
 
         if bug_candidate is not None and bug_candidate_dir is not None:
-            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
             return False
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
@@ -388,7 +398,9 @@ class CRSCompose:
             )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
-            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            print(
+                f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
+            )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
@@ -427,7 +439,9 @@ class CRSCompose:
                         sanitizer,
                         build_fetch_dir=build_fetch_dir,
                         diff_path=diff,
-                        bug_candidate_dir=bug_candidate if bug_candidate else bug_candidate_dir,
+                        bug_candidate_dir=bug_candidate
+                        if bug_candidate
+                        else bug_candidate_dir,
                         input_hash=input_hash,
                     ),
                 )
@@ -490,7 +504,9 @@ class CRSCompose:
             print(f"Error: Diff file does not exist: {diff}")
             return False
         if bug_candidate is not None and bug_candidate_dir is not None:
-            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
             return False
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
@@ -502,7 +518,9 @@ class CRSCompose:
             )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
-            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            print(
+                f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
+            )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
@@ -647,16 +665,18 @@ class CRSCompose:
         ]
 
         if self.llm.exists():
-            tasks.extend([
-                (
-                    "Validate required LLMs for CRS targets",
-                    lambda _: self.llm.validate_required_llms(self.crs_list),
-                ),
-                (
-                    "Validate required environment variables for LiteLLM",
-                    lambda _: self.llm.validate_required_envs(),
-                ),
-            ])
+            tasks.extend(
+                [
+                    (
+                        "Validate required LLMs for CRS targets",
+                        lambda _: self.llm.validate_required_llms(self.crs_list),
+                    ),
+                    (
+                        "Validate required environment variables for LiteLLM",
+                        lambda _: self.llm.validate_required_envs(),
+                    ),
+                ]
+            )
 
         with MultiTaskProgress(
             tasks=tasks,
@@ -875,6 +895,7 @@ class CRSCompose:
         ]
 
         try:
+
             def _run_capture(cmd: list[str]) -> tuple[str, str, int]:
                 try:
                     result = subprocess.run(
@@ -979,7 +1000,9 @@ class CRSCompose:
                     "Some per-CRS log links failed; see capture-metadata.json."
                 )
             if warnings:
-                (logs_dir / "capture-warning.txt").write_text("\n".join(warnings) + "\n")
+                (logs_dir / "capture-warning.txt").write_text(
+                    "\n".join(warnings) + "\n"
+                )
         except Exception as exc:
             (logs_dir / "capture-warning.txt").write_text(
                 "Unexpected failure during compose log capture.\n"
@@ -1130,7 +1153,9 @@ class CRSCompose:
             progress.add_task("Copy seed files to exchange dir", copy_seeds)
 
         if bug_candidate:
-            progress.add_task("Copy bug-candidate SARIF to exchange dir", copy_bug_candidates)
+            progress.add_task(
+                "Copy bug-candidate SARIF to exchange dir", copy_bug_candidates
+            )
 
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose

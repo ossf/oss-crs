@@ -11,7 +11,7 @@ from typing import Callable, Optional
 import yaml
 from rich.console import Console, Group
 
-from .utils import bold, get_console, green, log_error, yellow
+from .utils import bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
 from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
