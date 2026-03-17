@@ -2,7 +2,6 @@
 
 import re
 import shutil
-from pathlib import Path
 
 import pytest
 import yaml
@@ -150,7 +149,9 @@ def test_run_enforces_memory_limits_in_active_mode(
         "25",
         timeout=90,
     )
-    assert run_result.returncode in (0, 1), f"run failed unexpectedly: {run_result.stderr}"
+    assert run_result.returncode in (0, 1), (
+        f"run failed unexpectedly: {run_result.stderr}"
+    )
 
     memory_logs = sorted(work_dir.rglob("*_memory_test.txt"))
     assert memory_logs, "Expected memory logs from dummy CRS modules"
@@ -168,7 +169,9 @@ def test_run_enforces_memory_limits_in_active_mode(
         assert any(value == "max" for value in observed_max_values)
     else:
         numeric = [int(value) for value in observed_max_values if value.isdigit()]
-        assert numeric, f"Expected numeric memory.max values, got: {observed_max_values}"
+        assert numeric, (
+            f"Expected numeric memory.max values, got: {observed_max_values}"
+        )
         assert all(value == expected_memory for value in numeric)
 
 
@@ -232,7 +235,9 @@ def test_containers_within_crs_share_memory_limit(
         timeout=180,
     )
     # Exit code 1 is expected (docker exits 137 when container OOMs)
-    assert run_result.returncode in (0, 1), f"run failed unexpectedly: {run_result.stderr}"
+    assert run_result.returncode in (0, 1), (
+        f"run failed unexpectedly: {run_result.stderr}"
+    )
 
     # Verify cgroup-parent mode was used.
     # The message "Created cgroups at:" indicates cgroups were set up successfully.
@@ -242,9 +247,7 @@ def test_containers_within_crs_share_memory_limit(
         "cgroup-parent mode may not be available on this system."
     )
     # Verify the cgroup path contains oss-crs (may span multiple lines due to wrapping)
-    assert "oss-crs" in run_result.stdout, (
-        "Expected 'oss-crs' in cgroup path output"
-    )
+    assert "oss-crs" in run_result.stdout, "Expected 'oss-crs' in cgroup path output"
 
     # Parse memory logs from containers
     memory_logs = sorted(work_dir.rglob("*_memory_test.txt"))
@@ -295,8 +298,7 @@ def test_containers_within_crs_share_memory_limit(
 
     # Count total chunks allocated across all containers
     total_chunks = sum(
-        log_path.read_text().count("ALLOCATED chunk")
-        for log_path in memory_logs
+        log_path.read_text().count("ALLOCATED chunk") for log_path in memory_logs
     )
     total_allocated_mb = total_chunks * chunk_size_mb
 
@@ -352,13 +354,17 @@ def _parse_resource_log(log_path) -> dict:
             elif val.isdigit():
                 result["memory_max"] = int(val)
         elif "env_memory_limit:" in line:
-            result["env_memory_limit"] = line.split("env_memory_limit:", 1)[1].strip().strip('"')
+            result["env_memory_limit"] = (
+                line.split("env_memory_limit:", 1)[1].strip().strip('"')
+            )
         elif "nproc:" in line:
             val = line.split("nproc:", 1)[1].strip()
             if val.isdigit():
                 result["nproc"] = int(val)
         elif "cpuset.cpus.effective:" in line:
-            result["cpuset_effective"] = line.split("cpuset.cpus.effective:", 1)[1].strip()
+            result["cpuset_effective"] = line.split("cpuset.cpus.effective:", 1)[
+                1
+            ].strip()
         elif "env_cpuset:" in line:
             result["env_cpuset"] = line.split("env_cpuset:", 1)[1].strip().strip('"')
         elif "FINAL: allocated" in line:
@@ -458,7 +464,9 @@ def test_multi_crs_different_resource_limits(
         "60",
         timeout=180,
     )
-    assert run_result.returncode in (0, 1), f"run failed unexpectedly: {run_result.stderr}"
+    assert run_result.returncode in (0, 1), (
+        f"run failed unexpectedly: {run_result.stderr}"
+    )
 
     # Parse all memory test logs
     memory_logs = sorted(work_dir.rglob("*_memory_test.txt"))
@@ -474,22 +482,28 @@ def test_multi_crs_different_resource_limits(
             crs_results.setdefault(crs_name, []).append(parsed)
 
     # We should have logs from both CRSs
-    assert "crs-alpha" in crs_results, f"Missing logs from crs-alpha. Found: {list(crs_results.keys())}"
-    assert "crs-beta" in crs_results, f"Missing logs from crs-beta. Found: {list(crs_results.keys())}"
+    assert "crs-alpha" in crs_results, (
+        f"Missing logs from crs-alpha. Found: {list(crs_results.keys())}"
+    )
+    assert "crs-beta" in crs_results, (
+        f"Missing logs from crs-beta. Found: {list(crs_results.keys())}"
+    )
 
     # Get max allocation for each CRS (across all containers)
     alpha_max_alloc = max(
-        (r["final_allocated_mb"] or 0 for r in crs_results["crs-alpha"]),
-        default=0
+        (r["final_allocated_mb"] or 0 for r in crs_results["crs-alpha"]), default=0
     )
     beta_max_alloc = max(
-        (r["final_allocated_mb"] or 0 for r in crs_results["crs-beta"]),
-        default=0
+        (r["final_allocated_mb"] or 0 for r in crs_results["crs-beta"]), default=0
     )
 
     # Check memory.max values seen by containers
-    alpha_memory_max = [r["memory_max"] for r in crs_results["crs-alpha"] if r["memory_max"]]
-    beta_memory_max = [r["memory_max"] for r in crs_results["crs-beta"] if r["memory_max"]]
+    alpha_memory_max = [
+        r["memory_max"] for r in crs_results["crs-alpha"] if r["memory_max"]
+    ]
+    beta_memory_max = [
+        r["memory_max"] for r in crs_results["crs-beta"] if r["memory_max"]
+    ]
 
     # Verify limits are different and correct
     # crs-alpha should see ~128MB limit (134217728 bytes)
@@ -501,18 +515,28 @@ def test_multi_crs_different_resource_limits(
         # alpha: 128M = 134217728 bytes, beta: 256M = 268435456 bytes
         for mem_max in alpha_memory_max:
             if mem_max != "max":
-                assert mem_max <= 150 * 1024 * 1024, f"crs-alpha memory.max too high: {mem_max}"
+                assert mem_max <= 150 * 1024 * 1024, (
+                    f"crs-alpha memory.max too high: {mem_max}"
+                )
 
         for mem_max in beta_memory_max:
             if mem_max != "max":
-                assert mem_max <= 300 * 1024 * 1024, f"crs-beta memory.max too high: {mem_max}"
-                assert mem_max > 150 * 1024 * 1024, f"crs-beta memory.max too low: {mem_max}"
+                assert mem_max <= 300 * 1024 * 1024, (
+                    f"crs-beta memory.max too high: {mem_max}"
+                )
+                assert mem_max > 150 * 1024 * 1024, (
+                    f"crs-beta memory.max too low: {mem_max}"
+                )
     else:
         # Without cgroup-parent, check env vars
         alpha_env = [r["env_memory_limit"] for r in crs_results["crs-alpha"]]
         beta_env = [r["env_memory_limit"] for r in crs_results["crs-beta"]]
-        assert any("128" in (e or "") for e in alpha_env), f"crs-alpha should have 128M limit: {alpha_env}"
-        assert any("256" in (e or "") for e in beta_env), f"crs-beta should have 256M limit: {beta_env}"
+        assert any("128" in (e or "") for e in alpha_env), (
+            f"crs-alpha should have 128M limit: {alpha_env}"
+        )
+        assert any("256" in (e or "") for e in beta_env), (
+            f"crs-beta should have 256M limit: {beta_env}"
+        )
 
     # The key assertion: crs-beta (256M) should be able to allocate more than crs-alpha (128M)
     # With 40MB chunks: alpha ~2-3 chunks (80-120MB), beta ~4-6 chunks (160-240MB)

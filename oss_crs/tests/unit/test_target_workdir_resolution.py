@@ -48,7 +48,9 @@ def test_resolve_effective_workdir_with_relative_without_prior(tmp_path: Path) -
     assert target._resolve_effective_workdir() == "/src/repo"
 
 
-def test_resolve_effective_workdir_without_workdir_defaults_to_src(tmp_path: Path) -> None:
+def test_resolve_effective_workdir_without_workdir_defaults_to_src(
+    tmp_path: Path,
+) -> None:
     target = _make_target_with_dockerfile(
         tmp_path,
         "FROM base\nRUN echo ok\n",
@@ -67,8 +69,6 @@ def test_resolve_effective_workdir_strips_inline_comment(tmp_path: Path) -> None
 def test_resolve_effective_workdir_expands_env_vars(tmp_path: Path) -> None:
     target = _make_target_with_dockerfile(
         tmp_path,
-        "FROM base\n"
-        "ENV OSS_FUZZ_ROOT=/src/oss-fuzz\n"
-        "WORKDIR ${OSS_FUZZ_ROOT}/infra\n",
+        "FROM base\nENV OSS_FUZZ_ROOT=/src/oss-fuzz\nWORKDIR ${OSS_FUZZ_ROOT}/infra\n",
     )
     assert target._resolve_effective_workdir() == "/src/oss-fuzz/infra"

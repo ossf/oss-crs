@@ -22,7 +22,11 @@ class TestBuildTargetTemplate:
         template = jinja_env.get_template("build-target.docker-compose.yaml.j2")
 
         context = {
-            "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
+            "crs": {
+                "path": "/crs",
+                "builder_dockerfile": "Dockerfile",
+                "version": "1.0",
+            },
             "effective_env": {},
             "target": {
                 "engine": "libfuzzer",
@@ -52,7 +56,11 @@ class TestBuildTargetTemplate:
         template = jinja_env.get_template("build-target.docker-compose.yaml.j2")
 
         context = {
-            "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
+            "crs": {
+                "path": "/crs",
+                "builder_dockerfile": "Dockerfile",
+                "version": "1.0",
+            },
             "effective_env": {},
             "target": {
                 "engine": "libfuzzer",
@@ -82,7 +90,11 @@ class TestBuildTargetTemplate:
         template = jinja_env.get_template("build-target.docker-compose.yaml.j2")
 
         context = {
-            "crs": {"path": "/crs", "builder_dockerfile": "Dockerfile", "version": "1.0"},
+            "crs": {
+                "path": "/crs",
+                "builder_dockerfile": "Dockerfile",
+                "version": "1.0",
+            },
             "effective_env": {},
             "target": {
                 "engine": "libfuzzer",

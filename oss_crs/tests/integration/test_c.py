@@ -27,16 +27,23 @@ def mock_repo_path(tmp_dir):
 
 
 @pytest.mark.skipif(not docker_available(), reason="Docker not available")
-def test_run_mock_c(cli_runner, mock_project_path, mock_repo_path, compose_file, work_dir):
+def test_run_mock_c(
+    cli_runner, mock_project_path, mock_repo_path, compose_file, work_dir
+):
     """Build and run mock-c target, verify POVs are produced."""
     # Build
     build_result = cli_runner(
         "build-target",
-        "--compose-file", str(compose_file),
-        "--work-dir", str(work_dir),
-        "--fuzz-proj-path", str(mock_project_path),
-        "--target-source-path", str(mock_repo_path),
-        "--build-id", "mock-c-test",
+        "--compose-file",
+        str(compose_file),
+        "--work-dir",
+        str(work_dir),
+        "--fuzz-proj-path",
+        str(mock_project_path),
+        "--target-source-path",
+        str(mock_repo_path),
+        "--build-id",
+        "mock-c-test",
         timeout=300,
     )
     assert build_result.returncode == 0, f"build-target failed: {build_result.stderr}"
@@ -44,14 +51,22 @@ def test_run_mock_c(cli_runner, mock_project_path, mock_repo_path, compose_file,
     # Run with early-exit (stops on first artifact)
     run_result = cli_runner(
         "run",
-        "--compose-file", str(compose_file),
-        "--work-dir", str(work_dir),
-        "--fuzz-proj-path", str(mock_project_path),
-        "--target-source-path", str(mock_repo_path),
-        "--target-harness", "fuzz_parse_buffer",
-        "--timeout", "600",
-        "--build-id", "mock-c-test",
-        "--run-id", "mock-c-run",
+        "--compose-file",
+        str(compose_file),
+        "--work-dir",
+        str(work_dir),
+        "--fuzz-proj-path",
+        str(mock_project_path),
+        "--target-source-path",
+        str(mock_repo_path),
+        "--target-harness",
+        "fuzz_parse_buffer",
+        "--timeout",
+        "600",
+        "--build-id",
+        "mock-c-test",
+        "--run-id",
+        "mock-c-run",
         "--early-exit",
         timeout=900,
     )
@@ -61,15 +76,24 @@ def test_run_mock_c(cli_runner, mock_project_path, mock_repo_path, compose_file,
     # Verify artifacts
     artifacts_result = cli_runner(
         "artifacts",
-        "--compose-file", str(compose_file),
-        "--work-dir", str(work_dir),
-        "--fuzz-proj-path", str(mock_project_path),
-        "--target-source-path", str(mock_repo_path),
-        "--target-harness", "fuzz_parse_buffer",
-        "--build-id", "mock-c-test",
-        "--run-id", "mock-c-run",
+        "--compose-file",
+        str(compose_file),
+        "--work-dir",
+        str(work_dir),
+        "--fuzz-proj-path",
+        str(mock_project_path),
+        "--target-source-path",
+        str(mock_repo_path),
+        "--target-harness",
+        "fuzz_parse_buffer",
+        "--build-id",
+        "mock-c-test",
+        "--run-id",
+        "mock-c-run",
     )
-    assert artifacts_result.returncode == 0, f"artifacts failed: {artifacts_result.stderr}"
+    assert artifacts_result.returncode == 0, (
+        f"artifacts failed: {artifacts_result.stderr}"
+    )
     artifacts = json.loads(artifacts_result.stdout)
     assert "build_id" in artifacts
     assert "run_id" in artifacts
@@ -90,8 +114,10 @@ class TestBuildTargetErrors:
         """Error when compose file doesn't exist."""
         result = cli_runner(
             "build-target",
-            "--compose-file", "/nonexistent/compose.yaml",
-            "--fuzz-proj-path", str(mock_project_path),
+            "--compose-file",
+            "/nonexistent/compose.yaml",
+            "--fuzz-proj-path",
+            str(mock_project_path),
         )
         assert result.returncode != 0
 
@@ -99,9 +125,12 @@ class TestBuildTargetErrors:
         """Error when target project path doesn't exist."""
         result = cli_runner(
             "build-target",
-            "--compose-file", str(compose_file),
-            "--work-dir", str(work_dir),
-            "--fuzz-proj-path", "/nonexistent/project",
+            "--compose-file",
+            str(compose_file),
+            "--work-dir",
+            str(work_dir),
+            "--fuzz-proj-path",
+            "/nonexistent/project",
         )
         assert result.returncode != 0
 
@@ -109,8 +138,10 @@ class TestBuildTargetErrors:
         """Compatibility alias prints deprecation warning."""
         result = cli_runner(
             "build-target",
-            "--compose-file", "/nonexistent/compose.yaml",
-            "--target-path", str(mock_project_path),
+            "--compose-file",
+            "/nonexistent/compose.yaml",
+            "--target-path",
+            str(mock_project_path),
         )
         assert result.returncode != 0
         assert "--target-path is deprecated" in result.stderr
@@ -119,8 +150,10 @@ class TestBuildTargetErrors:
         """Compatibility alias prints deprecation warning."""
         result = cli_runner(
             "build-target",
-            "--compose-file", "/nonexistent/compose.yaml",
-            "--target-proj-path", str(mock_project_path),
+            "--compose-file",
+            "/nonexistent/compose.yaml",
+            "--target-proj-path",
+            str(mock_project_path),
         )
         assert result.returncode != 0
         assert "--target-proj-path is deprecated" in result.stderr
@@ -129,9 +162,12 @@ class TestBuildTargetErrors:
         """Removed alias is rejected by argparse."""
         result = cli_runner(
             "build-target",
-            "--compose-file", "/nonexistent/compose.yaml",
-            "--fuzz-proj-path", str(mock_project_path),
-            "--target-repo-path", "/tmp/repo",
+            "--compose-file",
+            "/nonexistent/compose.yaml",
+            "--fuzz-proj-path",
+            str(mock_project_path),
+            "--target-repo-path",
+            "/tmp/repo",
         )
         assert result.returncode != 0
         assert "unrecognized arguments: --target-repo-path" in result.stderr

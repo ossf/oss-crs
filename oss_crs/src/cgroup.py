@@ -147,6 +147,7 @@ def read_docker_daemon_config() -> dict | None:
         Parsed JSON config or None if file doesn't exist or is invalid
     """
     import json
+
     config_path = get_docker_daemon_config_path()
     if not config_path.exists():
         return None
@@ -163,6 +164,7 @@ def generate_docker_config_commands() -> list[tuple[str, str]]:
         List of (description, command) tuples
     """
     import json
+
     config_path = get_docker_daemon_config_path()
     current_config = read_docker_daemon_config() or {}
 
@@ -178,22 +180,23 @@ def generate_docker_config_commands() -> list[tuple[str, str]]:
 
     # Create backup if file exists
     if config_path.exists():
-        commands.append((
-            "Create backup of existing Docker config",
-            f"sudo cp {config_path} {config_path}.bak"
-        ))
+        commands.append(
+            (
+                "Create backup of existing Docker config",
+                f"sudo cp {config_path} {config_path}.bak",
+            )
+        )
 
     # Write new config
-    commands.append((
-        "Write Docker daemon configuration",
-        f"echo '{new_config}' | sudo tee {config_path}"
-    ))
+    commands.append(
+        (
+            "Write Docker daemon configuration",
+            f"echo '{new_config}' | sudo tee {config_path}",
+        )
+    )
 
     # Restart Docker
-    commands.append((
-        "Restart Docker daemon",
-        "sudo systemctl restart docker"
-    ))
+    commands.append(("Restart Docker daemon", "sudo systemctl restart docker"))
 
     return commands
 
@@ -212,28 +215,33 @@ def generate_cgroup_setup_commands() -> list[tuple[str, str]]:
     commands = []
 
     # Enable controllers at user@<uid>.service level
-    commands.append((
-        "Enable cpuset and memory controllers at user service level",
-        f'echo "+cpuset +memory" | sudo tee {user_service}/cgroup.subtree_control'
-    ))
+    commands.append(
+        (
+            "Enable cpuset and memory controllers at user service level",
+            f'echo "+cpuset +memory" | sudo tee {user_service}/cgroup.subtree_control',
+        )
+    )
 
     # Create oss-crs directory
-    commands.append((
-        "Create oss-crs cgroup directory",
-        f"sudo mkdir -p {oss_crs_path}"
-    ))
+    commands.append(
+        ("Create oss-crs cgroup directory", f"sudo mkdir -p {oss_crs_path}")
+    )
 
     # Set ownership (recursive to include cgroup files)
-    commands.append((
-        f"Set ownership of oss-crs directory to {uid}:{gid}",
-        f"sudo chown -R {uid}:{gid} {oss_crs_path}"
-    ))
+    commands.append(
+        (
+            f"Set ownership of oss-crs directory to {uid}:{gid}",
+            f"sudo chown -R {uid}:{gid} {oss_crs_path}",
+        )
+    )
 
     # Enable controllers at oss-crs level (needs to be done after chown)
-    commands.append((
-        "Enable cpuset and memory controllers at oss-crs level",
-        f'echo "+cpuset +memory" | tee {oss_crs_path}/cgroup.subtree_control'
-    ))
+    commands.append(
+        (
+            "Enable cpuset and memory controllers at oss-crs level",
+            f'echo "+cpuset +memory" | tee {oss_crs_path}/cgroup.subtree_control',
+        )
+    )
 
     return commands
 
@@ -293,7 +301,9 @@ def cleanup_cgroup(cgroup_path: Path, recursive: bool = True) -> tuple[bool, str
         return False, str(e)
 
 
-def cleanup_worker_cgroups(max_age_seconds: int | None = None) -> list[tuple[Path, bool, str]]:
+def cleanup_worker_cgroups(
+    max_age_seconds: int | None = None,
+) -> list[tuple[Path, bool, str]]:
     """Clean up old worker cgroups under oss-crs directory.
 
     Args:
@@ -350,7 +360,7 @@ def cgroup_path_for_docker(cgroup_path: Path) -> str:
     path_str = str(cgroup_path)
     cgroup_root = str(CGROUP_FS_ROOT)
     if path_str.startswith(cgroup_root):
-        return path_str[len(cgroup_root):]
+        return path_str[len(cgroup_root) :]
     return path_str
 
 
@@ -376,12 +386,18 @@ def check_cgroup_parent_available() -> tuple[bool, str]:
     # Check Docker driver
     is_cgroupfs, driver = check_docker_cgroup_driver()
     if not is_cgroupfs:
-        return False, f"Docker using '{driver}' driver, needs 'cgroupfs'. Run: oss-crs setup"
+        return (
+            False,
+            f"Docker using '{driver}' driver, needs 'cgroupfs'. Run: oss-crs setup",
+        )
 
     # Check delegation
     delegation_ok, missing = check_cgroup_delegation()
     if not delegation_ok:
-        return False, f"Cgroup delegation missing: {', '.join(missing)}. Run: oss-crs setup"
+        return (
+            False,
+            f"Cgroup delegation missing: {', '.join(missing)}. Run: oss-crs setup",
+        )
 
     # Check oss-crs directory
     dir_ok, status = check_oss_crs_directory()
@@ -391,7 +407,10 @@ def check_cgroup_parent_available() -> tuple[bool, str]:
     # Check controllers
     controllers_ok, missing = check_oss_crs_controllers()
     if not controllers_ok:
-        return False, f"oss-crs controllers missing: {', '.join(missing)}. Run: oss-crs setup"
+        return (
+            False,
+            f"oss-crs controllers missing: {', '.join(missing)}. Run: oss-crs setup",
+        )
 
     return True, "ok"
 
@@ -417,12 +436,12 @@ def parse_memory_to_bytes(memory_str: str) -> int:
         "B": 1,
         "K": 1024,
         "KB": 1024,
-        "M": 1024 ** 2,
-        "MB": 1024 ** 2,
-        "G": 1024 ** 3,
-        "GB": 1024 ** 3,
-        "T": 1024 ** 4,
-        "TB": 1024 ** 4,
+        "M": 1024**2,
+        "MB": 1024**2,
+        "G": 1024**3,
+        "GB": 1024**3,
+        "T": 1024**4,
+        "TB": 1024**4,
     }
 
     return int(value * multipliers[unit])

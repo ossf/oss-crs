@@ -170,6 +170,7 @@ def rm_with_docker(path: Path) -> None:
 # Text Styling Helpers
 # =============================================================================
 
+
 def bold(text: str) -> str:
     """Return bold markup string."""
     return f"[bold]{text}[/bold]"
@@ -193,7 +194,9 @@ def red(text: str, bold: bool = False) -> str:
     return f"[{style}]{text}[/{style}]"
 
 
-def confirm(message: str, default: bool = True, auto_confirm: bool = False) -> bool | None:
+def confirm(
+    message: str, default: bool = True, auto_confirm: bool = False
+) -> bool | None:
     """Prompt user for yes/no confirmation.
 
     Args:
@@ -219,5 +222,7 @@ def select(message: str, choices: list[tuple[str, str]]) -> str | None:
     Returns:
         The selected value, or None if aborted (Ctrl+C).
     """
-    q_choices = [questionary.Choice(title=title, value=value) for title, value in choices]
+    q_choices = [
+        questionary.Choice(title=title, value=value) for title, value in choices
+    ]
     return questionary.select(message, choices=q_choices).ask()

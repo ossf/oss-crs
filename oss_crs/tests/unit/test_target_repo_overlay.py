@@ -24,10 +24,7 @@ def test_repo_override_uses_rsync_delete_overlay(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     proj.mkdir()
     (proj / "Dockerfile").write_text(
-        "FROM base\n"
-        "WORKDIR $SRC\n"
-        "RUN tar -zxf $SRC/FreeRDP.tar.gz\n"
-        "WORKDIR FreeRDP\n"
+        "FROM base\nWORKDIR $SRC\nRUN tar -zxf $SRC/FreeRDP.tar.gz\nWORKDIR FreeRDP\n"
     )
 
     repo = tmp_path / "repo"
@@ -44,9 +41,17 @@ def test_repo_override_uses_rsync_delete_overlay(tmp_path: Path) -> None:
 
     assert result.success is True
     assert "--from=repo_path . /OSS_CRS_REPO_OVERRIDE" in progress.generated_dockerfile
-    assert "RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./" in progress.generated_dockerfile
+    assert (
+        "RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./"
+        in progress.generated_dockerfile
+    )
     assert "RUN rm -rf /OSS_CRS_REPO_OVERRIDE" in progress.generated_dockerfile
-    assert "RUN find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +" not in progress.generated_dockerfile
+    assert (
+        "RUN find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+        not in progress.generated_dockerfile
+    )
     assert progress.generated_dockerfile.index(
         "--from=repo_path . /OSS_CRS_REPO_OVERRIDE"
-    ) < progress.generated_dockerfile.index("RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./")
+    ) < progress.generated_dockerfile.index(
+        "RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./"
+    )

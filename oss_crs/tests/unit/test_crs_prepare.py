@@ -10,7 +10,9 @@ class _CaptureProgress:
     def __init__(self):
         self.calls = []
 
-    def run_command_with_streaming_output(self, cmd, cwd=None, env=None, info_text=None):
+    def run_command_with_streaming_output(
+        self, cmd, cwd=None, env=None, info_text=None
+    ):
         self.calls.append(
             {
                 "cmd": cmd,

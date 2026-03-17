@@ -175,6 +175,7 @@ class Target:
 
         if self._has_repo:
             task_label = "Build docker image with the given repo"
+
             def task_fn(progress):
                 return self.__build_docker_image_with_repo(image_tag, progress)
 
@@ -188,6 +189,7 @@ class Target:
             ]
         else:
             task_label = "Build docker image (plain)"
+
             def task_fn(progress):
                 return self.__build_docker_image_plain(image_tag, progress)
 
@@ -502,12 +504,16 @@ class Target:
                         env_vars[key] = self._expand_docker_vars(value, env_vars)
                     continue
 
-                arg_match = re.match(r"(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line)
+                arg_match = re.match(
+                    r"(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line
+                )
                 if arg_match:
                     key = arg_match.group(1)
                     value = arg_match.group(2)
                     if value is not None:
-                        env_vars[key] = self._expand_docker_vars(value.strip(), env_vars)
+                        env_vars[key] = self._expand_docker_vars(
+                            value.strip(), env_vars
+                        )
                     continue
 
                 match = re.match(r"(?i)^WORKDIR\s+(.+)$", line)
