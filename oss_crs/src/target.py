@@ -536,6 +536,99 @@ class Target:
         except Exception:
             return src_root
 
+    def _resolve_effective_workdir_with_inspect_fallback(self, image_tag: str) -> str:
+        """Resolve effective WORKDIR with docker image inspect fallback for ambiguous /src default.
+
+        If Dockerfile parsing returns a non-/src value, that is returned directly.
+        If Dockerfile parsing returns /src (the default), docker image inspect is used
+        to read the actual WorkingDir from the image metadata.
+        Falls back to /src if inspect returns empty or fails.
+        """
+        parsed = self._resolve_effective_workdir()
+        if parsed != "/src":
+            return parsed
+
+        # /src is ambiguous (could be default or explicitly set); verify via docker inspect
+        result = subprocess.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                "{{.Config.WorkingDir}}",
+                image_tag,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+
+        return "/src"
+
+    def extract_workdir_to_host(self, dest_dir: Path, image_tag: str) -> bool:
+        """Extract the Docker image's WORKDIR contents to a host directory.
+
+        Creates a temporary container from the image, copies the WORKDIR contents
+        to dest_dir using docker cp, then removes the container in a finally block.
+
+        Args:
+            dest_dir: Host directory to receive the extracted contents.
+            image_tag: Docker image tag to extract from.
+
+        Returns:
+            True if extraction succeeded, False otherwise.
+        """
+        workdir = self._resolve_effective_workdir_with_inspect_fallback(image_tag)
+        container_name = f"{self.name}-workdir-extract-{generate_random_name(8)}"
+
+        try:
+            # Step 1: Create a stopped container (no --rm so we can docker cp from it)
+            create_result = subprocess.run(
+                ["docker", "create", f"--name={container_name}", image_tag],
+                capture_output=True,
+                text=True,
+            )
+            if create_result.returncode != 0:
+                from .utils import log_error
+                log_error(
+                    f"docker create failed for {image_tag}: {create_result.stderr}"
+                )
+                return False
+
+            # Step 2: Copy WORKDIR contents to host (trailing /. copies contents, not dir itself)
+            cp_result = subprocess.run(
+                [
+                    "docker",
+                    "cp",
+                    f"{container_name}:{workdir}/.",
+                    str(dest_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if cp_result.returncode != 0:
+                from .utils import log_error
+                log_error(
+                    f"docker cp failed for {image_tag} (workdir={workdir}): {cp_result.stderr}"
+                )
+                return False
+
+            # Log a warning if dest_dir is empty — some projects legitimately have an empty WORKDIR
+            if not any(dest_dir.iterdir()):
+                from .utils import log_warning
+                log_warning(
+                    f"docker cp succeeded but {dest_dir} is empty for {image_tag} (workdir={workdir})"
+                )
+
+            return True
+        finally:
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                text=True,
+            )
+
     @staticmethod
     def _strip_inline_comment(line: str) -> str:
         """Strip inline Dockerfile comments while preserving quoted #."""
