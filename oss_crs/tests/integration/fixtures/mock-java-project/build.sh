@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 
-cd $SRC/src/mock_java
+cd $SRC/mock_java
 CURRENT_VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:3.2.0:evaluate \
 -Dexpression=project.version -q -DforceStdout)
 PROJECT_JARS=mock_java.jar
@@ -16,7 +16,7 @@ BUILD_CLASSPATH=$(echo $ALL_JARS | xargs printf -- "$OUT/%s:"):$JAZZER_API_PATH
 
 RUNTIME_CLASSPATH=$(echo $ALL_JARS | xargs printf -- "\$this_dir/%s:"):.:\$this_dir
 
-FUZZ_DIR=$SRC/src/fuzz
+FUZZ_DIR=$SRC/fuzz
 for fuzzer in $(find $FUZZ_DIR -name '*.java'); do
   fuzzer_basename=$(basename -s .java $fuzzer)
   javac -cp $BUILD_CLASSPATH $fuzzer
