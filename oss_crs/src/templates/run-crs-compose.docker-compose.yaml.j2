@@ -158,7 +158,7 @@ services:
     attach: false
     restart: on-failure:3
     volumes:
-      - {{ exchange_dir }}:/exchange:rw
+      - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:rw
 {%- for crs in crs_list %}
 {%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
@@ -188,7 +188,7 @@ services:
     attach: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - {{ exchange_dir }}:/exchange:rw
+      - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:rw
     environment:
       - COMPOSE_PROJECT={{ crs_compose_name }}
       - WATCH_SERVICES={{ watch_services | join(",") }}
