@@ -108,6 +108,7 @@ def render_build_target_docker_compose(
         build_additional_env=build_config.additional_env,
         harness=target_env.get("harness"),
         include_fetch_dir=bool(build_fetch_dir),
+        include_target_source=target._has_repo,
         scope=f"{crs.name}:build:{build_config.name}",
     )
     context = {
@@ -305,6 +306,7 @@ def render_run_crs_compose_docker_compose(
                 crs_additional_env=resource.additional_env,
                 harness=target_env.get("harness"),
                 include_fetch_dir=bool(fetch_dir),
+                include_target_source=target._has_repo,
                 include_snapshot_image=include_snapshot,
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,
