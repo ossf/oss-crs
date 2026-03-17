@@ -7,6 +7,8 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `--early-exit` flag to `oss-crs run` to stop on the first discovered artifact (POV or patch)
+- GitHub Actions CI pipeline with lint (ruff check), format check (ruff format), type check (pyright), unit tests, and parallel C/Java smoke tests
 - atlantis-java-main to registry/ and example/
 - atlantis-c-deepgen to registry/ and example/
 
