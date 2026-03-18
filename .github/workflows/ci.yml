@@ -234,25 +234,10 @@ jobs:
       - name: Create smoke-c workdir tarball
         if: always()
         run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-c-workdir.tar.gz \
+            --empty-message "No smoke-c workdir artifacts were found."
           tarball=/tmp/smoke-c-workdir.tar.gz
-          note_dir=$(mktemp -d)
-          note_file="$note_dir/README.txt"
-          printf '%s\n' "No smoke-c workdir artifacts were found." > "$note_file"
-          if find /tmp/oss-crs-work/crs_compose \
-            \( -path '*/builds/*/BUILD_OUT_DIR/build' -o \
-               -path '*/runs/*/logs' -o \
-               -path '*/runs/*/EXCHANGE_DIR' -o \
-               -path '*/runs/*/crs/*/SUBMIT_DIR' \) \
-            -print -quit | grep -q .; then
-            find /tmp/oss-crs-work/crs_compose \
-              \( -path '*/builds/*/BUILD_OUT_DIR/build' -o \
-                 -path '*/runs/*/logs' -o \
-                 -path '*/runs/*/EXCHANGE_DIR' -o \
-                 -path '*/runs/*/crs/*/SUBMIT_DIR' \) \
-              -print0 | tar --null --absolute-names -czf "$tarball" --files-from=-
-          else
-            tar -czf "$tarball" -C "$note_dir" README.txt
-          fi
           ls -lh "$tarball"
 
       - name: Upload smoke-c workdir artifacts
@@ -446,25 +431,10 @@ jobs:
       - name: Create smoke-java workdir tarball
         if: always()
         run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-java-workdir.tar.gz \
+            --empty-message "No smoke-java workdir artifacts were found."
           tarball=/tmp/smoke-java-workdir.tar.gz
-          note_dir=$(mktemp -d)
-          note_file="$note_dir/README.txt"
-          printf '%s\n' "No smoke-java workdir artifacts were found." > "$note_file"
-          if find /tmp/oss-crs-work/crs_compose \
-            \( -path '*/builds/*/BUILD_OUT_DIR/build' -o \
-               -path '*/runs/*/logs' -o \
-               -path '*/runs/*/EXCHANGE_DIR' -o \
-               -path '*/runs/*/crs/*/SUBMIT_DIR' \) \
-            -print -quit | grep -q .; then
-            find /tmp/oss-crs-work/crs_compose \
-              \( -path '*/builds/*/BUILD_OUT_DIR/build' -o \
-                 -path '*/runs/*/logs' -o \
-                 -path '*/runs/*/EXCHANGE_DIR' -o \
-                 -path '*/runs/*/crs/*/SUBMIT_DIR' \) \
-              -print0 | tar --null --absolute-names -czf "$tarball" --files-from=-
-          else
-            tar -czf "$tarball" -C "$note_dir" README.txt
-          fi
           ls -lh "$tarball"
 
       - name: Upload smoke-java workdir artifacts
