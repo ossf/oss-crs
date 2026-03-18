@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - "oss_crs/**"
+      - "oss-crs-infra/**"
+      - "libCRS/**"
 
 env:
   RUFF_PATHS: oss_crs oss-crs-infra libCRS
