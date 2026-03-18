@@ -10,28 +10,8 @@ env:
   PYRIGHT_PATHS: oss_crs/src libCRS/libCRS oss-crs-infra
 
 jobs:
-  lint:
-    name: Lint (ruff check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-      - run: uv run ruff check $RUFF_PATHS
-
-  format:
-    name: Format check (ruff format)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-      - run: uv run ruff format --check $RUFF_PATHS
-
-  typecheck:
-    name: Type check (pyright)
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,11 +19,14 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
+      - run: uv run ruff check $RUFF_PATHS
+      - run: uv run ruff format --check $RUFF_PATHS
       - run: uv run pyright $PYRIGHT_PATHS
 
   test:
     name: Unit tests
     runs-on: ubuntu-latest
+    needs: [verify]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -55,7 +38,7 @@ jobs:
   smoke-c:
     name: Smoke test (C)
     runs-on: ubuntu-latest
-    needs: [lint, format, typecheck, test]
+    needs: [verify]
     timeout-minutes: 30
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
@@ -247,7 +230,7 @@ jobs:
   smoke-java:
     name: Smoke test (Java)
     runs-on: ubuntu-latest
-    needs: [lint, format, typecheck, test]
+    needs: [verify]
     timeout-minutes: 30
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
