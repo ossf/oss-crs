@@ -51,9 +51,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [verify]
     timeout-minutes: 30
-    env:
-      EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
-      EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -75,54 +72,6 @@ jobs:
             memory: "10G"
           EOF
 
-      - name: Create CI compose (bugfixing)
-        run: |
-          cat > /tmp/ci-config/compose-claude.yaml << 'EOF'
-          run_env: local
-          docker_registry: local
-          oss_crs_infra:
-            cpuset: "0"
-            memory: "4G"
-          crs-claude-code:
-            cpuset: "1-3"
-            memory: "10G"
-            llm_budget: 5
-            additional_env:
-              CRS_AGENT: claude_code
-              ANTHROPIC_MODEL: claude-sonnet-4-20250514
-          llm_config:
-            litellm:
-              mode: internal
-              internal:
-                config_path: /tmp/ci-config/litellm.yaml
-          EOF
-
-      - name: Create CI litellm config
-        run: |
-          cat > /tmp/ci-config/litellm.yaml << 'EOF'
-          model_list:
-            - model_name: claude-sonnet-4-20250514
-              litellm_params:
-                model: anthropic/claude-sonnet-4-20250514
-                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
-                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
-            - model_name: claude-haiku-4-5-20251001
-              litellm_params:
-                model: anthropic/claude-haiku-4-5-20251001
-                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
-                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
-            - model_name: claude-opus-4-6
-              litellm_params:
-                model: anthropic/claude-opus-4-6
-                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
-                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
-            - model_name: claude-sonnet-4-6
-              litellm_params:
-                model: anthropic/claude-sonnet-4-6
-                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
-                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
-          EOF
-
       - name: Setup mock-c repo as git
         run: |
           cd oss_crs/tests/integration/fixtures/mock-c-repo
@@ -136,9 +85,6 @@ jobs:
         run: |
           uv run oss-crs prepare \
             --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
-            --work-dir /tmp/oss-crs-work
-          uv run oss-crs prepare \
-            --compose-file /tmp/ci-config/compose-claude.yaml \
             --work-dir /tmp/oss-crs-work
 
       - name: Build mock-c target
@@ -182,59 +128,6 @@ jobs:
           fi
           pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
           echo "Found $pov_count POV file(s)"
-          selected_pov=$(find "$pov_dir" -maxdepth 1 -type f | sort | head -n 1)
-          if [ -z "$selected_pov" ]; then
-            echo "ERROR: No POV files found"
-            exit 1
-          fi
-          filtered_pov_dir=/tmp/pov-dir-c
-          rm -rf "$filtered_pov_dir"
-          mkdir -p "$filtered_pov_dir"
-          cp "$selected_pov" "$filtered_pov_dir/"
-          echo "Selected POV: $selected_pov"
-          echo "POV_DIR=$filtered_pov_dir" >> $GITHUB_ENV
-
-      - name: Build mock-c target for bugfixing
-        run: |
-          uv run oss-crs build-target \
-            --compose-file /tmp/ci-config/compose-claude.yaml \
-            --work-dir /tmp/oss-crs-work \
-            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
-            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
-            --build-id smoke-c
-
-      - name: Bugfixing (crs-claude-code)
-        run: |
-          uv run oss-crs run \
-            --compose-file /tmp/ci-config/compose-claude.yaml \
-            --work-dir /tmp/oss-crs-work \
-            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
-            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
-            --target-harness fuzz_parse_buffer \
-            --timeout 1200 \
-            --build-id smoke-c \
-            --run-id bugfixing-c \
-            --pov-dir "$POV_DIR" \
-            --early-exit
-
-      - name: Verify patches found
-        run: |
-          artifacts=$(uv run oss-crs artifacts \
-            --compose-file /tmp/ci-config/compose-claude.yaml \
-            --work-dir /tmp/oss-crs-work \
-            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
-            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
-            --target-harness fuzz_parse_buffer \
-            --build-id smoke-c \
-            --run-id bugfixing-c)
-          echo "$artifacts" | jq .
-          patch_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.patch // empty')
-          if [ -n "$patch_dir" ] && [ -d "$patch_dir" ] && [ -n "$(ls -A "$patch_dir" 2>/dev/null)" ]; then
-            echo "Found patches:"
-            ls -la "$patch_dir"
-          else
-            echo "WARNING: No patches found (may be expected if LLM could not fix)"
-          fi
 
       - name: Create smoke-c workdir tarball
         if: always()
@@ -251,6 +144,154 @@ jobs:
         with:
           name: smoke-c-workdir
           path: /tmp/smoke-c-workdir.tar.gz
+          if-no-files-found: warn
+
+  smoke-c-patch:
+    name: Smoke test (C patching)
+    runs-on: ubuntu-latest
+    needs: [verify]
+    timeout-minutes: 40
+    env:
+      EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
+      EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+
+      - name: Create CI compose (bugfixing - codex)
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-codex.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-codex:
+            cpuset: "1-3"
+            memory: "10G"
+            llm_budget: 5
+            additional_env:
+              CRS_AGENT: codex
+              CODEX_MODEL: gpt-5.2-codex
+          llm_config:
+            litellm:
+              mode: internal
+              internal:
+                config_path: /tmp/ci-config/litellm-codex.yaml
+          EOF
+
+      - name: Create CI litellm config (codex)
+        run: |
+          cat > /tmp/ci-config/litellm-codex.yaml << 'EOF'
+          model_list:
+            - model_name: gpt-5-codex
+              litellm_params:
+                model: openai/gpt-5-codex
+                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+            - model_name: gpt-5.1-codex
+              litellm_params:
+                model: openai/gpt-5.1-codex
+                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+            - model_name: gpt-5.1-codex-mini
+              litellm_params:
+                model: openai/gpt-5.1-codex-mini
+                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+            - model_name: gpt-5.2-codex
+              litellm_params:
+                model: openai/gpt-5.2-codex
+                api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+                api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+          EOF
+
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Prepare CRSs
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target for bugfixing
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c-patch
+
+      - name: Verify fixed POV fixture
+        run: |
+          pov_dir=oss_crs/tests/integration/fixtures/mock-c-povs
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Using $pov_count fixed POV file(s) from $pov_dir"
+          if [ "$pov_count" -lt 1 ]; then
+            echo "ERROR: No fixed POV files found"
+            exit 1
+          fi
+
+      - name: Bugfixing (crs-codex)
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 1200 \
+            --build-id smoke-c-patch \
+            --run-id bugfixing-c \
+            --pov-dir oss_crs/tests/integration/fixtures/mock-c-povs \
+            --early-exit
+
+      - name: Verify patches found
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --build-id smoke-c-patch \
+            --run-id bugfixing-c)
+          echo "$artifacts" | jq .
+          patch_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.patch // empty')
+          if [ -n "$patch_dir" ] && [ -d "$patch_dir" ] && [ -n "$(ls -A "$patch_dir" 2>/dev/null)" ]; then
+            echo "Found patches:"
+            ls -la "$patch_dir"
+          else
+            echo "WARNING: No patches found (may be expected if LLM could not fix)"
+          fi
+
+      - name: Create smoke-c-patch workdir tarball
+        if: always()
+        run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-c-patch-workdir.tar.gz \
+            --empty-message "No smoke-c-patch workdir artifacts were found."
+          tarball=/tmp/smoke-c-patch-workdir.tar.gz
+          ls -lh "$tarball"
+
+      - name: Upload smoke-c-patch workdir artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-c-patch-workdir
+          path: /tmp/smoke-c-patch-workdir.tar.gz
           if-no-files-found: warn
 
   smoke-java:
