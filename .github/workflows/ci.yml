@@ -190,6 +190,15 @@ jobs:
           echo "Found POVs:"
           ls -la "$pov_dir"
 
+      - name: Build mock-c target for bugfixing
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-claude.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c
+
       - name: Bugfixing (crs-claude-code)
         run: |
           uv run oss-crs run \
@@ -224,13 +233,15 @@ jobs:
           fi
 
       - name: Upload smoke-c workdir artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-c-workdir
           path: |
-            /tmp/oss-crs-work/crs_compose/**/builds/**
-            /tmp/oss-crs-work/crs_compose/**/runs/**
+            /tmp/oss-crs-work/crs_compose/**/builds/**/BUILD_OUT_DIR/build/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/logs/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/EXCHANGE_DIR/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/crs/**/SUBMIT_DIR/**
           if-no-files-found: warn
 
   smoke-java:
@@ -371,6 +382,15 @@ jobs:
           echo "Found POVs:"
           ls -la "$pov_dir"
 
+      - name: Build mock-java target for bugfixing
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-claude.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-java-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-java-repo \
+            --build-id smoke-java
+
       - name: Bugfixing (crs-claude-code)
         run: |
           uv run oss-crs run \
@@ -405,11 +425,13 @@ jobs:
           fi
 
       - name: Upload smoke-java workdir artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-java-workdir
           path: |
-            /tmp/oss-crs-work/crs_compose/**/builds/**
-            /tmp/oss-crs-work/crs_compose/**/runs/**
+            /tmp/oss-crs-work/crs_compose/**/builds/**/BUILD_OUT_DIR/build/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/logs/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/EXCHANGE_DIR/**
+            /tmp/oss-crs-work/crs_compose/**/runs/**/crs/**/SUBMIT_DIR/**
           if-no-files-found: warn
