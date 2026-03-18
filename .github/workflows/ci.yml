@@ -185,9 +185,19 @@ jobs:
             echo "ERROR: No POVs found"
             exit 1
           fi
-          echo "POV_DIR=$pov_dir" >> $GITHUB_ENV
-          echo "Found POVs:"
-          ls -la "$pov_dir"
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+          selected_pov=$(find "$pov_dir" -maxdepth 1 -type f | sort | head -n 1)
+          if [ -z "$selected_pov" ]; then
+            echo "ERROR: No POV files found"
+            exit 1
+          fi
+          filtered_pov_dir=/tmp/pov-dir-c
+          rm -rf "$filtered_pov_dir"
+          mkdir -p "$filtered_pov_dir"
+          cp "$selected_pov" "$filtered_pov_dir/"
+          echo "Selected POV: $selected_pov"
+          echo "POV_DIR=$filtered_pov_dir" >> $GITHUB_ENV
 
       - name: Build mock-c target for bugfixing
         run: |
@@ -382,9 +392,19 @@ jobs:
             echo "ERROR: No POVs found"
             exit 1
           fi
-          echo "POV_DIR=$pov_dir" >> $GITHUB_ENV
-          echo "Found POVs:"
-          ls -la "$pov_dir"
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+          selected_pov=$(find "$pov_dir" -maxdepth 1 -type f | sort | head -n 1)
+          if [ -z "$selected_pov" ]; then
+            echo "ERROR: No POV files found"
+            exit 1
+          fi
+          filtered_pov_dir=/tmp/pov-dir-java
+          rm -rf "$filtered_pov_dir"
+          mkdir -p "$filtered_pov_dir"
+          cp "$selected_pov" "$filtered_pov_dir/"
+          echo "Selected POV: $selected_pov"
+          echo "POV_DIR=$filtered_pov_dir" >> $GITHUB_ENV
 
       - name: Build mock-java target for bugfixing
         run: |
