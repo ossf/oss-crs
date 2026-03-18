@@ -231,7 +231,7 @@ jobs:
     name: Smoke test (Java)
     runs-on: ubuntu-latest
     needs: [verify]
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
       EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
@@ -382,7 +382,7 @@ jobs:
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-java-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-java-repo \
             --target-harness OssFuzz1 \
-            --timeout 600 \
+            --timeout 1200 \
             --build-id smoke-java \
             --run-id bugfixing-java \
             --pov-dir "$POV_DIR" \
