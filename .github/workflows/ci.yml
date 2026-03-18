@@ -221,7 +221,6 @@ jobs:
         with:
           name: smoke-c-workdir
           path: |
-            /tmp/oss-crs-work/crs_compose/**/builds/**/BUILD_OUT_DIR/build/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/logs/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/EXCHANGE_DIR/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/crs/**/SUBMIT_DIR/**
@@ -413,7 +412,6 @@ jobs:
         with:
           name: smoke-java-workdir
           path: |
-            /tmp/oss-crs-work/crs_compose/**/builds/**/BUILD_OUT_DIR/build/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/logs/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/EXCHANGE_DIR/**
             /tmp/oss-crs-work/crs_compose/**/runs/**/crs/**/SUBMIT_DIR/**
