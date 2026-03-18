@@ -175,6 +175,7 @@ def test_run_enforces_memory_limits_in_active_mode(
         assert all(value == expected_memory for value in numeric)
 
 
+@pytest.mark.cgroup_parent_required
 @pytest.mark.skipif(not docker_available(), reason="Docker not available")
 def test_containers_within_crs_share_memory_limit(
     cli_runner,

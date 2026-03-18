@@ -50,4 +50,5 @@ markers = [
     "integration: marks tests as integration tests (require network access, may be slow)",
     "docker: marks tests that require Docker daemon (excluded from unit test runs)",
     "smoke: marks tests as smoke tests",
+    "cgroup_parent_required: marks tests that require cgroup-parent support",
 ]

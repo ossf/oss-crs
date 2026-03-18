@@ -37,24 +37,24 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
-      - run: uv run pytest -m "not integration" -v
+      - run: uv run pytest -m "not integration" -v oss_crs
 
   integration-test:
     name: Integration tests
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
-      - run: uv run pytest -m "integration and not smoke" -v
+      - run: uv run pytest -m "integration and not smoke and not cgroup_parent_required" -v oss_crs
 
   smoke-c:
     name: Smoke test (C)
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [test]
     timeout-minutes: 30
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
@@ -251,7 +251,7 @@ jobs:
   smoke-java:
     name: Smoke test (Java)
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [test]
     timeout-minutes: 40
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
