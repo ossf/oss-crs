@@ -163,7 +163,7 @@ jobs:
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
             --target-harness fuzz_parse_buffer \
-            --timeout 1200 \
+            --timeout 600 \
             --build-id smoke-c \
             --run-id bugfinding-c \
             --early-exit
@@ -206,7 +206,7 @@ jobs:
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
             --target-harness fuzz_parse_buffer \
-            --timeout 600 \
+            --timeout 1200 \
             --build-id smoke-c \
             --run-id bugfixing-c \
             --pov-dir "$POV_DIR" \
