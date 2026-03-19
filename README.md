@@ -58,6 +58,8 @@ uv run oss-crs run \
 For a more advanced CRS that leverages LLMs, you can use **atlantis-multilang**. This CRS supports multiple languages and uses an LLM to generate and refine fuzz harnesses.
 See [`./example/multilang/multilang-compose.yaml`](example/multilang/multilang-compose.yaml) for the full configuration.
 
+> **Environment variables:** For LLM-backed runs, you can either `export` provider credentials in your shell or place them in a `.env` file in the directory where you run `oss-crs`. The CLI loads `.env` automatically via dotenv before parsing the compose file.
+
 ```bash
 # Prepare the LLM-powered CRS, for example, multilang
 uv run oss-crs prepare \
@@ -72,6 +74,7 @@ uv run oss-crs build-target \
 export OPENAI_API_KEY=<OPENAI_API_KEY>
 export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+# Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
   --compose-file ./example/multilang/multilang-compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
@@ -129,6 +132,7 @@ uv run oss-crs build-target \
 export OPENAI_API_KEY=<OPENAI_API_KEY>
 export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+# Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
   --compose-file ./example/ensemble/ensemble-compose.yaml  \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \

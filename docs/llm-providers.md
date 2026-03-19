@@ -6,6 +6,8 @@ The LiteLLM proxy can forward requests to any OpenAI-compatible servers. [vLLM](
 
 In OSS-CRS, you will want to set a custom LiteLLM proxy configuration.
 
+You can provide any referenced credentials either through exported shell variables or a `.env` file in the directory where you run `oss-crs`. The CLI loads `.env` automatically via dotenv.
+
 As documented in [LiteLLM Providers](https://docs.litellm.ai/docs/providers/openai_compatible#usage-with-litellm-proxy-server), the important part is to prefix your available model names with `openai/` for `model_list[].litellm_params.model`. However, you can still use your original model name or alias them with `model_list[].model_name`.
 
 ```yaml example/test-local/litellm-config.yaml
@@ -78,6 +80,7 @@ You'll need to first update `example/test-local/litellm-config.yaml` with your k
 ```sh
 # Set LLM key (can rename environment variable, see NOTE in litellm-config.yaml)
 export VLLM_KEY=<SECRET_KEY>
+# Or place VLLM_KEY=<SECRET_KEY> in .env and run the same commands below.
 
 # Prepare the CRS
 uv run oss-crs prepare --compose-file example/test-local/compose.yaml
