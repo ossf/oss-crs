@@ -24,6 +24,23 @@ OSS_CRS_ROOT_PATH = (CUR_DIR / "../../../").resolve()
 LIBCRS_PATH = (OSS_CRS_ROOT_PATH / "libCRS").resolve()
 
 
+def _get_ensembler_build_out_dir(
+    crs_compose: "CRSCompose",
+    target: "Target",
+    build_id: str,
+    sanitizer: str,
+) -> str | None:
+    """Find a BUILD_OUT_DIR for the ensembler to access harness binaries."""
+    for crs in crs_compose.crs_list:
+        if not crs.config.is_builder:
+            return str(
+                crs_compose.work_dir.get_build_output_dir(
+                    crs.name, target, build_id, sanitizer,
+                )
+            )
+    return None
+
+
 def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
     """Resolve a module's dockerfile path.
 
@@ -240,6 +257,9 @@ def render_run_crs_compose_docker_compose(
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
+        "ensembler_build_out_dir": _get_ensembler_build_out_dir(
+            crs_compose, target, build_id, sanitizer,
+        ),
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

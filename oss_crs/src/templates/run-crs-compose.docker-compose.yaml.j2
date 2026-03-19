@@ -154,11 +154,19 @@ services:
 {%- if exchange_dir %}
   oss-crs-exchange:
     build:
-      context: {{ oss_crs_infra_root_path }}/exchange
+      context: {{ oss_crs_infra_root_path }}
+      dockerfile: {{ oss_crs_infra_root_path }}/exchange/Dockerfile
+      args:
+        - target_base_image={{target.get_docker_image_name()}}
     attach: false
     restart: on-failure:3
+    environment:
+      - ENSEMBLER_MODE={{ ensembler_mode | default('coverage') }}
     volumes:
       - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:rw
+{%- if ensembler_build_out_dir %}
+      - {{ ensembler_build_out_dir }}:/OSS_CRS_BUILD_OUT_DIR:ro
+{%- endif %}
 {%- for crs in crs_list %}
 {%- if not crs.config.is_builder and not crs.config.is_bug_fixing_ensemble %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
