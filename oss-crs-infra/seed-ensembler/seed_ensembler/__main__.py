@@ -178,15 +178,13 @@ def main() -> None:
                 if pool is None:
                     from .pool import LibfuzzerPool
 
-                    # For direct execution, runner_image is not needed,
-                    # but the pool currently requires it. Pass a placeholder.
                     pool_config = Configuration(
                         temp_dir=config.temp_dir / "pool",
                         worker_pool_size=config.worker_pool_size,
-                        runner_image=config.runner_image or "direct",
+                        runner_image=config.runner_image,
                         verbose=config.verbose,
                     )
-                    pool = LibfuzzerPool(pool_config)
+                    pool = LibfuzzerPool(pool_config, direct=True)
 
                 _scan_and_batch_seeds(
                     config, pool, harness, seen_seeds, batch_dir_counter,

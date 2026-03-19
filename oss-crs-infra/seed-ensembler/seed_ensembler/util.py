@@ -75,5 +75,8 @@ def compress_str(s: bytes | bytearray | str) -> str:
     """Compress and base64-encode a string for compact logging."""
     if isinstance(s, str):
         s = s.encode("utf-8")
-    s = zlib.compress(s, wbits=-15)
+    # Use zlib.compressobj for raw deflate (no header).
+    # zlib.compress(wbits=) is Python 3.11+; compressobj works on 3.10.
+    co = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+    s = co.compress(s) + co.flush()
     return b64encode(s).decode("ascii")

@@ -20,6 +20,7 @@ from queue import Empty
 from typing import Iterator
 
 from .config import Configuration
+from .direct_handler import DirectEnvironment
 from .harness import Harness
 from .libfuzzer_handler import LibfuzzerEnvironment
 from .libfuzzer_result import (
@@ -211,6 +212,7 @@ class Worker(Process):
         temp_dir: Path,
         runner_image: str,
         *,
+        direct: bool = False,
         verbose: bool = False,
         **kwargs,
     ):
@@ -225,6 +227,7 @@ class Worker(Process):
         self.crashing_seeds_dir_size = 0
         self.temp_dir = temp_dir
         self.runner_image = runner_image
+        self.direct = direct
         self.verbose = verbose
 
     def _get_queue_item(self) -> SeedsBatch | SlowSeed:
@@ -249,24 +252,36 @@ class Worker(Process):
         self.crashing_seeds_dir.mkdir(exist_ok=True)
         self.temp_dir.mkdir(exist_ok=True)
 
-        libfuzzer_root = self.temp_dir / "libfuzzer_root"
         artifact_prefix = self.temp_dir / "artifact_prefix"
 
-        env = LibfuzzerEnvironment(
-            libfuzzer_root,
-            artifact_prefix,
-            self.runner_image,
-            verbose=self.verbose,
-        )
-        env.set_up()
+        if self.direct:
+            direct_env = DirectEnvironment(
+                artifact_prefix, verbose=self.verbose,
+            )
+            direct_env.set_up()
+        else:
+            libfuzzer_root = self.temp_dir / "libfuzzer_root"
+            docker_env = LibfuzzerEnvironment(
+                libfuzzer_root,
+                artifact_prefix,
+                self.runner_image,
+                verbose=self.verbose,
+            )
+            docker_env.set_up()
 
         while True:
             try:
                 item = self._get_queue_item()
                 if isinstance(item, SeedsBatch):
-                    self._process_seeds_batch(env, item)
+                    if self.direct:
+                        self._process_seeds_batch_direct(direct_env, item)
+                    else:
+                        self._process_seeds_batch(docker_env, item)
                 else:
-                    self._process_slow_seed(env, item)
+                    if self.direct:
+                        self._process_slow_seed_direct(direct_env, item)
+                    else:
+                        self._process_slow_seed(docker_env, item)
             except Exception:
                 log.error(traceback.format_exc())
 
@@ -454,6 +469,144 @@ class Worker(Process):
         if delete_seed:
             seed.path.unlink(missing_ok=True)
 
+    # ----- Direct execution mode (no Docker) -----
+
+    def _process_seeds_batch_direct(
+        self, env: DirectEnvironment, batch: SeedsBatch,
+    ) -> None:
+        """Test a batch of seeds using direct execution."""
+        temp_coverage_dir = self.temp_dir / "coverage_seeds"
+        shutil.rmtree(temp_coverage_dir, ignore_errors=True)
+
+        if self.verbose:
+            log.info("Processing (direct) %s", batch)
+
+        harness_coverage_dir = self.coverage_seeds_dir / batch.harness.name
+        harness_coverage_dir.mkdir(exist_ok=True)
+
+        num_existing = len(list(harness_coverage_dir.iterdir()))
+        num_new = len(list(batch.path.iterdir()))
+        num_total = num_existing + num_new
+
+        # For direct execution, symlink existing corpus into temp dir.
+        # libfuzzer -merge takes: <dest_corpus> <new_seeds>
+        # It merges new_seeds into dest_corpus, keeping only coverage-adding ones.
+        temp_coverage_dir.mkdir(exist_ok=True)
+        for item in harness_coverage_dir.iterdir():
+            (temp_coverage_dir / item.name).symlink_to(item.resolve())
+
+        env.artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        result = env.run_merge(
+            batch.harness.path_in_out_dir,
+            [temp_coverage_dir, batch.path],
+            per_seed_timeout=PER_SEED_TIMEOUT,
+            overall_timeout=max(
+                MIN_OVERALL_TIMEOUT,
+                num_total * OVERALL_TIMEOUT_SEED_FACTOR,
+            ),
+        )
+
+        # New coverage seeds: non-symlink files in temp_coverage_dir.
+        new_seeds: list[Path] = []
+        for file in temp_coverage_dir.iterdir():
+            if not file.is_symlink():
+                dst = harness_coverage_dir / file.name
+                if not dst.is_file():
+                    new_seeds.append(dst)
+                    try:
+                        os.rename(file, dst)
+                    except OSError:
+                        shutil.copy(file, dst)
+
+        # Map crash artifacts back to input seeds.
+        new_failures: list[LibfuzzerFailure] = []
+        for failure in map_failures_to_inputs(batch.path, result):
+            src = failure.input_path
+            dst = (
+                self.crashing_seeds_dir
+                / f"{self.crashing_seeds_dir_size:09d}.bin"
+            )
+            self.crashing_seeds_dir_size += 1
+            try:
+                os.rename(src, dst)
+            except FileNotFoundError:
+                log.warning("Duplicate failure: %s already moved", src)
+                continue
+            except OSError:
+                shutil.copy(src, dst)
+            failure.input_path = dst
+            new_failures.append(failure)
+
+        result.failures = new_failures
+
+        shutil.rmtree(batch.path, ignore_errors=True)
+        shutil.rmtree(temp_coverage_dir, ignore_errors=True)
+        shutil.rmtree(env.artifact_dir, ignore_errors=True)
+        env.artifact_dir.mkdir(exist_ok=True)
+
+        if self.verbose:
+            log.info(
+                "Batch done (direct): %d new seeds, %d crashes",
+                len(new_seeds), len(new_failures),
+            )
+
+        if new_seeds:
+            self.new_seeds_queue.put((batch.harness, new_seeds))
+
+        timeouts, _exits, crashes = result.split_by_category()
+        if batch.harness.scorable_timeout_duration is not None:
+            for failure in timeouts.failures:
+                self.slow_seeds_queue.put(
+                    SlowSeed(failure.input_path, batch.harness)
+                )
+        self._report_crashes(batch.harness, crashes.failures)
+
+    def _process_slow_seed_direct(
+        self, env: DirectEnvironment, seed: SlowSeed,
+    ) -> None:
+        """Re-test a slow seed with extended timeout (direct execution)."""
+        if self.verbose:
+            log.info("Processing slow seed (direct): %s", seed)
+
+        if seed.harness.scorable_timeout_duration is None:
+            return
+
+        long_timeout = (
+            seed.harness.scorable_timeout_duration * TIMEOUT_BUFFER_FACTOR
+        )
+
+        result = env.run_single_exec(
+            seed.harness.path_in_out_dir,
+            seed.path,
+            per_seed_timeout=long_timeout,
+            overall_timeout=long_timeout,
+        )
+
+        if self.verbose:
+            log.info("Slow seed done (direct): %s", result)
+
+        DEFAULT_SUMMARY = b"(timed out)"
+        delete_seed = True
+
+        if (
+            result.was_aborted
+            or result.execution_time >= long_timeout - 0.1
+        ):
+            failure = LibfuzzerFailure(
+                seed.path, None, Sanitizer.TIMEOUT, DEFAULT_SUMMARY
+            )
+            self._report_crashes(seed.harness, [failure])
+            delete_seed = False
+        elif result.failure is not None and result.failure.is_timeout():
+            if result.failure.summary is None:
+                result.failure.summary = DEFAULT_SUMMARY
+            self._report_crashes(seed.harness, [result.failure])
+            delete_seed = False
+
+        if delete_seed:
+            seed.path.unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # Pool
@@ -472,13 +625,15 @@ class LibfuzzerPool:
             crash-triggering seeds.
     """
 
-    def __init__(self, config: Configuration):
-        if config.runner_image is None:
+    def __init__(self, config: Configuration, *, direct: bool = False):
+        # runner_image required only in Docker mode
+        if not direct and config.runner_image is None:
             raise ValueError(
-                "runner_image is required for LibfuzzerPool"
+                "runner_image is required for LibfuzzerPool in Docker mode"
             )
 
         self.config = config
+        self.direct = direct
         self.workers: list[Worker] = []
         self.input_queues: list[Queue] = []
         self.slow_seeds_queue: Queue = Queue()
@@ -516,7 +671,8 @@ class LibfuzzerPool:
                 coverage_seeds_dir,
                 worker_crashing_dir,
                 worker_temp_dir,
-                config.runner_image,
+                config.runner_image or "unused",
+                direct=direct,
                 verbose=config.verbose,
             )
             self.workers.append(worker)
