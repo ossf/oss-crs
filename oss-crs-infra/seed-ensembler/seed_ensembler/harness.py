@@ -8,12 +8,13 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Harness:
-    """Metadata for a single fuzz harness binary.
+    """Metadata for a single fuzz harness executable.
 
     Attributes:
-        name: Unique identifier for the harness (typically the binary filename).
-        path_in_out_dir: Path to the harness binary within the build output
-            directory (e.g. ``/out/my_fuzzer``).
+        name: Unique identifier for the harness (typically the executable filename).
+        path_in_out_dir: Path to the harness executable within the build output
+            directory (e.g. ``/out/my_fuzzer``).  Can be an ELF binary (C/C++)
+            or a shell script (Jazzer).
         scorable_timeout_duration: Seconds a seed must run before being
             considered a scorable timeout, or ``None`` to disable timeout
             scoring.

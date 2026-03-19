@@ -249,7 +249,10 @@ class LibfuzzerEnvironment:
     """Docker-based environment for running libfuzzer harnesses.
 
     Sets up host-side directories and prepares invocations that mount
-    them into ephemeral Docker containers.
+    them into ephemeral Docker containers.  Works with both native
+    C/C++ harnesses (ELF binaries) and Jazzer harnesses (shell scripts
+    wrapping ``jazzer_driver``), as long as the runner image includes
+    the necessary runtime (JVM for Jazzer).
 
     Args:
         guest_root_dir: Host directory used as the root for guest mounts.

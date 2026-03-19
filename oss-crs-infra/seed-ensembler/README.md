@@ -71,6 +71,17 @@ uv run pytest tests/ -v
 
 69 tests, all unit-level (no Docker needed).
 
+## Supported languages
+
+| Language | Harness format | Runner image | Status |
+|----------|---------------|--------------|--------|
+| C/C++ | ELF binary | `base-runner` | Supported |
+| Java (Jazzer) | Shell script wrapping `jazzer_driver` | `base-runner` (includes JVM) | Supported |
+
+**Java/Jazzer works out of the box** because `jazzer_driver` is a libfuzzer wrapper.  The shell script harnesses pass `$@` through to `jazzer_driver`, so `-merge=1` and all other libfuzzer flags are forwarded transparently.  Stderr output uses the same `MERGE-OUTER`/`SUMMARY` format.  The runner image (`gcr.io/oss-fuzz-base/base-runner`) already includes a JVM runtime.
+
+Verified against `afc-apache-commons-compress` (CompressTarFuzzer harness) with `crs-jazzer` build output.
+
 ## TODO
 
 Roughly follows the phased approach in #103.
@@ -88,7 +99,6 @@ Per-harness seed routing is already handled by the orchestrator (`workdir.py`). 
 
 **Other**
 
-- [ ] Java/Jazzer support — Jazzer uses `jazzer_driver` (libfuzzer wrapper) so stderr parsing mostly works, but harnesses are shell scripts (not ELF binaries), and the container needs JVM + classpath + the whole `$OUT/` directory
 - [ ] Direct execution mode (skip Docker when the sidecar image already has the runtime)
 - [ ] Metrics / logging integration for the future WebUI dashboard
 
@@ -99,6 +109,6 @@ Unit tests cover the parsing and path logic, but we can't know this actually wor
 1. Pick a small C target from oss-fuzz (something that builds fast and crashes easily).  Build it once, stash the `$OUT/` dir as a test fixture.
 2. Write a test that feeds a handful of seeds (some good, some junk, one crash-triggering) through `LibfuzzerPool` with a real Docker container.  Assert: coverage-adding seeds end up in the corpus, crash seeds land in the crash queue, junk gets dropped.
 3. Once the sidecar entry point exists, run it inside a minimal compose stack (one CRS, one harness) and verify seeds flow through `SUBMIT_DIR` -> ensembler -> `EXCHANGE_DIR` correctly.
-4. For Java/Jazzer: same approach but with a JVM target.  Needs `base-builder-jvm` image and a Jazzer harness fixture.
+4. For Java/Jazzer: same E2E approach with a JVM target using `base-runner`.
 
 Tests in steps 2-4 need Docker, so they should be marked `@pytest.mark.skipif(not docker_available())` like the existing integration tests in `oss_crs/tests/integration/`.
