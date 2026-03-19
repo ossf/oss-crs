@@ -34,21 +34,21 @@ git clone git@github.com:google/oss-fuzz.git ~/oss-fuzz
 ### 2. Run a Simple Bug-Finding CRS
 
 The example below uses **crs-libfuzzer**, a lightweight CRS that runs libFuzzer on the target.
-See [`./example/crs-libfuzzer/crs-libfuzzer-compose.yaml`](example/crs-libfuzzer/crs-libfuzzer-compose.yaml) for the full configuration.
+See [`./example/crs-libfuzzer/compose.yaml`](example/crs-libfuzzer/compose.yaml) for the full configuration.
 
 ```bash
 # Prepare the CRS (pull images, set up dependencies)
 uv run oss-crs prepare \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml
+  --compose-file ./example/crs-libfuzzer/compose.yaml
 
 # Build the target project
 uv run oss-crs build-target \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --compose-file ./example/crs-libfuzzer/compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2
 
 # Run the CRS against a specific harness (e.g., "xml")
 uv run oss-crs run \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --compose-file ./example/crs-libfuzzer/compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
