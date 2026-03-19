@@ -2,7 +2,7 @@
 
 Layout expected:
   /submit/<crs_name>/<data_type_dir>/<hash_file>
-  /exchange/<data_type_dir>/<hash_file>
+  /OSS_CRS_EXCHANGE_DIR/<data_type_dir>/<hash_file>
 
 Directory names are plural (povs, seeds, bug-candidates, patches, diffs).
 Files are already hash-named, so dedup is by filename.
@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 SUBMIT_ROOT = Path("/submit")
-EXCHANGE_ROOT = Path("/exchange")
+EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
 POLL_INTERVAL = 2  # seconds
 
 ALLOWED_DATA_TYPES = {"povs", "seeds", "bug-candidates", "patches", "diffs"}
@@ -40,7 +40,7 @@ def _is_safe_name(name: str) -> bool:
 
 
 def sync_once(created_dirs: set[str], warned_types: set[str]) -> None:
-    """Scan every /submit/<crs>/<type>/ dir and copy unseen files to /exchange/<type>/."""
+    """Scan every /submit/<crs>/<type>/ dir and copy unseen files to /OSS_CRS_EXCHANGE_DIR/<type>/."""
     if not SUBMIT_ROOT.is_dir():
         return
 

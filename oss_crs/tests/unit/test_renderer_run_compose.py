@@ -6,7 +6,7 @@ import yaml
 from oss_crs.src.templates.renderer import render_run_crs_compose_docker_compose
 
 
-def test_single_bug_fixing_run_keeps_fetch_mount_without_exchange_sidecar(
+def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
     monkeypatch, tmp_path: Path
 ) -> None:
     include_fetch_dir_calls: list[bool] = []
@@ -90,4 +90,6 @@ def test_single_bug_fixing_run_keeps_fetch_mount_without_exchange_sidecar(
     assert (
         f"{tmp_path / 'exchange'}:/OSS_CRS_FETCH_DIR:ro" in patcher_service["volumes"]
     )
-    assert "oss-crs-exchange" not in compose_data["services"]
+    # Exchange sidecar is always started — it copies SUBMIT_DIR patches to
+    # EXCHANGE_DIR even for single (non-ensemble) bug-fixing runs.
+    assert "oss-crs-exchange" in compose_data["services"]

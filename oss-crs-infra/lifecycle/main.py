@@ -20,7 +20,7 @@ from pathlib import Path
 
 import docker
 
-EXCHANGE_ROOT = Path("/exchange")
+EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
 
 logging.basicConfig(
     level=logging.INFO,
