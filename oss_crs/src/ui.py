@@ -19,6 +19,22 @@ from rich.table import Table
 from rich.text import Text
 
 FRAMEWORK_HELPER_SERVICE_PREFIX = "oss-crs-"
+_debug_log_path: Path | None = None
+
+
+def configure_debug_logging(
+    enabled: bool = False, log_path: Optional[Path] = None
+) -> None:
+    """Configure a process-wide debug log for streamed subprocess output."""
+    global _debug_log_path
+    if not enabled:
+        _debug_log_path = None
+        return
+
+    resolved_log_path = (log_path or Path.cwd() / "debug.log").resolve()
+    resolved_log_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_log_path.write_text("")
+    _debug_log_path = resolved_log_path
 
 
 @dataclass
@@ -72,6 +88,7 @@ class MultiTaskProgress:
         console: Optional[Console] = None,
         deadline: Optional[float] = None,
         early_exit_config: Optional[EarlyExitConfig] = None,
+        debug_log_path: Optional[Path] = None,
     ):
         self.tasks = tasks
         self.task_names = [name for name, _ in tasks]
@@ -106,6 +123,9 @@ class MultiTaskProgress:
         self._cleanup_complete: set[Optional[str]] = set()
         self._headless = not self.console.is_interactive
         self._entered = False
+        self.debug_log_path = (
+            debug_log_path.resolve() if debug_log_path is not None else _debug_log_path
+        )
 
     def _print_headless(self, message) -> None:
         """Emit plain progress logs when Live rendering is disabled."""
@@ -115,6 +135,13 @@ class MultiTaskProgress:
     def _task_label(self, task_name: str) -> str:
         """Return the display label for a task."""
         return escape(self._display_names.get(task_name, task_name))
+
+    def _write_debug_output(self, line: str) -> None:
+        """Append a line of subprocess output to the debug log."""
+        if self.debug_log_path is None:
+            return
+        with self.debug_log_path.open("a", encoding="utf-8") as debug_log:
+            debug_log.write(f"{line}\n")
 
     def _get_task_parent(self, task_id: str) -> Optional[str]:
         """Find the parent of a given task ID."""
@@ -625,6 +652,7 @@ class MultiTaskProgress:
             """Process a line of output."""
             output_lines.append(line)
             self.add_output_line(line)
+            self._write_debug_output(line)
 
         def _graceful_terminate(proc: subprocess.Popen, timeout: int = 20) -> None:
             """Gracefully terminate a process: SIGTERM, wait, then SIGKILL if needed."""

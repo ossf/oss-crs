@@ -725,3 +725,53 @@ def test_run_command_with_streaming_output_prints_plain_logs_when_headless(
     output = console_output.getvalue()
     assert "line 1" in output
     assert "line 2" in output
+
+
+def test_run_command_with_streaming_output_writes_debug_log(
+    tmp_path: Path, monkeypatch
+) -> None:
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=io.StringIO(), force_interactive=False, width=120),
+        debug_log_path=tmp_path / "debug.log",
+    )
+
+    class FakeStdout:
+        def __init__(self, lines: list[str]):
+            self._lines = lines
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            return ""
+
+    class FakeProcess:
+        def __init__(self, lines: list[str]):
+            self.stdout = FakeStdout(lines)
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 143
+
+        def kill(self):
+            self.returncode = 137
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: FakeProcess(["alpha\n", "beta\n"]),
+    )
+
+    progress.add_task(
+        "stream",
+        lambda p: p.run_command_with_streaming_output(["fake", "cmd"]),
+    )
+
+    with progress:
+        result = progress.run_added_tasks()
+
+    assert result.success is True
+    assert (tmp_path / "debug.log").read_text() == "alpha\nbeta\n"

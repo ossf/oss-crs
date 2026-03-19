@@ -2,6 +2,7 @@ import sys
 import time
 import signal
 import argparse
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 from ..crs_compose import CRSCompose
@@ -9,6 +10,7 @@ from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from .artifacts import handle_artifacts
 from .setup import add_setup_command, handle_setup
+from ..ui import configure_debug_logging
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -30,6 +32,11 @@ def add_common_arguments(parser):
         type=Path,
         default=DEFAULT_WORK_DIR,
         help="Working directory for CRS Compose operations",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Write streamed subprocess output to ./debug.log in real time.",
     )
 
 
@@ -307,6 +314,13 @@ def _sigterm_handler(signum, frame):
     raise KeyboardInterrupt("SIGTERM received")
 
 
+def _env_flag_enabled(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def cli() -> bool:
     signal.signal(signal.SIGTERM, _sigterm_handler)
     load_dotenv()
@@ -327,6 +341,11 @@ def cli() -> bool:
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
     args = parser.parse_args(argv)
+    debug_enabled = getattr(args, "debug", False) or _env_flag_enabled("OSS_CRS_DEBUG")
+    configure_debug_logging(
+        enabled=debug_enabled,
+        log_path=Path.cwd() / "debug.log" if debug_enabled else None,
+    )
 
     # Handle setup command early - it doesn't need compose file
     if args.command == "setup":
