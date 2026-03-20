@@ -130,7 +130,7 @@ jobs:
           echo "Found $pov_count POV file(s)"
 
       - name: Create smoke-c workdir tarball
-        if: always()
+        if: failure()
         run: |
           python scripts/create_workdir_tarball.py \
             --output /tmp/smoke-c-workdir.tar.gz \
@@ -139,12 +139,13 @@ jobs:
           ls -lh "$tarball"
 
       - name: Upload smoke-c workdir artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-c-workdir
           path: /tmp/smoke-c-workdir.tar.gz
           if-no-files-found: warn
+          retention-days: 2
 
   smoke-c-patch:
     name: Smoke test (C patching)
@@ -256,7 +257,7 @@ jobs:
           fi
 
       - name: Create smoke-c-patch workdir tarball
-        if: always()
+        if: failure()
         run: |
           python scripts/create_workdir_tarball.py \
             --output /tmp/smoke-c-patch-workdir.tar.gz \
@@ -265,12 +266,13 @@ jobs:
           ls -lh "$tarball"
 
       - name: Upload smoke-c-patch workdir artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-c-patch-workdir
           path: /tmp/smoke-c-patch-workdir.tar.gz
           if-no-files-found: warn
+          retention-days: 2
 
   smoke-java:
     name: Smoke test (Java)
@@ -359,7 +361,7 @@ jobs:
           echo "Found $pov_count POV file(s)"
 
       - name: Create smoke-java workdir tarball
-        if: always()
+        if: failure()
         run: |
           python scripts/create_workdir_tarball.py \
             --output /tmp/smoke-java-workdir.tar.gz \
@@ -368,9 +370,10 @@ jobs:
           ls -lh "$tarball"
 
       - name: Upload smoke-java workdir artifacts
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-java-workdir
           path: /tmp/smoke-java-workdir.tar.gz
           if-no-files-found: warn
+          retention-days: 2
