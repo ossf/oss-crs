@@ -196,8 +196,18 @@ def test_prepare_pulls_prebuilt_images_when_available(tmp_path):
     # Verify docker tag was called for local tags
     tag_cmds = [c for c in calls_log if c[0:2] == ["docker", "tag"]]
     assert len(tag_cmds) == 2
-    assert ["docker", "tag", "ghcr.io/example/my-clang:1.0", "my-clang:latest"] in tag_cmds
-    assert ["docker", "tag", "ghcr.io/example/my-builder:1.0", "my-builder:latest"] in tag_cmds
+    assert [
+        "docker",
+        "tag",
+        "ghcr.io/example/my-clang:1.0",
+        "my-clang:latest",
+    ] in tag_cmds
+    assert [
+        "docker",
+        "tag",
+        "ghcr.io/example/my-builder:1.0",
+        "my-builder:latest",
+    ] in tag_cmds
 
 
 def test_prepare_falls_back_to_bake_when_pull_fails(tmp_path):
@@ -246,11 +256,9 @@ def test_prepare_falls_back_when_no_registry_tags(tmp_path):
     progress = _CaptureProgress()
 
     # Plan with only local tags (no domain with dot)
-    plan = json.dumps({
-        "target": {
-            "my-image": {"tags": ["my-image:latest", "my-image:v1"]}
-        }
-    })
+    plan = json.dumps(
+        {"target": {"my-image": {"tags": ["my-image:latest", "my-image:v1"]}}}
+    )
 
     def mock_run(cmd, **kwargs):
         result = MagicMock()
