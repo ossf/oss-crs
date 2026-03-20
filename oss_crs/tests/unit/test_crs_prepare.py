@@ -288,3 +288,19 @@ def test_prepare_falls_back_when_bake_print_fails(tmp_path):
     assert result.success is True
     # Should have fallen through to bake
     assert len(progress.calls) == 1
+
+
+def test_prepare_no_pull_skips_pull_and_builds(tmp_path):
+    """--no-pull skips pulling and goes straight to bake."""
+    crs = _make_crs(tmp_path, {})
+    progress = _CaptureProgress()
+
+    with patch("oss_crs.src.crs.subprocess.run") as mock_run:
+        result = crs.prepare(multi_task_progress=progress, no_pull=True)
+
+    assert result.success is True
+    # Should NOT have called subprocess.run (no pull attempt)
+    mock_run.assert_not_called()
+    # Should have gone straight to bake
+    assert len(progress.calls) == 1
+    assert "bake" in progress.calls[0]["cmd"]
