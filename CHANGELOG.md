@@ -13,6 +13,7 @@ stricter subset of Keep a Changelog).
 - atlantis-c-deepgen to registry/ and example/
 - roboduck to registry/ and example/
 - fuzzing-brain to registry/ and example/ (bug-finding, C/C++, multi-provider LLM)
+- buttercup-seed-gen to registry/ and example/
 
 ### Changed
 - Clarified that target env `repo_path` is the effective in-container source
