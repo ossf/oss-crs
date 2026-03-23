@@ -1,0 +1,6 @@
+name: buttercup-seed-gen
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/buttercup-seed-gen.git
+  ref: feat/seedgen

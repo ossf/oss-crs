@@ -1,0 +1,19 @@
+run_env: local
+docker_registry: ghcr.io/Team-Atlanta/buttercup-seed-gen
+
+# Infrastructure resources
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "8G"
+
+# Buttercup CRS entry
+buttercup-seed-gen:
+  cpuset: "4-15"
+  memory: "24G"
+  additional_env:
+    BUTTERCUP_SEED_GEN_LOG_LEVEL: debug
+    PYTHONUNBUFFERED: "1"
+
+
+llm_config:
+  litellm_config: ./example/buttercup-seed-gen/litellm-config.yaml
