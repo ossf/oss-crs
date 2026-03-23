@@ -1,0 +1,6 @@
+name: roboduck
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/roboduck-snapshot.git
+  ref: feat/oss-crs-port

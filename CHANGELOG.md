@@ -11,6 +11,7 @@ stricter subset of Keep a Changelog).
 - GitHub Actions CI pipeline with lint (ruff check), format check (ruff format), type check (pyright), unit tests, and parallel C/Java smoke tests
 - atlantis-java-main to registry/ and example/
 - atlantis-c-deepgen to registry/ and example/
+- roboduck to registry/ and example/
 
 ### Changed
 - Clarified that target env `repo_path` is the effective in-container source
