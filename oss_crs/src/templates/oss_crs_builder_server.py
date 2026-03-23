@@ -19,14 +19,17 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import hashlib
+import json
 import os
 import queue
 import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 app = FastAPI(title="Builder Sidecar", description="Incremental patch build server")
 job_queue: queue.Queue = queue.Queue()
@@ -35,6 +38,37 @@ job_results: dict = {}
 BUILDS_DIR = Path("/builds")
 PREBUILT_OUT_DIR = Path("/OSS_CRS_BUILD_OUT_DIR/build")
 OSS_CRS_PROJ_PATH = Path(os.environ.get("OSS_CRS_PROJ_PATH", "/OSS_CRS_PROJ_PATH"))
+
+# API call log — local path symlinked to OSS_CRS_LOG_DIR by libCRS register-log-dir.
+_API_LOG_DIR = Path("/sidecar-logs")
+_API_LOG_FILE: Optional[Path] = None
+
+
+def _init_api_log() -> None:
+    """Register a log directory and set up the API call log file."""
+    global _API_LOG_FILE
+    try:
+        subprocess.run(
+            ["libCRS", "register-log-dir", str(_API_LOG_DIR)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        _API_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _API_LOG_FILE = _API_LOG_DIR / "api-calls.jsonl"
+    _API_LOG_FILE.touch(exist_ok=True)
+
+
+def _log_api_call(entry: dict) -> None:
+    """Append one JSON line to the API call log."""
+    if _API_LOG_FILE is None:
+        return
+    try:
+        with _API_LOG_FILE.open("a") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+    except Exception:
+        pass  # best-effort logging
 
 
 def _ignore_build_junk(directory, contents):
@@ -271,8 +305,10 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     pov_timeout = int(os.environ.get("POV_TIMEOUT", "30"))
 
     build_out = BUILDS_DIR / build_id / "out"
+    base = {"harness": harness_name, "build_id": build_id}
     if not (build_out / harness_name).exists():
         return {
+            **base,
             "pov_exit_code": 127,
             "pov_stderr": f"Harness binary not found: {build_out / harness_name}",
         }
@@ -294,12 +330,14 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
             cwd=str(build_out),
         )
         return {
+            **base,
             "pov_exit_code": result.returncode,
             "pov_stderr": result.stderr,
             "pov_stdout": result.stdout,
         }
     except subprocess.TimeoutExpired:
         return {
+            **base,
             "pov_exit_code": 124,
             "pov_stdout": "",
             "pov_stderr": "POV execution timed out",
@@ -311,10 +349,13 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     build_id = (req_dir / "build_id").read_text().strip()
     test_timeout = int(os.environ.get("TEST_TIMEOUT", "120"))
 
+    base = {"build_id": build_id}
     test_path = OSS_CRS_PROJ_PATH / "test.sh"
     if not test_path.exists():
         return {
+            **base,
             "test_exit_code": 0,
+            "test_skipped": True,
             "test_stdout": "",
             "test_stderr": f"skipped: no test.sh found in {OSS_CRS_PROJ_PATH}/",
         }
@@ -333,13 +374,17 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
             cwd=str(build_out),
         )
         return {
+            **base,
             "test_exit_code": result.returncode,
+            "test_skipped": False,
             "test_stdout": result.stdout,
             "test_stderr": result.stderr,
         }
     except subprocess.TimeoutExpired as exc:
         return {
+            **base,
             "test_exit_code": 124,
+            "test_skipped": False,
             "test_stdout": exc.stdout or "",
             "test_stderr": "Test execution timed out",
         }
@@ -357,23 +402,78 @@ def job_worker():
     while True:
         action, job_id, req_dir, resp_dir = job_queue.get()
         job_results[job_id]["status"] = "running"
+        ts_start = time.time()
+        t0 = time.monotonic()
+        result: dict = {}
         try:
             handler = _HANDLERS[action]
             result = handler(job_id, req_dir, resp_dir)
             job_results[job_id] = {"id": job_id, "status": "done", **result}
         except Exception as e:
+            result = {"error": str(e)}
             job_results[job_id] = {
                 "id": job_id,
                 "status": "done",
                 "error": str(e),
             }
         finally:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            _log_api_call(
+                _make_log_entry(action, job_id, result, duration_ms, ts_start)
+            )
             shutil.rmtree(req_dir.parent, ignore_errors=True)
             job_queue.task_done()
 
 
+_EXIT_CODE_KEYS = {
+    "build": "build_exit_code",
+    "run-pov": "pov_exit_code",
+    "run-test": "test_exit_code",
+}
+
+
+def _make_log_entry(
+    action: str,
+    job_id: str,
+    result: dict,
+    duration_ms: int,
+    ts_start: float,
+) -> dict:
+    """Create a structured log entry for an API call."""
+    exit_code = result.get(_EXIT_CODE_KEYS.get(action, ""), -1)
+    entry: dict = {
+        "ts": ts_start,
+        "api": action,
+        "job_id": job_id,
+        "duration_ms": duration_ms,
+        "exit_code": exit_code,
+    }
+    # Include request params returned by handlers
+    for key in ("harness", "build_id"):
+        if key in result:
+            entry[key] = result[key]
+    # Propagate handler errors (unhandled exceptions)
+    if "error" in result:
+        entry["error"] = result["error"]
+    # API-specific derived fields for consumer convenience
+    # exit_code > 0 guards against the -1 sentinel from handler exceptions
+    if action == "build":
+        entry["build_success"] = exit_code == 0
+    elif action == "run-pov":
+        entry["crash"] = exit_code > 0 and exit_code != 124
+        entry["timeout"] = exit_code == 124
+    elif action == "run-test":
+        entry["test_passed"] = exit_code == 0
+        entry["skipped"] = bool(result.get("test_skipped"))
+    return entry
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    # Register API call log directory via libCRS so logs are persisted
+    # to the host-mounted LOG_DIR and survive container termination.
+    _init_api_log()
 
     # Register /builds as a shared directory via libCRS so artifacts
     # are visible to CRS modules through the shared filesystem.
