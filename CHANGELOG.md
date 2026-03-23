@@ -12,6 +12,7 @@ stricter subset of Keep a Changelog).
 - atlantis-java-main to registry/ and example/
 - atlantis-c-deepgen to registry/ and example/
 - roboduck to registry/ and example/
+- fuzzing-brain to registry/ and example/ (bug-finding, C/C++, multi-provider LLM)
 
 ### Changed
 - Clarified that target env `repo_path` is the effective in-container source

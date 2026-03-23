@@ -1,0 +1,30 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for fuzzing-brain (bug-finding, C/C++)               #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (fuzzing-brain) ---------------------------------------------------
+# LLM-guided crash input generation + fuzzer validation for C/C++.
+# 23+ strategies using multiple LLMs with multi-round iterative refinement.
+fuzzing-brain:
+  cpuset: "4-15"
+  memory: "48G"
+  llm_budget: 100
+  additional_env:
+    STRATEGY_ENABLE_PATCHING: "false"
+    FUZZER_PER_FUZZER_TIMEOUT_MINUTES: "60"
+    # Default model — routes through LiteLLM proxy
+    AI_MODEL: "gemini-2.5-flash"
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm_config: ./example/fuzzing-brain/litellm-config.yaml
