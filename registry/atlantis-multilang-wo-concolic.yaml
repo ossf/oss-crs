@@ -3,4 +3,4 @@ type:
   - bug-finding
 source:
   url: https://github.com/Team-Atlanta/atlantis-multilang-wo-concolic.git
-  ref: refined-oss-crs
+  ref: main
