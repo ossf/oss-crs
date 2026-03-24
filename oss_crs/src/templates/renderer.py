@@ -240,10 +240,10 @@ def render_run_crs_compose_docker_compose(
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
 
-    # Sidecar service deployment: disabled until --incremental-build flag is implemented (Phase 5)
-    has_sidecar = False
-    rebuild_out_dir = ""
-    sidecar_crs_name = ""
+    # Sidecar services are always injected as infrastructure (per D-04: single parent mount)
+    rebuild_out_dir = str(crs_compose.work_dir.get_rebuild_out_dir(
+        crs_compose.crs_list[0].name, target, run_id, sanitizer, create=True
+    ))
 
     target_env = target.get_target_env()
     context = {
@@ -258,7 +258,6 @@ def render_run_crs_compose_docker_compose(
         "build_id": build_id,
         "sanitizer": sanitizer,
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
-        "snapshot_image_tag": "",
         "resolve_dockerfile": _resolve_module_dockerfile,
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
@@ -271,9 +270,7 @@ def render_run_crs_compose_docker_compose(
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,
         "postgres_host": POSTGRES_HOST,
-        "has_sidecar": has_sidecar,
         "rebuild_out_dir": rebuild_out_dir,
-        "sidecar_crs_name": sidecar_crs_name,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

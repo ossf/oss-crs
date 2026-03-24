@@ -185,7 +185,6 @@ services:
   ###########################################
   # OSS-CRS-BUILDER-SIDECAR
   ###########################################
-{%- if has_sidecar %}
   oss-crs-builder-sidecar:
     build:
       context: {{ oss_crs_infra_root_path }}/builder-sidecar
@@ -196,7 +195,7 @@ services:
       - {{ rebuild_out_dir }}:/rebuild_out:rw
     environment:
       - REBUILD_OUT_DIR=/rebuild_out
-      - BASE_IMAGE={{ snapshot_image_tag if snapshot_image_tag else target.get_docker_image_name() }}
+      - BASE_IMAGE={{ target.get_docker_image_name() }}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 5s
@@ -206,7 +205,9 @@ services:
     networks:
       {{ crs_compose_name }}-network:
         aliases:
-          - builder-sidecar.{{ sidecar_crs_name }}
+{%- for crs in crs_list %}
+          - builder-sidecar.{{ crs.name }}
+{%- endfor %}
   ###########################################
   # OSS-CRS-RUNNER-SIDECAR
   ###########################################
@@ -226,5 +227,6 @@ services:
     networks:
       {{ crs_compose_name }}-network:
         aliases:
-          - runner-sidecar.{{ sidecar_crs_name }}
-{%- endif %}
+{%- for crs in crs_list %}
+          - runner-sidecar.{{ crs.name }}
+{%- endfor %}

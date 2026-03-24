@@ -1,0 +1,30 @@
+name: crs-sidecar-test
+type:
+  - bug-fixing
+version: 1.0.0
+docker_registry: local
+
+target_build_phase:
+  - name: default-build
+    dockerfile: oss-crs/builder.Dockerfile
+    outputs:
+      - build
+      - src
+
+crs_run_phase:
+  patcher:
+    dockerfile: oss-crs/patcher.Dockerfile
+    additional_env:
+      BUILDER_MODULE: builder-sidecar
+
+supported_target:
+  mode:
+    - full
+    - delta
+  language:
+    - c
+    - c++
+  sanitizer:
+    - address
+  architecture:
+    - x86_64
