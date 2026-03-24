@@ -160,15 +160,17 @@ class CRSUtils(ABC):
         pass
 
     @abstractmethod
-    def run_test(
+    def apply_patch_test(
         self,
+        patch_path: Path,
         build_id: str,
         response_dir: Path,
         builder: str,
     ) -> int:
-        """Run the project's bundled test.sh against a specific build's output.
+        """Apply a patch and run the project's bundled test.sh via the builder sidecar.
 
         Args:
+            patch_path: Path to the unified diff file to apply before testing.
             build_id: Build ID from a prior apply_patch_build call.
             response_dir: Directory to receive results:
                 - test_exit_code, test_stdout.log, test_stderr.log
