@@ -55,26 +55,12 @@ class CRSCompose:
             )
             for name, crs_cfg in self.config.crs_entries.items()
         ]
-        builder_count = sum(1 for crs in self.crs_list if crs.config.is_builder)
-        if builder_count > 1:
-            raise ValueError("At most one CRS entry with type 'builder' is allowed")
-
         self.deadline: Optional[float] = None
 
     @property
-    def _builder_crs(self) -> Optional[CRS]:
-        for crs in self.crs_list:
-            if crs.config.is_builder:
-                return crs
-        return None
-
-    @property
     def _any_needs_snapshot(self) -> bool:
-        """Check if any CRS needs a snapshot (new-style or old-style builder)."""
-        return (
-            any(crs.config.has_snapshot for crs in self.crs_list)
-            or self._builder_crs is not None
-        )
+        """Check if any CRS needs a snapshot."""
+        return any(crs.config.has_snapshot for crs in self.crs_list)
 
     def _resolve_target_build_options(
         self,
@@ -371,10 +357,6 @@ class CRSCompose:
                             "SANITIZER", sanitizer
                         )
                     snapshot_sanitizers.add(snap_sanitizer)
-
-            # Old-style builder CRS also triggers a snapshot
-            if self._builder_crs is not None and not snapshot_sanitizers:
-                snapshot_sanitizers.add(sanitizer)
 
             for snap_sanitizer in sorted(snapshot_sanitizers):
                 tasks.append(

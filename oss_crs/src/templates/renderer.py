@@ -158,8 +158,6 @@ def prepare_llm_context(
             raise RuntimeError("External LiteLLM API key is required.")
         keys = {}
         for crs in crs_compose.crs_list:
-            if crs.config.is_builder:
-                continue
             keys[crs.name] = key
         return {
             "mode": "external",
@@ -184,9 +182,7 @@ def prepare_llm_context(
         keys = {}
         key_info = {}
         for crs in crs_compose.crs_list:
-            if crs.config.is_builder:
-                continue
-            if crs.resource is None:
+            if crs.resource is None: # for type check
                 raise RuntimeError(
                     f"CRS '{crs.name}' is missing resource configuration for LiteLLM"
                 )
@@ -235,7 +231,7 @@ def render_run_crs_compose_docker_compose(
     bug_finding_crs_count = sum(
         1
         for crs in crs_compose.crs_list
-        if CRSType.BUG_FINDING in crs.config.type and not crs.config.is_builder
+        if CRSType.BUG_FINDING in crs.config.type
     )
     bug_finding_ensemble = bug_finding_crs_count > 1
     bug_fix_ensemble = any(
@@ -243,6 +239,17 @@ def render_run_crs_compose_docker_compose(
     )
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
+
+    # Sidecar service deployment: inject when any CRS has snapshot builds
+    snapshot_crs = next((c for c in crs_compose.crs_list if c.config.has_snapshot), None)
+    has_sidecar = snapshot_crs is not None
+    rebuild_out_dir = ""
+    sidecar_crs_name = ""
+    if has_sidecar:
+        sidecar_crs_name = snapshot_crs.name
+        rebuild_out_dir = str(crs_compose.work_dir.get_rebuild_out_dir(
+            snapshot_crs.name, target, run_id, sanitizer, create=True
+        ))
 
     target_env = target.get_target_env()
     context = {
@@ -270,6 +277,9 @@ def render_run_crs_compose_docker_compose(
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,
         "postgres_host": POSTGRES_HOST,
+        "has_sidecar": has_sidecar,
+        "rebuild_out_dir": rebuild_out_dir,
+        "sidecar_crs_name": sidecar_crs_name,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)
@@ -293,13 +303,12 @@ def render_run_crs_compose_docker_compose(
                 if (
                     target.snapshot_image_tag
                     and not module_config.run_snapshot
-                    and not crs.config.is_builder
                 )
                 else None
             )
             llm_url = None
             llm_key = None
-            if llm_context is not None and not crs.config.is_builder:
+            if llm_context is not None:
                 llm_url = llm_context.get("llm_api_url")
                 llm_key = llm_context.get("api_keys", {}).get(crs.name)
             env_plan = build_run_service_env(
