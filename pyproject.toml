@@ -40,6 +40,10 @@ dev = [
     "pytest-cov>=4.0.0",
     "watchdog>=4.0.0",
     "ty>=0.0.4",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "python-multipart>=0.0.18",
+    "httpx>=0.27.0",
 ]
 
 [tool.ty.src]
