@@ -240,16 +240,10 @@ def render_run_crs_compose_docker_compose(
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
 
-    # Sidecar service deployment: inject when any CRS has snapshot builds
-    snapshot_crs = next((c for c in crs_compose.crs_list if c.config.has_snapshot), None)
-    has_sidecar = snapshot_crs is not None
+    # Sidecar service deployment: disabled until --incremental-build flag is implemented (Phase 5)
+    has_sidecar = False
     rebuild_out_dir = ""
     sidecar_crs_name = ""
-    if has_sidecar:
-        sidecar_crs_name = snapshot_crs.name
-        rebuild_out_dir = str(crs_compose.work_dir.get_rebuild_out_dir(
-            snapshot_crs.name, target, run_id, sanitizer, create=True
-        ))
 
     target_env = target.get_target_env()
     context = {
@@ -264,7 +258,7 @@ def render_run_crs_compose_docker_compose(
         "build_id": build_id,
         "sanitizer": sanitizer,
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
-        "snapshot_image_tag": target.snapshot_image_tag or "",
+        "snapshot_image_tag": "",
         "resolve_dockerfile": _resolve_module_dockerfile,
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
@@ -298,14 +292,7 @@ def render_run_crs_compose_docker_compose(
                 )
             resource = crs.resource
             service_name = f"{crs.name}_{module_name}"
-            include_snapshot = (
-                target.snapshot_image_tag
-                if (
-                    target.snapshot_image_tag
-                    and not module_config.run_snapshot
-                )
-                else None
-            )
+            include_snapshot = None
             llm_url = None
             llm_key = None
             if llm_context is not None:
