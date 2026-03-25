@@ -2,7 +2,7 @@
 
 Provides five public functions:
     get_build_image   - Resolve base image or build snapshot for a given build_id and builder_name
-    get_test_image    - Resolve base image or test snapshot for a given build_id and builder_name
+    get_test_image    - Resolve base image or test snapshot for a given build_id (no builder_name, per D-05)
     next_version      - Determine the next version number by scanning v{N} dirs
     run_ephemeral_build - Full ephemeral container lifecycle: create/start/wait/commit/remove
     run_ephemeral_test  - Test container lifecycle: create/start/wait/commit/remove (no artifacts)
@@ -56,21 +56,21 @@ def get_build_image(client: "docker.DockerClient", build_id: str, base_image: st
         return base_image
 
 
-def get_test_image(client: "docker.DockerClient", build_id: str, base_image: str, builder_name: str) -> str:
+def get_test_image(client: "docker.DockerClient", build_id: str, base_image: str) -> str:
     """Return test snapshot for build_id if it exists, otherwise return base_image.
 
-    Implements TEST-03: subsequent tests start from test snapshot.
+    Implements TEST-03 + D-05: test snapshot is per-build (no builder_name).
+    The project/test image is singular per build_id, so no builder_name is needed.
 
     Args:
         client: Docker SDK client instance.
         build_id: The CLI-provided build ID used as the snapshot tag.
         base_image: Fallback image if no test snapshot exists yet.
-        builder_name: Builder identifier (e.g. 'crs-libfuzzer') used in snapshot tag.
 
     Returns:
         Test snapshot image tag if it exists, else base_image.
     """
-    snapshot_tag = f"oss-crs-snapshot:test-{builder_name}-{build_id}"
+    snapshot_tag = f"oss-crs-snapshot:test-{build_id}"
     try:
         client.images.get(snapshot_tag)
         return snapshot_tag
@@ -240,7 +240,7 @@ def run_ephemeral_test(
 
     Full lifecycle: create -> start -> wait -> (commit on first success) -> remove.
     Container is always removed regardless of success or failure.
-    Snapshot committed only on first success (first-write-wins), tagged test-{builder_name}-{build_id}.
+    Snapshot committed only on first success (first-write-wins), tagged test-{build_id} per D-05.
     No versioned artifact output — test.sh handles recompile + test internally.
 
     Implements TEST-01, TEST-02: separate ephemeral container, test snapshot on first success.
@@ -259,7 +259,8 @@ def run_ephemeral_test(
     container = None
 
     # Check if test snapshot already exists (first-write-wins logic).
-    snapshot_tag = f"oss-crs-snapshot:test-{builder_name}-{build_id}"
+    # D-05: test snapshot is per-build (no builder_name) — project image is singular per build.
+    snapshot_tag = f"oss-crs-snapshot:test-{build_id}"
     try:
         client.images.get(snapshot_tag)
         snapshot_exists = True
@@ -308,8 +309,9 @@ def run_ephemeral_test(
             stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
 
             # Commit test snapshot on first successful test (first-write-wins, TEST-02).
+            # D-05: tag is test-{build_id} (no builder_name — project image is per-build).
             if exit_code == 0 and not snapshot_exists:
-                container.commit(repository="oss-crs-snapshot", tag=f"test-{builder_name}-{build_id}")
+                container.commit(repository="oss-crs-snapshot", tag=f"test-{build_id}")
 
             return {
                 "exit_code": exit_code,

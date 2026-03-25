@@ -273,7 +273,7 @@ def _handle_test(_job_id: str, patch_content: bytes, build_id: str, builder_name
     if not base_image:
         raise ValueError(f"No base image configured for builder '{builder_name}'. Set {env_key} or BASE_IMAGE env var.")
     timeout = int(os.environ.get("BUILD_TIMEOUT", "1800"))
-    image = get_test_image(docker.from_env(), build_id, base_image, builder_name)
+    image = get_test_image(docker.from_env(), build_id, base_image)
     return run_ephemeral_test(
         base_image=image,
         build_id=build_id,

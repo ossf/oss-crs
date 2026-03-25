@@ -406,16 +406,17 @@ class TestGetTestImage:
     """Tests for docker_ops.get_test_image() test snapshot lookup (TEST-03)."""
 
     def test_returns_test_snapshot_when_exists(self):
+        """get_test_image returns test-{build_id} snapshot (no builder_name, per D-05)."""
         client = MagicMock()
         client.images.get.return_value = MagicMock()
-        result = get_test_image(client, "abc123", "base:latest", TEST_BUILDER_NAME)
-        assert result == f"oss-crs-snapshot:test-{TEST_BUILDER_NAME}-abc123"
-        client.images.get.assert_called_once_with(f"oss-crs-snapshot:test-{TEST_BUILDER_NAME}-abc123")
+        result = get_test_image(client, "abc123", "base:latest")
+        assert result == "oss-crs-snapshot:test-abc123"
+        client.images.get.assert_called_once_with("oss-crs-snapshot:test-abc123")
 
     def test_returns_base_when_not_found(self):
         client = MagicMock()
         client.images.get.side_effect = docker.errors.ImageNotFound("not found")
-        result = get_test_image(client, "abc123", "base:latest", TEST_BUILDER_NAME)
+        result = get_test_image(client, "abc123", "base:latest")
         assert result == "base:latest"
 
 
@@ -434,16 +435,16 @@ class TestSnapshotTagNaming:
         client.images.get.assert_called_once_with(f"oss-crs-snapshot:build-{TEST_BUILDER_NAME}-myid")
 
     def test_test_snapshot_uses_test_prefix(self):
-        """get_test_image looks up oss-crs-snapshot:test-{builder_name}-{id} (distinct from build)."""
+        """get_test_image looks up oss-crs-snapshot:test-{build_id} (no builder_name, per D-05)."""
         client = MagicMock()
         client.images.get.side_effect = docker.errors.ImageNotFound("nope")
-        get_test_image(client, "myid", "base:latest", TEST_BUILDER_NAME)
-        client.images.get.assert_called_once_with(f"oss-crs-snapshot:test-{TEST_BUILDER_NAME}-myid")
+        get_test_image(client, "myid", "base:latest")
+        client.images.get.assert_called_once_with("oss-crs-snapshot:test-myid")
 
     def test_build_and_test_tags_are_distinct(self):
         """Build and test snapshot tags for same build_id must differ."""
         build_tag = f"oss-crs-snapshot:build-{TEST_BUILDER_NAME}-myid"
-        test_tag = f"oss-crs-snapshot:test-{TEST_BUILDER_NAME}-myid"
+        test_tag = "oss-crs-snapshot:test-myid"
         assert build_tag != test_tag
 
 
@@ -485,13 +486,13 @@ class TestRunEphemeralTest:
         assert result["artifacts_version"] is None
 
     def test_first_success_commits_test_snapshot(self):
-        """First successful test commits snapshot with test-{builder_name}- prefix (TEST-02)."""
+        """First successful test commits snapshot with test-{build_id} tag per D-05 (no builder_name)."""
         client, container = self._make_mock_client(exit_code=0, snapshot_exists=False)
         with patch("docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", "build123", TEST_BUILDER_NAME, b"patch")
         container.commit.assert_called_once_with(
             repository="oss-crs-snapshot",
-            tag=f"test-{TEST_BUILDER_NAME}-build123",
+            tag="test-build123",
         )
 
     def test_existing_snapshot_skips_commit(self):
