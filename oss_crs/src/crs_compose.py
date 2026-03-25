@@ -28,6 +28,10 @@ from .cgroup import (
     cleanup_cgroup,
 )
 
+import docker
+import docker.errors
+import requests.exceptions
+
 
 class CRSCompose:
     @classmethod
@@ -162,6 +166,162 @@ class CRSCompose:
             "input_sha256": input_sha256,
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+    def _snapshot_one(
+        self,
+        client: "docker.DockerClient",
+        base_image: str,
+        tag: str,
+        build_id: str,
+        committed_tags: "list[str]",
+        command: "list[str] | None" = None,
+        timeout: int = 1800,
+    ) -> bool:
+        """Run a container from base_image and commit as snapshot on success.
+
+        Args:
+            client: Docker SDK client.
+            base_image: Image to run.
+            tag: Snapshot tag (without repository prefix).
+            build_id: Build ID for container env.
+            committed_tags: List to append full tag on success (for cleanup tracking).
+            command: Override command. If None, uses image CMD via get_image_cmd().
+            timeout: Max wait seconds.
+
+        Returns:
+            True if snapshot committed, False on failure.
+        """
+        # Inline CMD extraction (same logic as docker_ops.get_image_cmd):
+        if command is None:
+            try:
+                img = client.images.get(base_image)
+                cmd = img.attrs.get("Config", {}).get("Cmd")
+                command = cmd if cmd else ["compile"]
+            except docker.errors.ImageNotFound:
+                command = ["compile"]
+
+        container = None
+        try:
+            container = client.containers.create(
+                base_image,
+                command=command,
+                environment={"OSS_CRS_BUILD_ID": build_id},
+                detach=True,
+            )
+            container.start()
+
+            try:
+                result = container.wait(timeout=timeout)
+            except requests.exceptions.ReadTimeout:
+                try:
+                    container.kill()
+                except Exception:
+                    pass
+                return False
+
+            exit_code = result["StatusCode"]
+            if exit_code == 0:
+                full_tag = f"oss-crs-snapshot:{tag}"
+                container.commit(repository="oss-crs-snapshot", tag=tag)
+                committed_tags.append(full_tag)
+                return True
+            return False
+        finally:
+            if container is not None:
+                try:
+                    container.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
+
+    def _create_incremental_snapshots(self, target_base_image: str, build_id: str) -> bool:
+        """Create snapshot images for all builders and the project image.
+
+        Implements D-03/D-04/D-05/D-06: Docker SDK snapshots with all-or-nothing cleanup.
+        Called from build_target() when incremental_build=True.
+
+        Args:
+            target_base_image: The target's base Docker image to run builders from.
+            build_id: The build ID for snapshot tagging.
+
+        Returns:
+            True if all snapshots committed successfully, False otherwise (with cleanup).
+        """
+        client = docker.from_env()
+        committed_tags: list[str] = []
+
+        try:
+            # D-04: Snapshot each builder
+            for crs in self.crs_list:
+                if not crs.config.target_build_phase or not crs.config.target_build_phase.builds:
+                    continue
+                for build_config in crs.config.target_build_phase.builds:
+                    tag = f"build-{build_config.name}-{build_id}"
+                    if not self._snapshot_one(
+                        client, target_base_image, tag, build_id, committed_tags
+                    ):
+                        raise RuntimeError(f"Builder snapshot failed: {build_config.name}")
+
+            # D-05: Snapshot project image after test.sh
+            test_tag = f"test-{build_id}"
+            if not self._snapshot_one(
+                client, target_base_image, test_tag, build_id, committed_tags,
+                command=["bash", "/src/test.sh"],
+            ):
+                raise RuntimeError("Project image (test.sh) snapshot failed")
+
+            return True
+
+        except Exception as e:
+            # D-06: All-or-nothing cleanup
+            print(f"Snapshot creation failed: {e}")
+            print(f"Cleaning up {len(committed_tags)} committed snapshot(s)...")
+            for full_tag in committed_tags:
+                try:
+                    client.images.remove(full_tag, force=True)
+                except docker.errors.ImageNotFound:
+                    pass
+            return False
+
+    def _check_snapshots_exist(self, build_id: str) -> "str | None":
+        """Check that all required snapshot images exist for incremental run.
+
+        Implements SNAP-05/D-09: pre-run validation with clear error message.
+
+        Args:
+            build_id: The build ID whose snapshots to check.
+
+        Returns:
+            Error message string if any snapshot is missing, None if all exist.
+        """
+        client = docker.from_env()
+
+        # Check builder snapshots
+        for crs in self.crs_list:
+            if not crs.config.target_build_phase or not crs.config.target_build_phase.builds:
+                continue
+            for build_config in crs.config.target_build_phase.builds:
+                tag = f"oss-crs-snapshot:build-{build_config.name}-{build_id}"
+                try:
+                    client.images.get(tag)
+                except docker.errors.ImageNotFound:
+                    return (
+                        f"Snapshot not found for build_id '{build_id}' "
+                        f"(missing: {tag}). "
+                        f"Run `oss-crs build-target --incremental-build` first."
+                    )
+
+        # Check project/test image snapshot — uses test-{build_id} per D-05 (no builder_name)
+        test_tag = f"oss-crs-snapshot:test-{build_id}"
+        try:
+            client.images.get(test_tag)
+        except docker.errors.ImageNotFound:
+            return (
+                f"Snapshot not found for build_id '{build_id}' "
+                f"(missing: {test_tag}). "
+                f"Run `oss-crs build-target --incremental-build` first."
+            )
+
+        return None
 
     @staticmethod
     def _hash_file(path: Path) -> str:
@@ -393,6 +553,9 @@ class CRSCompose:
             title="CRS Compose Build Target",
         ) as progress:
             ret = progress.run_added_tasks()
+            if ret.success and incremental_build:
+                if not self._create_incremental_snapshots(target_base_image, build_id):
+                    return False
             if ret.success:
                 self._write_build_metadata(
                     target=target,
@@ -512,6 +675,13 @@ class CRSCompose:
 
         # build_id is guaranteed to be set at this point (either found or generated)
         assert build_id is not None
+
+        # SNAP-05: Validate snapshots exist before starting run
+        if incremental_build:
+            snapshot_error = self._check_snapshots_exist(build_id)
+            if snapshot_error:
+                print(f"Error: {snapshot_error}")
+                return False
 
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
