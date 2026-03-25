@@ -305,6 +305,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
+        incremental_build: bool = False,
     ) -> bool:
         sanitizer_explicit = sanitizer is not None
         resolved_options = self._resolve_target_build_options(
@@ -418,6 +419,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
         early_exit: bool = False,
+        incremental_build: bool = False,
     ) -> bool:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -525,6 +527,7 @@ class CRSCompose:
             cgroup_parent=cgroup_parent,
             bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
             early_exit=early_exit,
+            incremental_build=incremental_build,
         )
 
     def _validate_required_inputs(
@@ -646,6 +649,7 @@ class CRSCompose:
         cgroup_parent: bool = False,
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
+        incremental_build: bool = False,
     ) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -659,6 +663,7 @@ class CRSCompose:
                 cgroup_parent=cgroup_parent,
                 bug_candidate=bug_candidate,
                 early_exit=early_exit,
+                incremental_build=incremental_build,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -676,6 +681,7 @@ class CRSCompose:
         cgroup_parent: bool = False,
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
+        incremental_build: bool = False,
     ) -> bool:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -764,6 +770,7 @@ class CRSCompose:
                             seed_dir=seed_dir,
                             cgroup_parents=cgroup_parents,
                             bug_candidate=bug_candidate,
+                            incremental_build=incremental_build,
                         ),
                     ),
                     (
@@ -989,6 +996,7 @@ class CRSCompose:
         seed_dir: Optional[Path] = None,
         cgroup_parents: Optional[dict[str, str]] = None,
         bug_candidate: Optional[Path] = None,
+        incremental_build: bool = False,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
