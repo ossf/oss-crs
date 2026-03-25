@@ -351,3 +351,39 @@ def test_sidecar_emits_multiple_builder_env_vars(
     assert "BASE_IMAGE_INC_BUILDER=target:latest" in env_list
     assert "BASE_IMAGE_DEFAULT_BUILD=target:latest" in env_list
     assert "BASE_IMAGE=target:latest" in env_list
+
+
+def test_sidecar_emits_project_base_image_env_var(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Builder-sidecar always emits PROJECT_BASE_IMAGE env var (D-01, TEST-01)."""
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.build_run_service_env",
+        lambda **kwargs: SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[]),
+    )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.prepare_llm_context",
+        lambda *_args, **_kwargs: None,
+    )
+
+    crs = _make_crs(tmp_path, "crs-plain")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = SimpleNamespace(
+        get_target_env=lambda: {"harness": "fuzz_target"},
+        get_docker_image_name=lambda: "project-image:latest",
+    )
+
+    rendered, warnings = render_run_crs_compose_docker_compose(
+        crs_compose=crs_compose,
+        tmp_docker_compose=SimpleNamespace(dir=tmp_path / "tmp-compose"),
+        crs_compose_name="proj",
+        target=target,
+        run_id="run-1",
+        build_id="build-1",
+        sanitizer="address",
+    )
+
+    assert warnings == []
+    compose_data = yaml.safe_load(rendered)
+    env_list = compose_data["services"]["oss-crs-builder-sidecar"]["environment"]
+    assert "PROJECT_BASE_IMAGE=project-image:latest" in env_list

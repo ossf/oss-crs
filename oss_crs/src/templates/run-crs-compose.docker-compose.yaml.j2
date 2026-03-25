@@ -203,6 +203,7 @@ services:
 {%- endif %}
 {%- endfor %}
       - BASE_IMAGE={{ target.get_docker_image_name() }}
+      - PROJECT_BASE_IMAGE={{ target.get_docker_image_name() }}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 5s

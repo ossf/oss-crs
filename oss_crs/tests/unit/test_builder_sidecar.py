@@ -536,14 +536,82 @@ class TestRunEphemeralTest:
         assert result["artifacts_version"] is None
 
     def test_invokes_test_sh(self):
-        """Container command must invoke test.sh (not oss_crs_handler.sh)."""
+        """Container OSS_CRS_BUILD_CMD env var must reference test.sh."""
         client, _ = self._make_mock_client(exit_code=0)
         with patch("docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", "build123", TEST_BUILDER_NAME, b"patch")
         call_kwargs = client.containers.create.call_args
-        command = call_kwargs[1].get("command") or call_kwargs[0][1]
-        assert any("test.sh" in str(c) for c in command)
-        assert not any("oss_crs_handler.sh" in str(c) for c in command)
+        environment = call_kwargs[1].get("environment", {})
+        assert "test.sh" in environment.get("OSS_CRS_BUILD_CMD", "")
+
+
+# ===========================================================================
+# TestHandleTestProjectImage
+# ===========================================================================
+
+class TestHandleTestProjectImage:
+    """Tests for _handle_test() PROJECT_BASE_IMAGE behavior (D-02, D-06, D-07)."""
+
+    import os as _os
+
+    def _make_mock_client(self):
+        """Return a mock Docker client that simulates no existing test snapshot."""
+        import docker as _docker
+        mock_client = MagicMock()
+        mock_client.images.get.side_effect = _docker.errors.ImageNotFound("nope")
+        mock_container = MagicMock()
+        mock_container.wait.return_value = {"StatusCode": 0}
+        mock_container.logs.return_value = b"test output"
+        mock_client.containers.create.return_value = mock_container
+        return mock_client
+
+    def test_handle_test_uses_project_base_image(self):
+        """_handle_test() uses PROJECT_BASE_IMAGE to create the container (D-02)."""
+        import server
+        mock_client = self._make_mock_client()
+        with patch("docker_ops.docker.from_env", return_value=mock_client):
+            with patch.dict(__import__("os").environ, {"PROJECT_BASE_IMAGE": "project:latest"}, clear=False):
+                server._handle_test("job1", b"patch", "bid1", "crs-libfuzzer")
+        mock_client.containers.create.assert_called_once()
+        call_args = mock_client.containers.create.call_args
+        image_arg = call_args[0][0] if call_args[0] else call_args[1].get("image")
+        assert image_arg == "project:latest"
+
+    def test_handle_test_raises_when_project_base_image_missing(self):
+        """_handle_test() raises ValueError when PROJECT_BASE_IMAGE is not in os.environ."""
+        import server
+        import os as _os
+        mock_client = self._make_mock_client()
+        env_without_project_base = {k: v for k, v in _os.environ.items() if k != "PROJECT_BASE_IMAGE"}
+        with patch("docker_ops.docker.from_env", return_value=mock_client):
+            with patch.dict(_os.environ, env_without_project_base, clear=True):
+                with pytest.raises(ValueError, match="PROJECT_BASE_IMAGE"):
+                    server._handle_test("job1", b"patch", "bid1", "crs-libfuzzer")
+
+    def test_handle_test_ignores_builder_base_image(self):
+        """_handle_test() does not read BASE_IMAGE_{builder_name} even when set."""
+        import server
+        mock_client = self._make_mock_client()
+        env_vars = {
+            "BASE_IMAGE_CRS_LIBFUZZER": "wrong:image",
+            "PROJECT_BASE_IMAGE": "project:correct",
+        }
+        with patch("docker_ops.docker.from_env", return_value=mock_client):
+            with patch.dict(__import__("os").environ, env_vars, clear=False):
+                server._handle_test("job1", b"patch", "bid1", "crs-libfuzzer")
+        call_args = mock_client.containers.create.call_args
+        image_arg = call_args[0][0] if call_args[0] else call_args[1].get("image")
+        assert image_arg == "project:correct"
+        assert image_arg != "wrong:image"
+
+    def test_test_response_schema_has_no_artifact_paths(self):
+        """Response dict keys are exactly {exit_code, stdout, stderr, build_id, artifacts_version}
+        and artifacts_version is None (TEST-02, D-04)."""
+        client, _ = TestRunEphemeralTest()._make_mock_client(exit_code=0)
+        with patch("docker_ops.docker.from_env", return_value=client):
+            result = run_ephemeral_test("base:latest", "build123", TEST_BUILDER_NAME, b"patch")
+        assert set(result.keys()) == {"exit_code", "stdout", "stderr", "build_id", "artifacts_version"}
+        assert result["artifacts_version"] is None
 
 
 # ===========================================================================

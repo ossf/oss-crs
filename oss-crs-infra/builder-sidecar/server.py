@@ -20,6 +20,8 @@ Environment variables:
     BASE_IMAGE_{BUILDER_NAME} - Docker base image per builder (e.g. BASE_IMAGE_CRS_LIBFUZZER).
                                 Resolved per-request from builder_name Form field.
                                 Falls back to BASE_IMAGE env var for backward compatibility.
+    PROJECT_BASE_IMAGE  - OSS-Fuzz project image for test.sh execution (required for /test).
+                          Always the project image, never a CRS builder image.
 """
 
 from fastapi import FastAPI, UploadFile, File, Form
@@ -266,12 +268,9 @@ def _handle_build(_job_id: str, patch_content: bytes, build_id: str, builder_nam
 
 def _handle_test(_job_id: str, patch_content: bytes, build_id: str, builder_name: str) -> dict:
     """Execute a test job inside an ephemeral Docker container."""
-    env_key = f"BASE_IMAGE_{builder_name.upper().replace('-', '_')}"
-    base_image = os.environ.get(env_key)
+    base_image = os.environ.get("PROJECT_BASE_IMAGE")
     if not base_image:
-        base_image = os.environ.get("BASE_IMAGE")
-    if not base_image:
-        raise ValueError(f"No base image configured for builder '{builder_name}'. Set {env_key} or BASE_IMAGE env var.")
+        raise ValueError("PROJECT_BASE_IMAGE env var not set on sidecar service.")
     timeout = int(os.environ.get("BUILD_TIMEOUT", "1800"))
     image = get_test_image(docker.from_env(), build_id, base_image)
     return run_ephemeral_test(
