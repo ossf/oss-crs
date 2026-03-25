@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .config.crs_compose import LLMConfig
+from .constants import LITELLM_INTERNAL_URL
 from .ui import TaskResult
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ class LLM:
 
     def get_crs_api_url(self) -> Optional[str]:
         if self.mode == "internal":
-            return "http://litellm.oss-crs:4000"
+            return LITELLM_INTERNAL_URL
         if self.mode == "external":
             if self.external_url_env:
                 return os.environ.get(self.external_url_env)

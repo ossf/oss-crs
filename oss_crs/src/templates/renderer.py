@@ -7,6 +7,14 @@ import secrets
 import yaml
 
 from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
+from ..constants import (
+    LITELLM_IMAGE,
+    LITELLM_INTERNAL_URL,
+    POSTGRES_HOST,
+    POSTGRES_IMAGE,
+    POSTGRES_PORT,
+    POSTGRES_USER,
+)
 from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
 
@@ -196,7 +204,7 @@ def prepare_llm_context(
 
         return {
             "mode": "internal",
-            "llm_api_url": "http://litellm.oss-crs:4000",
+            "llm_api_url": LITELLM_INTERNAL_URL,
             "litellm_master_key": "sk-" + _generate_random_key(16),
             "postgres_password": _generate_random_key(16),
             "litellm_config_path": llm_config.litellm.internal.config_path
@@ -256,6 +264,12 @@ def render_run_crs_compose_docker_compose(
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
+        "litellm_image": LITELLM_IMAGE,
+        "litellm_internal_url": LITELLM_INTERNAL_URL,
+        "postgres_image": POSTGRES_IMAGE,
+        "postgres_user": POSTGRES_USER,
+        "postgres_port": POSTGRES_PORT,
+        "postgres_host": POSTGRES_HOST,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)
