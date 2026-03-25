@@ -58,6 +58,8 @@ services:
 {%- if fetch_dir %}
       - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
+      - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
+      - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
 {%- if module_config.run_snapshot or crs.config.is_builder %}
     attach: false
     shm_size: "2g"

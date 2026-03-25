@@ -42,6 +42,8 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
 | `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) |
+| `OSS_CRS_FUZZ_PROJ` | Read-only mount containing the fuzz project directory (set on all CRS containers) |
+| `OSS_CRS_TARGET_SOURCE` | Read-only mount containing the target source directory (set on all CRS containers) |
 
 ## Architecture
 
@@ -152,21 +154,26 @@ $ libCRS download-build-output /fuzzer /opt/fuzzer
 
 #### `download-source` ✅
 
-Download target source tree into the container from canonical source paths.
+Download source tree into the container from mount paths.
 
 ```bash
-$ libCRS download-source <target|repo> <dst_path>
+$ libCRS download-source <fuzz-proj|target-source> <dst_path>
 ```
 
 | Argument | Description |
 |---|---|
-| `target` | Source from `OSS_CRS_PROJ_PATH` (project files) |
-| `repo` | Source from the live repo workspace rooted at `$SRC` / `/src`, using `OSS_CRS_REPO_PATH` as the effective workdir hint |
+| `fuzz-proj` | Copy from `/OSS_CRS_FUZZ_PROJ` (fuzz project mount) |
+| `target-source` | Copy from `/OSS_CRS_TARGET_SOURCE` (target source mount) |
 | `dst_path` | Destination path inside the container |
 
-**Example** — Retrieve effective source tree for patch analysis:
+**Example** — Copy fuzz project files for analysis:
 ```bash
-$ libCRS download-source repo /work/src
+$ libCRS download-source fuzz-proj /work/project
+```
+
+**Example** — Copy target source tree for patch generation:
+```bash
+$ libCRS download-source target-source /work/src
 ```
 
 #### `skip-build-output` ✅
@@ -518,7 +525,7 @@ libCRS submit patch /tmp/patch.diff
 |---|---|---|
 | `submit-build-output` | ✅ Implemented | Uses `rsync` for file copying |
 | `download-build-output` | ✅ Implemented | Uses `rsync` for file copying |
-| `download-source` | ✅ Implemented | Copies from `OSS_CRS_PROJ_PATH` or `OSS_CRS_REPO_PATH` |
+| `download-source` | ✅ Implemented | Copies from `/OSS_CRS_FUZZ_PROJ` or `/OSS_CRS_TARGET_SOURCE` mounts |
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
 | `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |

@@ -15,7 +15,7 @@ This installs the `libCRS` CLI at `/usr/local/bin/libCRS`.
 
 | Category | Commands |
 |---|---|
-| Build output | `submit-build-output`, `download-build-output`, `skip-build-output` |
+| Build output | `submit-build-output`, `download-build-output`, `download-source`, `skip-build-output` |
 | Data exchange | `register-submit-dir`, `register-fetch-dir`, `submit`, `fetch` |
 | Shared filesystem | `register-shared-dir` |
 | Log persistence | `register-log-dir` |
