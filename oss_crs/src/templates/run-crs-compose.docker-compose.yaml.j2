@@ -195,6 +195,13 @@ services:
       - {{ rebuild_out_dir }}:/rebuild_out:rw
     environment:
       - REBUILD_OUT_DIR=/rebuild_out
+{%- for crs in crs_list %}
+{%- if crs.config.target_build_phase and crs.config.target_build_phase.builds %}
+{%- for build_config in crs.config.target_build_phase.builds %}
+      - BASE_IMAGE_{{ build_config.name.upper().replace('-', '_') }}={{ target.get_docker_image_name() }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
       - BASE_IMAGE={{ target.get_docker_image_name() }}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]

@@ -236,3 +236,118 @@ def test_runner_sidecar_aliases_per_crs(
     builder_aliases = builder_sidecar["networks"]["proj-network"]["aliases"]
     assert "builder-sidecar.crs-alpha" in builder_aliases
     assert "builder-sidecar.crs-beta" in builder_aliases
+
+
+def _make_crs_with_builders(tmp_path: Path, name: str, builder_names: list) -> SimpleNamespace:
+    """Helper to build a CRS SimpleNamespace with target_build_phase builds."""
+    module_config = SimpleNamespace(
+        dockerfile="patcher.Dockerfile",
+        additional_env={},
+    )
+    builds = [
+        SimpleNamespace(
+            name=b,
+            dockerfile="builder.Dockerfile",
+            outputs=["build"],
+            additional_env={},
+        )
+        for b in builder_names
+    ]
+    return SimpleNamespace(
+        name=name,
+        crs_path=tmp_path,
+        resource=SimpleNamespace(
+            cpuset="2-7",
+            memory="8G",
+            additional_env={},
+            llm_budget=1,
+        ),
+        config=SimpleNamespace(
+            version="1.0",
+            type=["bug-fixing"],
+            is_builder=False,
+            is_bug_fixing=True,
+            is_bug_fixing_ensemble=False,
+            crs_run_phase=SimpleNamespace(modules={"patcher": module_config}),
+            target_build_phase=SimpleNamespace(builds=builds),
+        ),
+    )
+
+
+def test_sidecar_emits_per_builder_base_image_env_vars(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Builder sidecar emits BASE_IMAGE_{NAME} env var for a single-builder CRS."""
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.build_run_service_env",
+        lambda **kwargs: SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[]),
+    )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.prepare_llm_context",
+        lambda *_args, **_kwargs: None,
+    )
+
+    crs = _make_crs_with_builders(tmp_path, "crs-incremental", ["default-build"])
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = SimpleNamespace(
+        get_target_env=lambda: {"harness": "fuzz_target"},
+        get_docker_image_name=lambda: "target:latest",
+    )
+
+    rendered, warnings = render_run_crs_compose_docker_compose(
+        crs_compose=crs_compose,
+        tmp_docker_compose=SimpleNamespace(dir=tmp_path / "tmp-compose"),
+        crs_compose_name="proj",
+        target=target,
+        run_id="run-1",
+        build_id="build-1",
+        sanitizer="address",
+    )
+
+    assert warnings == []
+    compose_data = yaml.safe_load(rendered)
+    builder_sidecar = compose_data["services"]["oss-crs-builder-sidecar"]
+    env_list = builder_sidecar["environment"]
+
+    assert "BASE_IMAGE_DEFAULT_BUILD=target:latest" in env_list
+    assert "BASE_IMAGE=target:latest" in env_list
+
+
+def test_sidecar_emits_multiple_builder_env_vars(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Builder sidecar emits BASE_IMAGE_{NAME} env vars for each builder in a multi-builder CRS."""
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.build_run_service_env",
+        lambda **kwargs: SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[]),
+    )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.prepare_llm_context",
+        lambda *_args, **_kwargs: None,
+    )
+
+    crs = _make_crs_with_builders(tmp_path, "crs-multi", ["inc-builder", "default-build"])
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = SimpleNamespace(
+        get_target_env=lambda: {"harness": "fuzz_target"},
+        get_docker_image_name=lambda: "target:latest",
+    )
+
+    rendered, warnings = render_run_crs_compose_docker_compose(
+        crs_compose=crs_compose,
+        tmp_docker_compose=SimpleNamespace(dir=tmp_path / "tmp-compose"),
+        crs_compose_name="proj",
+        target=target,
+        run_id="run-1",
+        build_id="build-1",
+        sanitizer="address",
+    )
+
+    assert warnings == []
+    compose_data = yaml.safe_load(rendered)
+    builder_sidecar = compose_data["services"]["oss-crs-builder-sidecar"]
+    env_list = builder_sidecar["environment"]
+
+    assert "BASE_IMAGE_INC_BUILDER=target:latest" in env_list
+    assert "BASE_IMAGE_DEFAULT_BUILD=target:latest" in env_list
+    assert "BASE_IMAGE=target:latest" in env_list
