@@ -12,7 +12,7 @@ authors = [
     {name = "Team Atlanta"}
 ]
 dependencies = [
-    "requests>=2.31.0",
+    "requests>=2.33.0",
     "PyYAML>=6.0.3",
     "Jinja2>=3.1.6",
     "python-dotenv>=1.0.1",
