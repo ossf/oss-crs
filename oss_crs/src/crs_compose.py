@@ -1182,6 +1182,7 @@ class CRSCompose:
                 build_id=build_id,
                 sanitizer=sanitizer,
                 cgroup_parents=cgroup_parents,
+                incremental_build=incremental_build,
             )
             for warning in warnings:
                 progress.add_note(warning)

@@ -223,6 +223,7 @@ def render_run_crs_compose_docker_compose(
     build_id: str,
     sanitizer: str,
     cgroup_parents: Optional[dict[str, str]] = None,
+    incremental_build: bool = False,
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
     compose_env = crs_compose.crs_compose_env
@@ -271,6 +272,7 @@ def render_run_crs_compose_docker_compose(
         "postgres_port": POSTGRES_PORT,
         "postgres_host": POSTGRES_HOST,
         "rebuild_out_dir": rebuild_out_dir,
+        "incremental_build": incremental_build,
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

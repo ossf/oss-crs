@@ -8,6 +8,7 @@ Provides five public functions:
     run_ephemeral_test  - Test container lifecycle: create/start/wait/commit/remove (no artifacts)
 """
 
+import os
 import re
 import shutil
 import tempfile
@@ -33,21 +34,40 @@ def get_image_cmd(client: "docker.DockerClient", image: str) -> list[str]:
     return ["compile"]
 
 
-def get_build_image(client: "docker.DockerClient", build_id: str, base_image: str, builder_name: str) -> str:
-    """Return the snapshot image for build_id if it exists, otherwise return base_image.
+_OSS_FUZZ_ENV_KEYS = ("FUZZING_ENGINE", "SANITIZER", "ARCHITECTURE", "FUZZING_LANGUAGE")
 
-    Implements BUILD-05 (snapshot reuse): subsequent builds start from the committed
-    snapshot image rather than the base image, enabling incremental speed improvements.
 
-    Args:
-        client: Docker SDK client instance.
-        build_id: The CLI-provided build ID used as the snapshot tag.
-        base_image: Fallback image if no snapshot exists yet.
-        builder_name: Builder identifier (e.g. 'crs-libfuzzer') used in snapshot tag.
+def _oss_fuzz_env() -> dict[str, str]:
+    """Forward OSS-Fuzz env vars from the sidecar into ephemeral containers."""
+    return {k: v for k in _OSS_FUZZ_ENV_KEYS if (v := os.environ.get(k)) is not None}
 
-    Returns:
-        Snapshot image tag if it exists, else base_image.
+
+def _stream_and_capture_logs(container, prefix: str) -> tuple[str, str]:
+    """Stream container logs to sidecar stdout with a prefix, and return captured stdout/stderr.
+
+    Streams combined output in real-time so it appears in docker compose logs,
+    then captures stdout and stderr separately for the response.
     """
+    # Stream combined output in real-time
+    for chunk in container.logs(stream=True, follow=True):
+        for line in chunk.decode("utf-8", errors="replace").splitlines():
+            print(f"[{prefix}] {line}", flush=True)
+
+    # Capture separated stdout/stderr for the response
+    stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
+    stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
+    return stdout, stderr
+
+
+def _incremental_build_enabled() -> bool:
+    """Check if --incremental-build flag is active via INCREMENTAL_BUILD env var."""
+    return os.environ.get("INCREMENTAL_BUILD", "").lower() in ("1", "true")
+
+
+def get_build_image(client: "docker.DockerClient", build_id: str, base_image: str, builder_name: str) -> str:
+    """Return the snapshot image if incremental build is enabled and snapshot exists, otherwise base_image."""
+    if not _incremental_build_enabled():
+        return base_image
     snapshot_tag = f"oss-crs-snapshot:build-{builder_name}-{build_id}"
     try:
         client.images.get(snapshot_tag)
@@ -57,19 +77,9 @@ def get_build_image(client: "docker.DockerClient", build_id: str, base_image: st
 
 
 def get_test_image(client: "docker.DockerClient", build_id: str, base_image: str) -> str:
-    """Return test snapshot for build_id if it exists, otherwise return base_image.
-
-    Implements TEST-03 + D-05: test snapshot is per-build (no builder_name).
-    The project/test image is singular per build_id, so no builder_name is needed.
-
-    Args:
-        client: Docker SDK client instance.
-        build_id: The CLI-provided build ID used as the snapshot tag.
-        base_image: Fallback image if no test snapshot exists yet.
-
-    Returns:
-        Test snapshot image tag if it exists, else base_image.
-    """
+    """Return test snapshot if incremental build is enabled and snapshot exists, otherwise base_image."""
+    if not _incremental_build_enabled():
+        return base_image
     snapshot_tag = f"oss-crs-snapshot:test-{build_id}"
     try:
         client.images.get(snapshot_tag)
@@ -158,7 +168,8 @@ def run_ephemeral_build(
         patch_path = Path(tmpdir) / "patch.diff"
         patch_path.write_bytes(patch_bytes)
 
-        # Step 7: Create container with patch and out bind mounts.
+        # Step 7: Create container with patch, out, and handler script bind mounts.
+        handler_path = os.environ.get("HANDLER_SCRIPT_PATH", "/oss_crs_handler.sh")
         try:
             container = client.containers.create(
                 base_image,
@@ -166,11 +177,13 @@ def run_ephemeral_build(
                 volumes={
                     tmpdir: {"bind": "/patch", "mode": "ro"},
                     tmp_out_dir: {"bind": "/out", "mode": "rw"},
+                    handler_path: {"bind": "/usr/local/bin/oss_crs_handler.sh", "mode": "ro"},
                 },
                 environment={
                     "OSS_CRS_BUILD_ID": build_id,
                     "OSS_CRS_BUILD_CMD": " ".join(build_cmd),
                     "REPLAY_ENABLED": "",
+                    **_oss_fuzz_env(),
                 },
                 detach=True,
             )
@@ -182,7 +195,6 @@ def run_ephemeral_build(
             try:
                 result = container.wait(timeout=timeout)
             except requests.exceptions.ReadTimeout:
-                # Timeout handling: kill container, return error result.
                 try:
                     container.kill()
                 except Exception:
@@ -198,9 +210,8 @@ def run_ephemeral_build(
             # Step 10: Extract exit code.
             exit_code = result["StatusCode"]
 
-            # Step 11: Capture logs (stdout and stderr separately).
-            stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
-            stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
+            # Step 11: Stream logs to sidecar stdout and capture for response.
+            stdout, stderr = _stream_and_capture_logs(container, f"build:{builder_name}")
 
             # Step 11a: Only on success — create versioned output dir and copy artifacts.
             if exit_code == 0:
@@ -271,17 +282,20 @@ def run_ephemeral_test(
         patch_path = Path(tmpdir) / "patch.diff"
         patch_path.write_bytes(patch_bytes)
 
+        handler_path = os.environ.get("HANDLER_SCRIPT_PATH", "/oss_crs_handler.sh")
         try:
             container = client.containers.create(
                 base_image,
                 command=["bash", "/usr/local/bin/oss_crs_handler.sh", "/patch/patch.diff", "/out"],
                 volumes={
                     tmpdir: {"bind": "/patch", "mode": "ro"},
+                    handler_path: {"bind": "/usr/local/bin/oss_crs_handler.sh", "mode": "ro"},
                 },
                 environment={
                     "OSS_CRS_BUILD_ID": build_id,
                     "OSS_CRS_BUILD_CMD": "bash /OSS_CRS_PROJ_PATH/test.sh",
                     "REPLAY_ENABLED": "",
+                    **_oss_fuzz_env(),
                 },
                 detach=True,
             )
@@ -305,8 +319,7 @@ def run_ephemeral_test(
 
             exit_code = result["StatusCode"]
 
-            stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
-            stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
+            stdout, stderr = _stream_and_capture_logs(container, f"test:{build_id}")
 
             # Commit test snapshot on first successful test (first-write-wins, TEST-02).
             # D-05: tag is test-{build_id} (no builder_name — project image is per-build).

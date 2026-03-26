@@ -204,6 +204,12 @@ services:
 {%- endfor %}
       - BASE_IMAGE={{ target.get_docker_image_name() }}
       - PROJECT_BASE_IMAGE={{ target.get_docker_image_name() }}
+      - HANDLER_SCRIPT_PATH={{ oss_crs_infra_root_path }}/builder-sidecar/oss_crs_handler.sh
+      - INCREMENTAL_BUILD={{ "true" if incremental_build else "false" }}
+      - FUZZING_ENGINE={{ target_env.engine }}
+      - SANITIZER={{ sanitizer }}
+      - ARCHITECTURE={{ target_env.architecture }}
+      - FUZZING_LANGUAGE={{ target_env.language }}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 5s

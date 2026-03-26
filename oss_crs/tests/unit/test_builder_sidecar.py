@@ -20,6 +20,7 @@ sys.path.insert(0, str(_SIDECAR_DIR))
 # ---------------------------------------------------------------------------
 
 import hashlib
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -98,6 +99,7 @@ class TestNextVersion:
 class TestGetBuildImage:
     """Tests for docker_ops.get_build_image() snapshot lookup."""
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_returns_snapshot_when_exists(self):
         client = MagicMock()
         # images.get returns successfully (no exception) => snapshot exists
@@ -106,11 +108,19 @@ class TestGetBuildImage:
         assert result == f"oss-crs-snapshot:build-{TEST_BUILDER_NAME}-abc123"
         client.images.get.assert_called_once_with(f"oss-crs-snapshot:build-{TEST_BUILDER_NAME}-abc123")
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_returns_base_when_not_found(self):
         client = MagicMock()
         client.images.get.side_effect = docker.errors.ImageNotFound("not found")
         result = get_build_image(client, "abc123", "base:latest", TEST_BUILDER_NAME)
         assert result == "base:latest"
+
+    def test_returns_base_when_incremental_not_set(self):
+        client = MagicMock()
+        client.images.get.return_value = MagicMock()
+        result = get_build_image(client, "abc123", "base:latest", TEST_BUILDER_NAME)
+        assert result == "base:latest"
+        client.images.get.assert_not_called()
 
 
 # ===========================================================================
@@ -130,8 +140,12 @@ class TestRunEphemeralBuild:
         container = MagicMock()
 
         container.wait.return_value = {"StatusCode": exit_code}
-        # logs() is called twice: once for stdout, once for stderr
-        container.logs.return_value = b"build output"
+        # logs() is called with stream=True (returns iterator) and without (returns bytes)
+        def _mock_logs(**kwargs):
+            if kwargs.get("stream"):
+                return iter([b"build output\n"])
+            return b"build output"
+        container.logs.side_effect = _mock_logs
 
         client.containers.create.return_value = container
 
@@ -405,6 +419,7 @@ class TestStubEndpoints:
 class TestGetTestImage:
     """Tests for docker_ops.get_test_image() test snapshot lookup (TEST-03)."""
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_returns_test_snapshot_when_exists(self):
         """get_test_image returns test-{build_id} snapshot (no builder_name, per D-05)."""
         client = MagicMock()
@@ -413,11 +428,18 @@ class TestGetTestImage:
         assert result == "oss-crs-snapshot:test-abc123"
         client.images.get.assert_called_once_with("oss-crs-snapshot:test-abc123")
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_returns_base_when_not_found(self):
         client = MagicMock()
         client.images.get.side_effect = docker.errors.ImageNotFound("not found")
         result = get_test_image(client, "abc123", "base:latest")
         assert result == "base:latest"
+
+    def test_returns_base_when_incremental_not_set(self):
+        client = MagicMock()
+        result = get_test_image(client, "abc123", "base:latest")
+        assert result == "base:latest"
+        client.images.get.assert_not_called()
 
 
 # ===========================================================================
@@ -427,6 +449,7 @@ class TestGetTestImage:
 class TestSnapshotTagNaming:
     """Tests verifying build-tag and test-tag separation (TEST-04)."""
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_build_snapshot_uses_build_prefix(self):
         """get_build_image looks up oss-crs-snapshot:build-{builder_name}-{id}."""
         client = MagicMock()
@@ -434,6 +457,7 @@ class TestSnapshotTagNaming:
         get_build_image(client, "myid", "base:latest", TEST_BUILDER_NAME)
         client.images.get.assert_called_once_with(f"oss-crs-snapshot:build-{TEST_BUILDER_NAME}-myid")
 
+    @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true"})
     def test_test_snapshot_uses_test_prefix(self):
         """get_test_image looks up oss-crs-snapshot:test-{build_id} (no builder_name, per D-05)."""
         client = MagicMock()
@@ -461,7 +485,11 @@ class TestRunEphemeralTest:
         container = MagicMock()
 
         container.wait.return_value = {"StatusCode": exit_code}
-        container.logs.return_value = b"test output"
+        def _mock_logs(**kwargs):
+            if kwargs.get("stream"):
+                return iter([b"test output\n"])
+            return b"test output"
+        container.logs.side_effect = _mock_logs
         client.containers.create.return_value = container
 
         if snapshot_exists:
@@ -561,7 +589,11 @@ class TestHandleTestProjectImage:
         mock_client.images.get.side_effect = _docker.errors.ImageNotFound("nope")
         mock_container = MagicMock()
         mock_container.wait.return_value = {"StatusCode": 0}
-        mock_container.logs.return_value = b"test output"
+        def _mock_logs(**kwargs):
+            if kwargs.get("stream"):
+                return iter([b"test output\n"])
+            return b"test output"
+        mock_container.logs.side_effect = _mock_logs
         mock_client.containers.create.return_value = mock_container
         return mock_client
 
