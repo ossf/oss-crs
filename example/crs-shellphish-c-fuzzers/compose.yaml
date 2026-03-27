@@ -1,0 +1,12 @@
+run_env: local
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+crs-shellphish-c-fuzzers:
+  source:
+    local_path: /project/shellphish-oss-crs
+  cpuset: "2-7"
+  memory: "24G"
