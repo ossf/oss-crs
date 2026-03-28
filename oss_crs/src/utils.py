@@ -5,6 +5,7 @@ import random
 import string
 import time
 import re
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -164,6 +165,24 @@ def rm_with_docker(path: Path) -> None:
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error removing {path} with Docker: {e}")
+
+def get_host_memory() -> int:
+    "Returns the machine's total memory in bytes."
+    try:
+        pagesize = os.sysconf("SC_PAGE_SIZE")
+        pages = os.sysconf("SC_PHYS_PAGES")
+        if pagesize > 0 and pages > 0:
+            return pagesize * pages
+
+    except(OSError):
+            pass
+
+    memeinfo = Path("/proc/meminfo")
+    if memeinfo.exists():
+      for line in meminfo.read_text().splitlines():
+        if line.startswith("MemTotal:"):
+          return int(line.split()[1])*1024
+    return 0
 
 
 # =============================================================================
