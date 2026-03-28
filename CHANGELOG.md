@@ -14,6 +14,7 @@ stricter subset of Keep a Changelog).
 - roboduck to registry/ and example/
 - fuzzing-brain to registry/ and example/ (bug-finding, C/C++, multi-provider LLM)
 - buttercup-seed-gen to registry/ and example/
+- Warn user when compose file resource configs exceed machine resources (#49)
 
 ### Changed
 - Clarified that target env `repo_path` is the effective in-container source
