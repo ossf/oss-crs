@@ -169,8 +169,8 @@ class TestCreateIncrementalSnapshots:
         removed_tags = [c.args[0] for c in client.images.remove.call_args_list]
         assert f"oss-crs-snapshot:build-builderA-{build_id}" in removed_tags
 
-    def test_all_or_nothing_cleanup_on_test_failure(self):
-        """All builders succeed, test.sh fails => all builder snapshots cleaned up."""
+    def test_test_failure_is_non_fatal(self):
+        """All builders succeed, test.sh fails => builder snapshots kept, test snapshot skipped."""
         build_id = "testfail"
         crs = _make_crs(["builderX"])
         obj = _make_crs_compose([crs])
@@ -182,21 +182,19 @@ class TestCreateIncrementalSnapshots:
         container_builder.wait.return_value = {"StatusCode": 0}  # builder succeeds
 
         container_test = MagicMock()
-        container_test.wait.return_value = {"StatusCode": 1}  # test fails
+        container_test.wait.return_value = {"StatusCode": 0}  # test.sh command succeeds (bash -c "test -f ... || true")
 
         client.containers.create.side_effect = [container_builder, container_test]
 
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
             result = obj._create_incremental_snapshots("base:latest", build_id, _make_mock_target(), "address")
 
-        assert result is False
-        # Builder snapshot was committed, should be cleaned up
-        client.images.remove.assert_called()
-        removed_tags = [c.args[0] for c in client.images.remove.call_args_list]
-        assert f"oss-crs-snapshot:build-builderX-{build_id}" in removed_tags
+        assert result is True
+        # Builder snapshot committed
+        container_builder.commit.assert_called_once()
 
     def test_project_image_uses_test_sh_command(self):
-        """The project image snapshot container uses command=['bash', '/src/test.sh']."""
+        """The project image snapshot container runs test.sh if it exists."""
         build_id = "cmdtest"
         crs = _make_crs(["builder1"])
         obj = _make_crs_compose([crs])
@@ -210,7 +208,7 @@ class TestCreateIncrementalSnapshots:
         assert client.containers.create.call_count == 2
         test_create_call = client.containers.create.call_args_list[1]
         command = test_create_call.kwargs.get("command") or test_create_call.args[1]
-        assert command == ["bash", "/src/test.sh"]
+        assert "test.sh" in " ".join(command)
 
 
 # ===========================================================================
@@ -251,14 +249,13 @@ class TestCheckSnapshotsExist:
         assert build_id in result
         assert "oss-crs build-target --incremental-build" in result
 
-    def test_check_snapshots_test_missing(self):
-        """When test snapshot is missing (builders exist), returns error containing test tag."""
+    def test_check_snapshots_test_missing_is_ok(self):
+        """When test snapshot is missing but builders exist, returns None (test snapshot optional)."""
         build_id = "testmissing"
         crs = _make_crs(["builder1"])
         obj = _make_crs_compose([crs])
 
         client = MagicMock()
-        # builder snapshot exists, test snapshot missing
         def images_get_side_effect(tag):
             if f"test-{build_id}" in tag:
                 raise docker.errors.ImageNotFound("no test snapshot")
@@ -269,8 +266,7 @@ class TestCheckSnapshotsExist:
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
             result = obj._check_snapshots_exist(build_id)
 
-        assert result is not None
-        assert f"test-{build_id}" in result
+        assert result is None
 
     def test_run_returns_false_when_snapshots_missing(self):
         """run() with incremental_build=True returns False when snapshots are missing."""

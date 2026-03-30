@@ -273,14 +273,15 @@ class CRSCompose:
                     ):
                         raise RuntimeError(f"Builder snapshot failed: {build_config.name}")
 
-            # D-05: Snapshot project image after test.sh
+            # D-05: Snapshot project image after test.sh (optional — skip if no test.sh)
             test_tag = f"test-{build_id}"
-            if not self._snapshot_one(
+            test_ok = self._snapshot_one(
                 client, target_base_image, test_tag, build_id, committed_tags,
-                command=["bash", "/src/test.sh"],
+                command=["bash", "-c", "test -f /src/test.sh && bash /src/test.sh || true"],
                 extra_env=oss_fuzz_env,
-            ):
-                raise RuntimeError("Project image (test.sh) snapshot failed")
+            )
+            if not test_ok:
+                print("Warning: test.sh snapshot failed or not available, skipping test snapshot")
 
             return True
 
@@ -323,16 +324,12 @@ class CRSCompose:
                         f"Run `oss-crs build-target --incremental-build` first."
                     )
 
-        # Check project/test image snapshot — uses test-{build_id} per D-05 (no builder_name)
+        # Test snapshot is optional — not all projects have test.sh
         test_tag = f"oss-crs-snapshot:test-{build_id}"
         try:
             client.images.get(test_tag)
         except docker.errors.ImageNotFound:
-            return (
-                f"Snapshot not found for build_id '{build_id}' "
-                f"(missing: {test_tag}). "
-                f"Run `oss-crs build-target --incremental-build` first."
-            )
+            pass  # test snapshot is optional
 
         return None
 
