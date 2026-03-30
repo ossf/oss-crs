@@ -28,6 +28,20 @@ def _make_build_config(name: str):
     return cfg
 
 
+def _make_mock_target():
+    """Return a mock target with get_target_env()."""
+    target = SimpleNamespace()
+    target.get_target_env = lambda: {
+        "engine": "libfuzzer",
+        "sanitizer": "address",
+        "architecture": "x86_64",
+        "language": "c",
+        "name": "test-project",
+        "repo_path": "/src",
+    }
+    return target
+
+
 def _make_crs(builder_names: list[str]):
     """Return a minimal CRS-like object with target_build_phase.builds set."""
     crs = SimpleNamespace()
@@ -96,7 +110,7 @@ class TestCreateIncrementalSnapshots:
 
         client, container = _make_mock_docker_client(exit_code=0)
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
-            result = obj._create_incremental_snapshots("base:latest", build_id)
+            result = obj._create_incremental_snapshots("base:latest", build_id, _make_mock_target(), "address")
 
         assert result is True
         # Should have 3 commit calls: builderA, builderB, test (project image)
@@ -147,7 +161,7 @@ class TestCreateIncrementalSnapshots:
         client.containers.create.side_effect = [container_a, container_b]
 
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
-            result = obj._create_incremental_snapshots("base:latest", build_id)
+            result = obj._create_incremental_snapshots("base:latest", build_id, _make_mock_target(), "address")
 
         assert result is False
         # builderA snapshot was committed, so cleanup should remove it
@@ -173,7 +187,7 @@ class TestCreateIncrementalSnapshots:
         client.containers.create.side_effect = [container_builder, container_test]
 
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
-            result = obj._create_incremental_snapshots("base:latest", build_id)
+            result = obj._create_incremental_snapshots("base:latest", build_id, _make_mock_target(), "address")
 
         assert result is False
         # Builder snapshot was committed, should be cleaned up
@@ -189,7 +203,7 @@ class TestCreateIncrementalSnapshots:
 
         client, _ = _make_mock_docker_client(exit_code=0)
         with patch("oss_crs.src.crs_compose.docker.from_env", return_value=client):
-            result = obj._create_incremental_snapshots("base:latest", build_id)
+            result = obj._create_incremental_snapshots("base:latest", build_id, _make_mock_target(), "address")
 
         assert result is True
         # Second create call is for the test container (project image)

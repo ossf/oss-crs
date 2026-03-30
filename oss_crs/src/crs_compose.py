@@ -176,6 +176,7 @@ class CRSCompose:
         committed_tags: "list[str]",
         command: "list[str] | None" = None,
         timeout: int = 1800,
+        extra_env: "dict[str, str] | None" = None,
     ) -> bool:
         """Run a container from base_image and commit as snapshot on success.
 
@@ -202,10 +203,13 @@ class CRSCompose:
 
         container = None
         try:
+            env = {"OSS_CRS_BUILD_ID": build_id}
+            if extra_env:
+                env.update(extra_env)
             container = client.containers.create(
                 base_image,
                 command=command,
-                environment={"OSS_CRS_BUILD_ID": build_id},
+                environment=env,
                 detach=True,
             )
             container.start()
@@ -233,7 +237,7 @@ class CRSCompose:
                 except docker.errors.NotFound:
                     pass
 
-    def _create_incremental_snapshots(self, target_base_image: str, build_id: str) -> bool:
+    def _create_incremental_snapshots(self, target_base_image: str, build_id: str, target: "Target", sanitizer: str) -> bool:
         """Create snapshot images for all builders and the project image.
 
         Implements D-03/D-04/D-05/D-06: Docker SDK snapshots with all-or-nothing cleanup.
@@ -242,12 +246,19 @@ class CRSCompose:
         Args:
             target_base_image: The target's base Docker image to run builders from.
             build_id: The build ID for snapshot tagging.
+            target: Target object for env vars.
+            sanitizer: Resolved sanitizer string.
 
         Returns:
             True if all snapshots committed successfully, False otherwise (with cleanup).
         """
+        from .env_policy import OSS_FUZZ_TARGET_ENV
+
         client = docker.from_env()
         committed_tags: list[str] = []
+        target_env = target.get_target_env()
+        oss_fuzz_env = {k: target_env[v] for k, v in OSS_FUZZ_TARGET_ENV.items()}
+        oss_fuzz_env["SANITIZER"] = sanitizer  # use resolved sanitizer
 
         try:
             # D-04: Snapshot each builder
@@ -257,7 +268,8 @@ class CRSCompose:
                 for build_config in crs.config.target_build_phase.builds:
                     tag = f"build-{build_config.name}-{build_id}"
                     if not self._snapshot_one(
-                        client, target_base_image, tag, build_id, committed_tags
+                        client, target_base_image, tag, build_id, committed_tags,
+                        extra_env=oss_fuzz_env,
                     ):
                         raise RuntimeError(f"Builder snapshot failed: {build_config.name}")
 
@@ -266,6 +278,7 @@ class CRSCompose:
             if not self._snapshot_one(
                 client, target_base_image, test_tag, build_id, committed_tags,
                 command=["bash", "/src/test.sh"],
+                extra_env=oss_fuzz_env,
             ):
                 raise RuntimeError("Project image (test.sh) snapshot failed")
 
@@ -554,7 +567,7 @@ class CRSCompose:
         ) as progress:
             ret = progress.run_added_tasks()
             if ret.success and incremental_build:
-                if not self._create_incremental_snapshots(target_base_image, build_id):
+                if not self._create_incremental_snapshots(target_base_image, build_id, target, sanitizer):
                     return False
             if ret.success:
                 self._write_build_metadata(
