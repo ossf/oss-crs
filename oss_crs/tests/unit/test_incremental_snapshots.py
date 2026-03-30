@@ -208,7 +208,7 @@ class TestCreateIncrementalSnapshots:
         assert client.containers.create.call_count == 2
         test_create_call = client.containers.create.call_args_list[1]
         command = test_create_call.kwargs.get("command") or test_create_call.args[1]
-        assert "test.sh" in " ".join(command)
+        assert "run_tests.sh" in " ".join(command)
 
 
 # ===========================================================================

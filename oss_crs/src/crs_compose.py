@@ -177,6 +177,7 @@ class CRSCompose:
         command: "list[str] | None" = None,
         timeout: int = 1800,
         extra_env: "dict[str, str] | None" = None,
+        volumes: "dict | None" = None,
     ) -> bool:
         """Run a container from base_image and commit as snapshot on success.
 
@@ -210,6 +211,7 @@ class CRSCompose:
                 base_image,
                 command=command,
                 environment=env,
+                volumes=volumes or {},
                 detach=True,
             )
             container.start()
@@ -258,7 +260,10 @@ class CRSCompose:
         committed_tags: list[str] = []
         target_env = target.get_target_env()
         oss_fuzz_env = {k: target_env[v] for k, v in OSS_FUZZ_TARGET_ENV.items()}
-        oss_fuzz_env["SANITIZER"] = sanitizer  # use resolved sanitizer
+        oss_fuzz_env["SANITIZER"] = sanitizer
+
+        # Resolve run_tests.sh path from infra root
+        run_tests_script = str(renderer.OSS_CRS_ROOT_PATH / "oss-crs-infra" / "builder-sidecar" / "run_tests.sh")
 
         try:
             # D-04: Snapshot each builder
@@ -273,15 +278,16 @@ class CRSCompose:
                     ):
                         raise RuntimeError(f"Builder snapshot failed: {build_config.name}")
 
-            # D-05: Snapshot project image after test.sh (optional — skip if no test.sh)
+            # D-05: Snapshot project image via run_tests.sh (optional)
             test_tag = f"test-{build_id}"
             test_ok = self._snapshot_one(
                 client, target_base_image, test_tag, build_id, committed_tags,
-                command=["bash", "-c", "test -f /src/test.sh && bash /src/test.sh || true"],
+                command=["bash", "/usr/local/bin/run_tests.sh"],
                 extra_env=oss_fuzz_env,
+                volumes={run_tests_script: {"bind": "/usr/local/bin/run_tests.sh", "mode": "ro"}},
             )
             if not test_ok:
-                print("Warning: test.sh snapshot failed or not available, skipping test snapshot")
+                print("Warning: test snapshot failed or not available, skipping")
 
             return True
 

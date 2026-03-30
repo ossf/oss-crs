@@ -545,14 +545,14 @@ class TestRunEphemeralTest:
         assert result["exit_code"] == 1
         assert "timed out" in result["stderr"].lower() or "timeout" in result["stderr"].lower()
 
-    def test_invokes_test_sh(self):
-        """Container OSS_CRS_BUILD_CMD env var must reference test.sh."""
+    def test_invokes_run_tests(self):
+        """Container OSS_CRS_BUILD_CMD env var must reference run_tests.sh."""
         client, _ = self._make_mock_client(exit_code=0)
         with patch("docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, b"patch")
         call_kwargs = client.containers.create.call_args
         environment = call_kwargs[1].get("environment", {})
-        assert "test.sh" in environment.get("OSS_CRS_BUILD_CMD", "")
+        assert "run_tests.sh" in environment.get("OSS_CRS_BUILD_CMD", "")
 
 
 # ===========================================================================

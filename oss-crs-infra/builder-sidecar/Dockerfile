@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r /requirements.txt
 COPY server.py /server.py
 COPY docker_ops.py /docker_ops.py
 COPY oss_crs_handler.sh /oss_crs_handler.sh
+COPY run_tests.sh /run_tests.sh
 
 # The Docker socket must be mounted at runtime:
 #   -v /var/run/docker.sock:/var/run/docker.sock

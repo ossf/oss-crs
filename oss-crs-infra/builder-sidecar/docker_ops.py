@@ -254,6 +254,7 @@ def run_ephemeral_test(
         patch_path.write_bytes(patch_bytes)
 
         handler_path = os.environ.get("HANDLER_SCRIPT_PATH", "/oss_crs_handler.sh")
+        run_tests_path = os.environ.get("RUN_TESTS_SCRIPT_PATH", "/run_tests.sh")
         try:
             container = client.containers.create(
                 base_image,
@@ -261,11 +262,12 @@ def run_ephemeral_test(
                 volumes={
                     tmpdir: {"bind": "/patch", "mode": "ro"},
                     handler_path: {"bind": "/usr/local/bin/oss_crs_handler.sh", "mode": "ro"},
+                    run_tests_path: {"bind": "/usr/local/bin/run_tests.sh", "mode": "ro"},
                 },
                 environment={
                     "OSS_CRS_BUILD_ID": str(rebuild_id),
                     "OSS_CRS_REBUILD_ID": str(rebuild_id),
-                    "OSS_CRS_BUILD_CMD": "bash /OSS_CRS_PROJ_PATH/test.sh",
+                    "OSS_CRS_BUILD_CMD": "bash /usr/local/bin/run_tests.sh",
                     "REPLAY_ENABLED": "",
                     **_oss_fuzz_env(),
                 },
