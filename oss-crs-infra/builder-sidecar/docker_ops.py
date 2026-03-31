@@ -37,12 +37,16 @@ def get_image_cmd(client: "docker.DockerClient", image: str) -> list[str]:
 
 
 def _resource_kwargs(cpuset: "str | None", mem_limit: "str | None") -> dict:
-    """Build Docker SDK resource limit kwargs from CRS resource config."""
+    """Build Docker SDK resource limit kwargs from CRS resource config.
+
+    Note: mem_limit is intentionally NOT applied to ephemeral build/test containers.
+    The CRS module's memory limit is for the patcher runtime, not for compilation.
+    Ephemeral containers need host-level memory for full C++ recompilation with sanitizers.
+    """
     kwargs = {}
     if cpuset:
         kwargs["cpuset_cpus"] = cpuset
-    if mem_limit:
-        kwargs["mem_limit"] = mem_limit
+    # mem_limit intentionally omitted — compile workloads need unrestricted memory
     return kwargs
 
 
