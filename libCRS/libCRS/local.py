@@ -494,14 +494,16 @@ class LocalCRSUtils(CRSUtils):
             "harness_name": harness_name,
             "rebuild_id": str(rebuild_id),
             "crs_name": crs_name,
-            "pov_path": str(pov_path),
         }
         try:
-            resp = http_requests.post(
-                f"{runner_url}/run-pov",
-                data=data,
-                timeout=180,
-            )
+            with open(pov_path, "rb") as f:
+                files = {"pov": (pov_path.name if hasattr(pov_path, "name") else str(pov_path), f, "application/octet-stream")}
+                resp = http_requests.post(
+                    f"{runner_url}/run-pov",
+                    data=data,
+                    files=files,
+                    timeout=180,
+                )
             resp.raise_for_status()
             result = resp.json()
         except (http_requests.ConnectionError, http_requests.Timeout, http_requests.HTTPError) as e:
@@ -565,49 +567,26 @@ class LocalCRSUtils(CRSUtils):
         """Download build artifacts.
 
         Args:
-            src_path: Relative path within the build output directory.
+            src_path: Relative path within the build output directory (e.g. "build").
             dst_path: Local destination path.
-            rebuild_id: If provided, fetch rebuild artifacts from the sidecar.
-                        If None, copy build-target artifacts from local filesystem.
+            rebuild_id: If provided, copy from the rebuild output directory
+                        (OSS_CRS_REBUILD_OUT_DIR/{crs_name}/{rebuild_id}/{src_path}).
+                        If None, copy from build-target output (OSS_CRS_BUILD_OUT_DIR/{src_path}).
 
-        Inside an ephemeral container (OSS_CRS_REBUILD_ID set), tries sidecar first
-        then falls back to local filesystem.
+        Inside an ephemeral container (OSS_CRS_REBUILD_ID set), uses that
+        rebuild_id automatically.
         """
-        # If no explicit rebuild_id, check if we're inside an ephemeral container
         if rebuild_id is None:
             env_rid = os.environ.get("OSS_CRS_REBUILD_ID")
             if env_rid:
-                try:
-                    self._download_from_sidecar(src_path, dst_path, int(env_rid))
-                    return
-                except Exception:
-                    pass  # fall through to local
+                rebuild_id = int(env_rid)
 
         if rebuild_id is not None:
-            self._download_from_sidecar(src_path, dst_path, rebuild_id)
-            return
+            crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
+            rebuild_out = Path(get_env("OSS_CRS_REBUILD_OUT_DIR"))
+            src = rebuild_out / crs_name / str(rebuild_id) / src_path
+        else:
+            src = _get_build_out_dir() / src_path
 
-        # Local filesystem (build-target artifacts)
-        src = _get_build_out_dir() / src_path
         dst = Path(dst_path)
         rsync_copy(src, dst)
-
-    def _download_from_sidecar(self, src_path: str, dst_path: Path, rebuild_id: int) -> None:
-        """Fetch rebuild artifacts from the builder sidecar via HTTP."""
-        import io
-        import zipfile
-
-        crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
-        builder = os.environ.get("BUILDER_MODULE", "builder-sidecar")
-        builder_url = self._get_service_url(builder)
-        resp = http_requests.get(
-            f"{builder_url}/download-build-output",
-            params={"crs_name": crs_name, "rebuild_id": str(rebuild_id)},
-            timeout=120,
-        )
-        resp.raise_for_status()
-
-        dst = Path(dst_path)
-        dst.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            zf.extractall(dst)

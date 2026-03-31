@@ -58,12 +58,12 @@ job_results: dict[str, dict] = {}
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("MAX_PARALLEL_JOBS", "4")))
 
 
-def _make_job_id(patch_content: bytes) -> str:
-    """Deterministic job ID: SHA256 of PROJECT_NAME:SANITIZER:patch_content, 12-char hex."""
+def _make_job_id(patch_content: bytes, builder_name: str = "") -> str:
+    """Deterministic job ID: SHA256 of PROJECT_NAME:SANITIZER:builder_name:patch_content, 12-char hex."""
     project = os.environ.get("PROJECT_NAME", "unknown")
     sanitizer = os.environ.get("SANITIZER", "unknown")
     hasher = hashlib.sha256()
-    hasher.update(f"{project}:{sanitizer}:".encode())
+    hasher.update(f"{project}:{sanitizer}:{builder_name}:".encode())
     hasher.update(patch_content)
     return hasher.hexdigest()[:12]
 
@@ -88,7 +88,7 @@ async def submit_build(
 ):
     """Submit a rebuild job. rebuild_id auto-increments if not provided."""
     patch_content = await patch.read()
-    job_id = _make_job_id(patch_content)
+    job_id = _make_job_id(patch_content, builder_name)
 
     if job_id in job_results:
         existing = job_results[job_id]
@@ -154,7 +154,7 @@ async def run_test(
         rebuild_id = next_rebuild_id(rebuild_out_dir, crs_name)
 
     job_results[job_id] = {"id": job_id, "status": "queued"}
-    _executor.submit(_run_job, "test", job_id, patch_content, rebuild_id, cpuset, mem_limit)
+    _executor.submit(_run_job, "test", job_id, patch_content, crs_name, rebuild_id, cpuset, mem_limit)
     return JobResponse(id=job_id, status="queued")
 
 
@@ -256,7 +256,7 @@ def _handle_build(_job_id: str, patch_content: bytes, crs_name: str, builder_nam
     rebuild_out_dir = Path(os.environ["REBUILD_OUT_DIR"])
     timeout = int(os.environ.get("BUILD_TIMEOUT", "1800"))
 
-    image = get_build_image(docker.from_env(), base_image, builder_name)
+    image = get_build_image(docker.from_env(), base_image, builder_name, crs_name)
     return run_ephemeral_build(
         base_image=image,
         rebuild_id=rebuild_id,
@@ -270,7 +270,7 @@ def _handle_build(_job_id: str, patch_content: bytes, crs_name: str, builder_nam
     )
 
 
-def _handle_test(_job_id: str, patch_content: bytes, rebuild_id: int, cpuset: str, mem_limit: str) -> dict:
+def _handle_test(_job_id: str, patch_content: bytes, crs_name: str, rebuild_id: int, cpuset: str, mem_limit: str) -> dict:
     base_image = os.environ.get("PROJECT_BASE_IMAGE")
     if not base_image:
         raise ValueError("PROJECT_BASE_IMAGE env var not set on sidecar service.")
@@ -279,6 +279,7 @@ def _handle_test(_job_id: str, patch_content: bytes, rebuild_id: int, cpuset: st
     return run_ephemeral_test(
         base_image=image,
         rebuild_id=rebuild_id,
+        crs_name=crs_name,
         patch_bytes=patch_content,
         timeout=timeout,
         cpuset=cpuset or None,

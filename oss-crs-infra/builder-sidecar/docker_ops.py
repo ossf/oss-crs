@@ -8,11 +8,9 @@ Provides public functions:
     run_ephemeral_test  - Test container lifecycle: create/start/wait/commit/remove (no artifacts)
 """
 
-import io
 import os
 import re
 import shutil
-import tarfile
 import tempfile
 from pathlib import Path
 
@@ -34,24 +32,6 @@ def get_image_cmd(client: "docker.DockerClient", image: str) -> list[str]:
     except docker.errors.ImageNotFound:
         pass
     return ["compile"]
-
-
-def get_image_env(client: "docker.DockerClient", image: str) -> dict[str, str]:
-    """Extract environment variables from a Docker image.
-
-    Returns dict of KEY=VALUE pairs from the image's Env config.
-    """
-    try:
-        img = client.images.get(image)
-        env_list = img.attrs.get("Config", {}).get("Env") or []
-        result = {}
-        for entry in env_list:
-            if "=" in entry:
-                k, v = entry.split("=", 1)
-                result[k] = v
-        return result
-    except docker.errors.ImageNotFound:
-        return {}
 
 
 def _resource_kwargs(cpuset: "str | None", mem_limit: "str | None") -> dict:
@@ -97,7 +77,15 @@ def _get_build_id() -> str:
     return os.environ.get("OSS_CRS_BUILD_ID", "")
 
 
-def get_build_image(client: "docker.DockerClient", base_image: str, builder_name: str) -> str:
+def _build_snapshot_tag(crs_name: str, builder_name: str, build_id: str) -> str:
+    """Full image tag for a builder snapshot.
+
+    Must match the format in oss_crs/src/utils.py:build_snapshot_tag().
+    """
+    return f"oss-crs-snapshot:build__{crs_name}__{builder_name}__{build_id}"
+
+
+def get_build_image(client: "docker.DockerClient", base_image: str, builder_name: str, crs_name: str) -> str:
     """Return snapshot image if incremental build enabled and snapshot exists, otherwise base_image.
 
     Snapshot tag uses the CLI build_id (from build-target --incremental-build),
@@ -108,7 +96,7 @@ def get_build_image(client: "docker.DockerClient", base_image: str, builder_name
     build_id = _get_build_id()
     if not build_id:
         return base_image
-    snapshot_tag = f"oss-crs-snapshot:build-{builder_name}-{build_id}"
+    snapshot_tag = _build_snapshot_tag(crs_name, builder_name, build_id)
     try:
         client.images.get(snapshot_tag)
         return snapshot_tag
@@ -180,7 +168,13 @@ def run_ephemeral_build(
 
     output_dir = rebuild_output_dir(rebuild_out_dir, crs_name, rebuild_id)
 
-    snapshot_tag = f"oss-crs-snapshot:build-{builder_name}-{rebuild_id}"
+    # Resolve the host path for bind-mounting into ephemeral containers.
+    # The sidecar sees rebuild_out_dir as /rebuild_out (container path),
+    # but Docker volume mounts need the actual host path.
+    host_rebuild_out_dir = Path(os.environ.get("HOST_REBUILD_OUT_DIR", str(rebuild_out_dir)))
+    host_output_dir = host_rebuild_out_dir / crs_name / str(rebuild_id)
+
+    snapshot_tag = _build_snapshot_tag(crs_name, builder_name, str(rebuild_id))
     try:
         client.images.get(snapshot_tag)
         snapshot_exists = True
@@ -188,86 +182,84 @@ def run_ephemeral_build(
         snapshot_exists = False
 
     build_cmd = get_image_cmd(client, base_image)
-    # Image env takes precedence over sidecar env (e.g. snapshot with SANITIZER=coverage)
-    image_env = get_image_env(client, base_image)
-    env_merged = {**_oss_fuzz_env(), **{k: image_env[k] for k in _OSS_FUZZ_ENV_KEYS if k in image_env}}
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        patch_path = Path(tmpdir) / "patch.diff"
-        patch_path.write_bytes(patch_bytes)
+    # Prepare output dir — mounted into the container so
+    # submit-build-output writes directly (same mechanism as build-target).
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-        handler_path = os.environ.get("HANDLER_SCRIPT_PATH", "/oss_crs_handler.sh")
+    # Write patch to the output dir (host-visible) so the ephemeral container
+    # can access it. tmpdir inside the sidecar container is not visible to the
+    # Docker daemon (Docker-in-Docker via socket mount).
+    patch_local_path = output_dir / "patch.diff"
+    patch_local_path.write_bytes(patch_bytes)
+
+    handler_path = os.environ.get("HANDLER_SCRIPT_PATH", "/oss_crs_handler.sh")
+    try:
+        container = client.containers.create(
+            base_image,
+            command=["bash", "/usr/local/bin/oss_crs_handler.sh", "/OSS_CRS_BUILD_OUT_DIR/patch.diff", "/out"],
+            volumes={
+                handler_path: {"bind": "/usr/local/bin/oss_crs_handler.sh", "mode": "ro"},
+                str(host_output_dir): {"bind": "/OSS_CRS_BUILD_OUT_DIR", "mode": "rw"},
+            },
+            environment={
+                "OSS_CRS_BUILD_ID": str(rebuild_id),
+                "OSS_CRS_REBUILD_ID": str(rebuild_id),
+                "OSS_CRS_BUILD_CMD": " ".join(build_cmd),
+                "OSS_CRS_BUILD_OUT_DIR": "/OSS_CRS_BUILD_OUT_DIR",
+                "OSS_CRS_NAME": crs_name,
+                "OSS_CRS_RUN_ENV_TYPE": "local",
+                "REPLAY_ENABLED": "",
+                **_oss_fuzz_env(),
+            },
+            detach=True,
+            **_resource_kwargs(cpuset, mem_limit),
+        )
+
+        container.start()
+
         try:
-            container = client.containers.create(
-                base_image,
-                command=["bash", "/usr/local/bin/oss_crs_handler.sh", "/patch/patch.diff", "/out"],
-                volumes={
-                    tmpdir: {"bind": "/patch", "mode": "ro"},
-                    handler_path: {"bind": "/usr/local/bin/oss_crs_handler.sh", "mode": "ro"},
-                },
-                environment={
-                    "OSS_CRS_BUILD_ID": str(rebuild_id),
-                    "OSS_CRS_REBUILD_ID": str(rebuild_id),
-                    "OSS_CRS_BUILD_CMD": " ".join(build_cmd),
-                    "REPLAY_ENABLED": "",
-                    **env_merged,
-                },
-                detach=True,
-                **_resource_kwargs(cpuset, mem_limit),
-            )
-
-            container.start()
-
+            result = container.wait(timeout=timeout)
+        except requests.exceptions.ReadTimeout:
             try:
-                result = container.wait(timeout=timeout)
-            except requests.exceptions.ReadTimeout:
-                try:
-                    container.kill()
-                except Exception:
-                    pass
-                return {
-                    "exit_code": 1,
-                    "stdout": "",
-                    "stderr": f"Build timed out after {timeout} seconds",
-                    "rebuild_id": rebuild_id,
-                }
-
-            exit_code = result["StatusCode"]
-
-            stdout, stderr = _stream_and_capture_logs(container, f"build:{builder_name}")
-
-            if exit_code == 0:
-                if output_dir.exists():
-                    shutil.rmtree(output_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                # Use docker cp to get /out from the container filesystem
-                # (not a bind mount — preserves snapshot state + new files)
-                bits, _ = container.get_archive("/out/.")
-                tar_buf = io.BytesIO(b"".join(bits))
-                with tarfile.open(fileobj=tar_buf) as tar:
-                    tar.extractall(path=str(output_dir))
-
-            if exit_code == 0 and not snapshot_exists:
-                container.commit(repository="oss-crs-snapshot", tag=f"build-{builder_name}-{rebuild_id}")
-
+                container.kill()
+            except Exception:
+                pass
             return {
-                "exit_code": exit_code,
-                "stdout": stdout,
-                "stderr": stderr,
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": f"Build timed out after {timeout} seconds",
                 "rebuild_id": rebuild_id,
             }
 
-        finally:
-            if container is not None:
-                try:
-                    container.remove(force=True)
-                except docker.errors.NotFound:
-                    pass
+        exit_code = result["StatusCode"]
+
+        stdout, stderr = _stream_and_capture_logs(container, f"build:{builder_name}")
+
+        if exit_code == 0 and not snapshot_exists:
+            container.commit(repository="oss-crs-snapshot", tag=f"build__{crs_name}__{builder_name}__{rebuild_id}")
+
+        return {
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "rebuild_id": rebuild_id,
+        }
+
+    finally:
+        if container is not None:
+            try:
+                container.remove(force=True)
+            except docker.errors.NotFound:
+                pass
 
 
 def run_ephemeral_test(
     base_image: str,
     rebuild_id: int,
+    crs_name: str,
     patch_bytes: bytes,
     timeout: int = 1800,
     cpuset: "str | None" = None,
@@ -310,6 +302,8 @@ def run_ephemeral_test(
                     "OSS_CRS_BUILD_ID": str(rebuild_id),
                     "OSS_CRS_REBUILD_ID": str(rebuild_id),
                     "OSS_CRS_BUILD_CMD": "bash /usr/local/bin/run_tests.sh",
+                    "OSS_CRS_NAME": crs_name,
+                    "OSS_CRS_RUN_ENV_TYPE": "local",
                     "REPLAY_ENABLED": "",
                     **_oss_fuzz_env(),
                 },

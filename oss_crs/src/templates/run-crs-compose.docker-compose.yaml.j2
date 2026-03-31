@@ -49,6 +49,7 @@ services:
 {%- endif %}
     volumes:
       - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
+      - {{ rebuild_out_dir }}:/OSS_CRS_REBUILD_OUT_DIR:ro
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
@@ -195,10 +196,11 @@ services:
       - {{ rebuild_out_dir }}:/rebuild_out:rw
     environment:
       - REBUILD_OUT_DIR=/rebuild_out
+      - HOST_REBUILD_OUT_DIR={{ rebuild_out_dir }}
 {%- for crs in crs_list %}
 {%- if crs.config.target_build_phase and crs.config.target_build_phase.builds %}
 {%- for build_config in crs.config.target_build_phase.builds %}
-      - BASE_IMAGE_{{ build_config.name.upper().replace('-', '_') }}={{ target.get_docker_image_name() }}
+      - BASE_IMAGE_{{ build_config.name.upper().replace('-', '_') }}={{ preserved_builder_image_name(crs.name, build_config.name, build_id) }}
 {%- endfor %}
 {%- endif %}
 {%- endfor %}
@@ -233,7 +235,7 @@ services:
     attach: false
     restart: on-failure:3
     volumes:
-      - {{ rebuild_out_dir }}:/out:ro
+      - {{ rebuild_out_dir }}:/out:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 5s
