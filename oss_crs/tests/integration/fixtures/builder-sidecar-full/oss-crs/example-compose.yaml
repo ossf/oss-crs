@@ -1,0 +1,21 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#       Example for crs-sidecar-test (builder sidecar, no patcher)           #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-sidecar-test) ------------------------------------------------
+# Builder sidecar is declared in crs.yaml (inc-builder with run_snapshot: true).
+crs-sidecar-test:
+  source:
+    local_path: /path/to/sandbox/crs-sidecar-test      # UPDATE: local filesystem path
+  cpuset: "2-7"
+  memory: "16G"

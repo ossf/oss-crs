@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Patch verification test:
+  1. Download build-target artifacts + run POV directly → crash expected
+  2. Fetch diff and rebuild with patch → get rebuild_id
+  3. Run POV on patched build → no crash expected
+  4. Run functionality tests → pass expected
+
+The diff is provided via `oss-crs run --diff <patch>` and arrives in
+OSS_CRS_FETCH_DIR/diffs/ — no hardcoded COPY needed.
+"""
+
+import hashlib
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from libCRS.base import DataType
+from libCRS.local import LocalCRSUtils
+
+
+RESPONSE_DIR = Path("/tmp/response")
+
+
+def log(msg: str):
+    print(f"[verify-patch] {msg}", flush=True)
+
+
+def fail(msg: str):
+    log(f"FAIL: {msg}")
+    sys.exit(1)
+
+
+def main() -> int:
+    crs = LocalCRSUtils()
+
+    harness = os.environ.get("OSS_CRS_TARGET_HARNESS", "")
+    fetch_dir = os.environ.get("OSS_CRS_FETCH_DIR", "")
+    if not harness:
+        fail("OSS_CRS_TARGET_HARNESS not set")
+    if not fetch_dir:
+        fail("OSS_CRS_FETCH_DIR not set")
+
+    # --- Step 1: Download build-target artifacts + run POV (expect crash) ---
+    log("Step 1: Downloading build artifacts and running POV...")
+    build_dir = Path("/tmp/build-artifacts")
+    crs.download_build_output("build", build_dir)
+
+    harness_bin = build_dir / harness
+    if not harness_bin.exists():
+        fail(f"Harness {harness} not found in build artifacts")
+    harness_bin.chmod(0o755)
+
+    pov_dir = Path(fetch_dir) / "povs"
+    if not pov_dir.is_dir():
+        fail(f"POV directory {pov_dir} does not exist")
+    pov_files = sorted(f for f in pov_dir.iterdir() if f.is_file())
+    if not pov_files:
+        fail(f"No POV files in {pov_dir}")
+    pov_file = pov_files[0]
+
+    result = subprocess.run(
+        [str(harness_bin), str(pov_file)],
+        capture_output=True,
+        timeout=30,
+        env={**os.environ, "OUT": str(build_dir)},
+        cwd=str(build_dir),
+    )
+    if result.returncode == 0:
+        fail("POV did NOT crash on original build — expected a crash")
+    log(f"PASS: POV crashes on original build (exit={result.returncode})")
+
+    # --- Step 2: Fetch diff and rebuild ---
+    log("Step 2: Fetching diff and rebuilding with patch...")
+    diff_dir = Path("/tmp/fetched-diffs")
+    diff_dir.mkdir(parents=True, exist_ok=True)
+    crs.fetch(DataType.DIFF, diff_dir)
+
+    diffs = sorted(f for f in diff_dir.iterdir() if f.is_file())
+    if not diffs:
+        fail("No diff files fetched from FETCH_DIR")
+    patch = diffs[0]
+    log(f"Using patch: {patch.name}")
+
+    log(f"Patch contents ({patch.stat().st_size} bytes):")
+    log(patch.read_text()[:1000])
+
+    patched_resp = RESPONSE_DIR / "build-patched"
+    rc = crs.apply_patch_build(patch, patched_resp, builder_name="default-build")
+    build_stderr = patched_resp / "stderr.log"
+    build_stdout = patched_resp / "stdout.log"
+    if build_stderr.exists():
+        log(f"  build stderr (last 1000): {build_stderr.read_text().strip()[-1000:]}")
+    if build_stdout.exists():
+        log(f"  build stdout (last 1000): {build_stdout.read_text().strip()[-1000:]}")
+    if rc != 0:
+        fail(f"Patched build failed (exit={rc})")
+    patched_rid = int((patched_resp / "rebuild_id").read_text().strip())
+    log(f"Patched rebuild ID: {patched_rid}")
+
+    # --- Sanity check: verify rebuilt binary differs from original ---
+    log("Downloading rebuilt artifacts to compare...")
+    rebuilt_dir = Path("/tmp/rebuilt-artifacts")
+    crs.download_build_output("build", rebuilt_dir, rebuild_id=patched_rid)
+
+    rebuilt_bin = rebuilt_dir / harness
+    if not rebuilt_bin.exists():
+        fail(f"Rebuilt harness {harness} not found in rebuild artifacts")
+
+    orig_hash = hashlib.sha256(harness_bin.read_bytes()).hexdigest()
+    rebuilt_hash = hashlib.sha256(rebuilt_bin.read_bytes()).hexdigest()
+    log(f"Original binary: {orig_hash[:16]}... ({harness_bin.stat().st_size} bytes)")
+    log(f"Rebuilt binary:  {rebuilt_hash[:16]}... ({rebuilt_bin.stat().st_size} bytes)")
+    if orig_hash == rebuilt_hash:
+        fail("Rebuilt binary is identical to original — patch had no effect on compilation")
+
+    # --- Step 3: Run POV on patched build (expect NO crash) ---
+    log("Step 3: Running POV on patched build...")
+    pov_after = RESPONSE_DIR / "pov-after"
+    rc = crs.run_pov(pov_file, harness, patched_rid, pov_after)
+    stderr_log = pov_after / "stderr.log"
+    stdout_log = pov_after / "stdout.log"
+    if stderr_log.exists():
+        log(f"  stderr: {stderr_log.read_text().strip()[:2000]}")
+    if stdout_log.exists():
+        log(f"  stdout: {stdout_log.read_text().strip()[:2000]}")
+    if rc != 0:
+        fail(f"POV still crashes after patch (exit={rc})")
+    log("PASS: POV no longer crashes after patch")
+
+    # --- Step 4: Run functionality tests ---
+    log("Step 4: Running functionality tests...")
+    test_resp = RESPONSE_DIR / "test"
+    rc = crs.apply_patch_test(patch, test_resp)
+    if rc != 0:
+        fail(f"Tests failed (exit={rc})")
+    log("PASS: Functionality tests pass")
+
+    log("SUCCESS: patch verified — crash fixed, tests pass")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

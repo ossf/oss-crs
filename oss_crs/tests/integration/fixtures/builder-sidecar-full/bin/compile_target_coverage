@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+log() {
+    echo "[compile_target_coverage] $*"
+}
+
+log "Compiling target project with coverage instrumentation..."
+
+# Override sanitizer for coverage build
+export SANITIZER=coverage
+compile
+
+# Submit build outputs
+libCRS submit-build-output "$OUT" coverage-build
+libCRS submit-build-output "$SRC" coverage-src
+
+log "Coverage build completed successfully."

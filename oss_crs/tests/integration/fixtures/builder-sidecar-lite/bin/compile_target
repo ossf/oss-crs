@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+log() {
+    echo "[compile_target] $*"
+}
+
+log "Compiling target project..."
+
+# Standard oss-fuzz compile
+compile
+
+# Submit build outputs
+libCRS submit-build-output "$OUT" build
+libCRS submit-build-output "$SRC" src
+
+log "Build completed successfully."
