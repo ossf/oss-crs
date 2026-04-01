@@ -932,10 +932,9 @@ class CRSCompose:
         machine_cpu_count = os.cpu_count()
         machine_memory = get_host_memory()
 
-        if machine_cpu_count is None or machine_memory == 0:
+        if machine_cpu_count is None or machine_memory is None:
             log_warning(
-                f"Could not determine machine resources."
-                f"Skipping resource check."
+                "Could not determine machine resources. Skipping resource check."
             )
             return TaskResult(success=True)
 
@@ -948,20 +947,20 @@ class CRSCompose:
         max_cpus_required = 0
 
         for name, cfg in entries:
-            #Calculate max CPU needed
+            # Calculate max CPU needed
             try:
                 cpus = parse_cpuset(cfg.cpuset)
                 max_cpus_required = max(max_cpus_required, max(cpus))
             except ValueError as e:
                 log_warning(f"Failed to validate cpuset for {name}: {e}")
-            
+
             # Calculate max memory needed
             try:
                 total_memory_required += parse_memory_to_bytes(cfg.memory)
             except ValueError as e:
                 log_warning(f"Failed to parse memory for {name}: {e}")
 
-        cpu_check = max_cpus_required <= machine_cpu_count
+        cpu_check = max_cpus_required < machine_cpu_count
         memory_check = total_memory_required <= machine_memory
 
         if not cpu_check or not memory_check:
@@ -969,8 +968,8 @@ class CRSCompose:
                 f"Machine does not have adequate resources. "
                 f"Only {machine_cpu_count} CPUs and {machine_memory // (1024**3)}G memory available. "
                 f"Please edit the compose file. "
-            )  
-        return TaskResult(success=True)    
+            )
+        return TaskResult(success=True)
 
     def __validate_before_run(
         self,

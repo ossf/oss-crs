@@ -187,7 +187,8 @@ def rm_with_docker(path: Path) -> None:
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error removing {path} with Docker: {e}")
 
-def get_host_memory() -> int:
+
+def get_host_memory() -> int | None:
     "Returns the machine's total memory in bytes."
     try:
         pagesize = os.sysconf("SC_PAGE_SIZE")
@@ -195,15 +196,15 @@ def get_host_memory() -> int:
         if pagesize > 0 and pages > 0:
             return pagesize * pages
 
-    except(OSError):
-            pass
+    except OSError:
+        pass
 
-    memeinfo = Path("/proc/meminfo")
-    if memeinfo.exists():
-      for line in meminfo.read_text().splitlines():
-        if line.startswith("MemTotal:"):
-          return int(line.split()[1])*1024
-    return 0
+    meminfo = Path("/proc/meminfo")
+    if meminfo.exists():
+        for line in meminfo.read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) * 1024
+    return None
 
 
 # =============================================================================
