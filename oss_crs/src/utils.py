@@ -11,6 +11,8 @@ from typing import Optional
 import questionary
 from rich.console import Console
 
+from .constants import PRESERVED_BUILDER_REPO
+
 
 RAND_CHARS = string.ascii_lowercase + string.digits
 
@@ -142,9 +144,6 @@ class TmpDockerCompose:
         # Clean up the temporary dir
         if self.dir is not None and self.dir.exists():
             shutil.rmtree(self.dir, ignore_errors=True)
-
-
-PRESERVED_BUILDER_REPO = "oss-crs-builder"
 
 
 def preserved_builder_image_name(crs_name: str, build_name: str, build_id: str) -> str:

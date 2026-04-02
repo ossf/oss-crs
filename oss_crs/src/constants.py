@@ -9,3 +9,7 @@ LITELLM_INTERNAL_URL = "http://litellm.oss-crs:4000"
 POSTGRES_USER = "crs"
 POSTGRES_PORT = 5432
 POSTGRES_HOST = "postgres.oss-crs-infra-only"
+
+# Docker repository name for preserved builder images (tagged copies of
+# compose-built images kept for the sidecar and snapshot workflows).
+PRESERVED_BUILDER_REPO = "oss-crs-builder"
