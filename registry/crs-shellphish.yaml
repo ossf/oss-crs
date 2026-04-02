@@ -1,6 +1,0 @@
-name: crs-shellphish
-type:
-  - bug-finding
-source:
-  url: https://github.com/Team-Atlanta/shellphish-oss-crs.git
-  ref: main
