@@ -13,9 +13,6 @@ oss_crs_infra:
   memory: "8G"
 
 # --- LLM Configuration -----------------------------------------------------
-# External litellm server. Before running, source your .env file:
-#   source /path/to/shellphish-oss-crs/.env
-# Required env vars: AIXCC_LITELLM_HOSTNAME, LITELLM_KEY
 llm_config:
   litellm:
     mode: external
@@ -28,16 +25,14 @@ llm_config:
 # LLM-driven vulnerability discovery: analyzes code with LLM, generates
 # exploit scripts, verifies crashes, submits PoVs.
 #
-# With registry (auto-clones from GitHub):
+# For local development, add source.local_path:
 #   crs-shellphish-discoveryguy:
-#     cpuset: "0-7"
+#     source:
+#       local_path: /path/to/shellphish-oss-crs
+#     cpuset: "2-7"
 #     memory: "24G"
 #     llm_budget: 10
-#
-# With local path (for development):
 crs-shellphish-discoveryguy:
-  source:
-    local_path: /project/shellphish-oss-crs
   cpuset: "2-7"
   memory: "24G"
   llm_budget: 10

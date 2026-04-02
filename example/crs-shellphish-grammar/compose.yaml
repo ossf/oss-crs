@@ -13,8 +13,6 @@ oss_crs_infra:
   memory: "8G"
 
 # --- LLM Configuration -----------------------------------------------------
-# External litellm server. Set AIXCC_LITELLM_HOSTNAME and LITELLM_KEY
-# environment variables before running (source your .env file).
 llm_config:
   litellm:
     mode: external
@@ -25,10 +23,16 @@ llm_config:
 
 # --- CRS (Shellphish Grammar) ----------------------------------------------
 # Pipeline: AFL++ fuzzer + coverage tracer + Grammar-Guy (LLM grammar gen)
-# + GrammarRoomba (grammar refinement).
+# + GrammarRoomba (grammar refinement) + coverage-guy.
+#
+# For local development, add source.local_path:
+#   crs-shellphish-grammar:
+#     source:
+#       local_path: /path/to/shellphish-oss-crs
+#     cpuset: "2-7"
+#     memory: "24G"
+#     llm_budget: 10
 crs-shellphish-grammar:
-  source:
-    local_path: /project/shellphish-oss-crs
   cpuset: "2-7"
   memory: "24G"
   llm_budget: 10

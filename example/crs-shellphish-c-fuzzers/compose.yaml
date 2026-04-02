@@ -1,12 +1,27 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Shellphish C Fuzzers (AFL++ + LibFuzzer ensemble)             #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
 run_env: local
 docker_registry: local
 
+# --- Infrastructure ---------------------------------------------------------
 oss_crs_infra:
   cpuset: "0-1"
   memory: "8G"
 
+# --- CRS (Shellphish C Fuzzers) -------------------------------------------
+# AFL++ + LibFuzzer parallel ensemble with seed/PoV exchange.
+# Pure fuzzer — no LLM needed.
+#
+# For local development, add source.local_path:
+#   crs-shellphish-c-fuzzers:
+#     source:
+#       local_path: /path/to/shellphish-oss-crs
+#     cpuset: "2-7"
+#     memory: "24G"
 crs-shellphish-c-fuzzers:
-  source:
-    local_path: /project/shellphish-oss-crs
   cpuset: "2-7"
   memory: "24G"
