@@ -11,7 +11,7 @@ from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
 from .llm import LLM
 from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
-from .target import Target
+from .target import Target, file_lock
 from .templates import renderer
 from .utils import (
     TmpDockerCompose,
@@ -170,6 +170,15 @@ class CRSCompose:
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
+    @staticmethod
+    def _get_image_id(client: "docker.DockerClient", image: str) -> "str | None":
+        """Get the content hash (Docker image ID) of an image."""
+        try:
+            img = client.images.get(image)
+            return img.id
+        except docker.errors.ImageNotFound:
+            return None
+
     def _snapshot_one(
         self,
         client: "docker.DockerClient",
@@ -184,6 +193,11 @@ class CRSCompose:
     ) -> bool:
         """Run a container from base_image and commit as snapshot on success.
 
+        Uses content-hash deduplication: the actual image is stored under a tag
+        derived from the base image's ID. The caller's tag is an alias pointing
+        to the same image. If the base image hasn't changed, the existing
+        snapshot is reused without recompiling.
+
         Args:
             client: Docker SDK client.
             base_image: Image to run.
@@ -196,51 +210,87 @@ class CRSCompose:
         Returns:
             True if snapshot committed, False on failure.
         """
-        # Inline CMD extraction (same logic as docker_ops.get_image_cmd):
-        if command is None:
-            try:
-                img = client.images.get(base_image)
-                cmd = img.attrs.get("Config", {}).get("Cmd")
-                command = cmd if cmd else ["compile"]
-            except docker.errors.ImageNotFound:
-                command = ["compile"]
+        full_tag = f"oss-crs-snapshot:{tag}"
 
-        container = None
-        try:
-            env = {"OSS_CRS_BUILD_ID": build_id}
-            if extra_env:
-                env.update(extra_env)
-            container = client.containers.create(
-                base_image,
-                command=command,
-                environment=env,
-                volumes=volumes or {},
-                detach=True,
-            )
-            container.start()
+        # Compute content-hash key from the base image ID.
+        base_image_id = self._get_image_id(client, base_image)
+        if base_image_id:
+            content_key = hashlib.sha256(base_image_id.encode()).hexdigest()[:16]
+            content_tag = f"oss-crs-snapshot:content-{content_key}"
+        else:
+            content_key = hashlib.sha256(base_image.encode()).hexdigest()[:16]
+            content_tag = None
 
-            try:
-                result = container.wait(timeout=timeout)
-            except requests.exceptions.ReadTimeout:
+        # File lock keyed on the content hash — serializes concurrent snapshot
+        # creation for the same builder image across processes.
+        lock_dir = Path("/tmp/oss-crs-snapshot-locks")
+        lock_path = lock_dir / f"snapshot-{content_key}.lock"
+
+        with file_lock(lock_path):
+            # Re-check after acquiring lock — another process may have built it.
+            if content_tag:
+                existing = self._get_image_id(client, content_tag)
+                if existing:
+                    try:
+                        img = client.images.get(content_tag)
+                        img.tag("oss-crs-snapshot", tag=tag)
+                        committed_tags.append(full_tag)
+                        return True
+                    except docker.errors.ImageNotFound:
+                        pass
+
+
+            # Inline CMD extraction (same logic as docker_ops.get_image_cmd):
+            if command is None:
                 try:
-                    container.kill()
-                except Exception:
-                    pass
+                    img = client.images.get(base_image)
+                    cmd = img.attrs.get("Config", {}).get("Cmd")
+                    command = cmd if cmd else ["compile"]
+                except docker.errors.ImageNotFound:
+                    command = ["compile"]
+
+            container = None
+            try:
+                env = {"OSS_CRS_BUILD_ID": build_id}
+                if extra_env:
+                    env.update(extra_env)
+                container = client.containers.create(
+                    base_image,
+                    command=command,
+                    environment=env,
+                    volumes=volumes or {},
+                    detach=True,
+                )
+                container.start()
+
+                try:
+                    result = container.wait(timeout=timeout)
+                except requests.exceptions.ReadTimeout:
+                    try:
+                        container.kill()
+                    except Exception:
+                        pass
+                    return False
+
+                exit_code = result["StatusCode"]
+                if exit_code == 0:
+                    container.commit(repository="oss-crs-snapshot", tag=tag)
+                    committed_tags.append(full_tag)
+                    # Also tag with the content hash for future dedup
+                    if content_tag:
+                        try:
+                            img = client.images.get(full_tag)
+                            img.tag("oss-crs-snapshot", tag=content_tag.split(":", 1)[1])
+                        except docker.errors.ImageNotFound:
+                            pass
+                    return True
                 return False
-
-            exit_code = result["StatusCode"]
-            if exit_code == 0:
-                full_tag = f"oss-crs-snapshot:{tag}"
-                container.commit(repository="oss-crs-snapshot", tag=tag)
-                committed_tags.append(full_tag)
-                return True
-            return False
-        finally:
-            if container is not None:
-                try:
-                    container.remove(force=True)
-                except docker.errors.NotFound:
-                    pass
+            finally:
+                if container is not None:
+                    try:
+                        container.remove(force=True)
+                    except docker.errors.NotFound:
+                        pass
 
     def _create_incremental_snapshots(self, target_base_image: str, build_id: str, target: "Target", sanitizer: str) -> bool:
         """Create snapshot images for all builders and the project image.

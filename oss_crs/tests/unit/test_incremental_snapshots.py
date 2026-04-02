@@ -79,6 +79,7 @@ def _make_crs_compose(crs_list):
     # Bind the real private methods to our namespace object
     obj._create_incremental_snapshots = CRSCompose._create_incremental_snapshots.__get__(obj, type(obj))
     obj._snapshot_one = CRSCompose._snapshot_one.__get__(obj, type(obj))
+    obj._get_image_id = CRSCompose._get_image_id
     obj._check_snapshots_exist = CRSCompose._check_snapshots_exist.__get__(obj, type(obj))
     obj._cleanup_preserved_builders = CRSCompose._cleanup_preserved_builders.__get__(obj, type(obj))
     return obj
