@@ -1,0 +1,40 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#        Example for crs-bug-finding-claude-code (bug-finding)               #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-bug-finding-claude-code) -------------------------------------
+# The ASAN snapshot sidecar is declared in crs.yaml (snapshot: true / run_snapshot: true)
+# and handled automatically by the framework.
+crs-bug-finding-claude-code:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here. Available models:
+    #   claude-opus-4-6, claude-opus-4-5-20251101, claude-opus-4-1-20250805,
+    #   claude-sonnet-4-6, claude-sonnet-4-5-20250929, claude-sonnet-4-20250514,
+    #   claude-haiku-4-5-20251001
+    CRS_AGENT: claude_code
+    ANTHROPIC_MODEL: claude-opus-4-6
+    # CLAUDE_CODE_SUBAGENT_MODEL: claude-sonnet-4-6
+    # ANTHROPIC_DEFAULT_OPUS_MODEL: claude-sonnet-4-6
+    # ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6
+    # ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-bug-finding-claude-code/litellm-config.yaml

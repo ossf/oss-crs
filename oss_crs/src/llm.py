@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .config.crs_compose import LLMConfig
+from .constants import LITELLM_INTERNAL_URL
 from .ui import TaskResult
 
 if TYPE_CHECKING:
@@ -39,7 +40,11 @@ class LLM:
         self.model_check_enabled = llm_config.litellm.model_check
 
         if self.mode == "internal":
-            config_path = llm_config.litellm.internal.config_path if llm_config.litellm.internal else None
+            config_path = (
+                llm_config.litellm.internal.config_path
+                if llm_config.litellm.internal
+                else None
+            )
             if config_path is None:
                 config_path = str(DEFAULT_LITELLM_CONFIG_PATH)
             litellm_path = Path(config_path).expanduser().resolve()
@@ -84,7 +89,7 @@ class LLM:
 
     def get_crs_api_url(self) -> Optional[str]:
         if self.mode == "internal":
-            return "http://litellm.oss-crs:4000"
+            return LITELLM_INTERNAL_URL
         if self.mode == "external":
             if self.external_url_env:
                 return os.environ.get(self.external_url_env)
@@ -126,7 +131,9 @@ class LLM:
             if not self.get_crs_api_url():
                 return TaskResult(success=False, error="External LiteLLM URL is empty")
             if not self.get_crs_api_key():
-                return TaskResult(success=False, error="External LiteLLM API key is empty")
+                return TaskResult(
+                    success=False, error="External LiteLLM API key is empty"
+                )
             return TaskResult(success=True)
 
         return TaskResult(success=True)
@@ -148,7 +155,11 @@ class LLM:
             return TaskResult(success=True)
 
         if self.mode == "internal":
-            if self.llm_config and self.llm_config.litellm.internal and self.llm_config.litellm.internal.config_path is None:
+            if (
+                self.llm_config
+                and self.llm_config.litellm.internal
+                and self.llm_config.litellm.internal.config_path is None
+            ):
                 if not DEFAULT_LITELLM_CONFIG_PATH.exists():
                     return TaskResult(
                         success=False,
@@ -214,12 +225,20 @@ class LLM:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ):
             return None
 
         model_entries = payload.get("data", [])
-        return {
-            entry.get("id")
-            for entry in model_entries
-            if isinstance(entry, dict) and entry.get("id")
-        }
+        models: set[str] = set()
+        for entry in model_entries:
+            if not isinstance(entry, dict):
+                continue
+            model_id = entry.get("id")
+            if isinstance(model_id, str):
+                models.add(model_id)
+        return models

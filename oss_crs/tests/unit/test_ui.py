@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+from rich.console import Console
+
 from oss_crs.src.ui import MultiTaskProgress, TaskResult
 
 
@@ -671,3 +673,55 @@ services:
     result = progress.docker_compose_up("proj", compose_path)
 
     assert result.success is True
+
+
+def test_run_command_with_streaming_output_prints_plain_logs_when_headless(
+    monkeypatch,
+) -> None:
+    console_output = io.StringIO()
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=console_output, force_interactive=False, width=120),
+    )
+
+    class FakeStdout:
+        def __init__(self, lines: list[str]):
+            self._lines = lines
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            return ""
+
+    class FakeProcess:
+        def __init__(self, lines: list[str]):
+            self.stdout = FakeStdout(lines)
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 143
+
+        def kill(self):
+            self.returncode = 137
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: FakeProcess(["line 1\n", "line 2\n"]),
+    )
+
+    progress.add_task(
+        "stream",
+        lambda p: p.run_command_with_streaming_output(["fake", "cmd"]),
+    )
+
+    with progress:
+        result = progress.run_added_tasks()
+
+    assert result.success is True
+    output = console_output.getvalue()
+    assert "line 1" in output
+    assert "line 2" in output

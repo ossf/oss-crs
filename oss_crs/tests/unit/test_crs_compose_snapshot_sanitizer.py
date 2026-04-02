@@ -73,6 +73,7 @@ class _DummyTarget:
             "architecture": "x86_64",
         }
 
+
 class _DummyWorkDir:
     def __init__(self):
         self._base = Path("/tmp/oss-crs-test")
@@ -183,7 +184,9 @@ def test_compose_sanitizer_wins_over_snapshot_build_step_sanitizer(
     assert crs.build_sanitizers == ["memory"]
 
 
-def test_explicit_sanitizer_wins_over_conflicting_compose_sanitizers(monkeypatch) -> None:
+def test_explicit_sanitizer_wins_over_conflicting_compose_sanitizers(
+    monkeypatch,
+) -> None:
     compose = _make_compose_with_two_crs(
         {"SANITIZER": "memory"},
         {"SANITIZER": "undefined"},

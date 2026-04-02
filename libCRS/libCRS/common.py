@@ -47,7 +47,6 @@ def is_data_file(path: Path) -> bool:
     return path.is_file() and not path.name.startswith(".")
 
 
-
 def file_hash(path: Path) -> str:
     """Compute the MD5 checksum of a file."""
     h = hashlib.md5()

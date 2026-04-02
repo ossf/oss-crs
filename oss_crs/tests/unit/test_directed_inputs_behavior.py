@@ -45,7 +45,9 @@ def _stub_run_for_existing_build(
     monkeypatch.setattr(compose, "_CRSCompose__run", _capture_run)
 
     def _unexpected_build_target(*args, **kwargs):
-        raise AssertionError("run() should reuse the existing build instead of rebuilding")
+        raise AssertionError(
+            "run() should reuse the existing build instead of rebuilding"
+        )
 
     monkeypatch.setattr(compose, "build_target", _unexpected_build_target)
 
@@ -102,7 +104,9 @@ def test_existing_build_allows_run_phase_diff_without_build_metadata(
     assert captured["diff_path"] == diff
 
 
-def test_existing_build_allows_run_phase_bug_candidate_file(tmp_path: Path, monkeypatch) -> None:
+def test_existing_build_allows_run_phase_bug_candidate_file(
+    tmp_path: Path, monkeypatch
+) -> None:
     compose = _make_run_compose(tmp_path)
     target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
     bug_candidate = tmp_path / "report.sarif"
@@ -124,7 +128,9 @@ def test_existing_build_allows_run_phase_bug_candidate_file(tmp_path: Path, monk
     assert captured["bug_candidate"] == bug_candidate
 
 
-def test_existing_build_allows_run_phase_bug_candidate_dir(tmp_path: Path, monkeypatch) -> None:
+def test_existing_build_allows_run_phase_bug_candidate_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
     compose = _make_run_compose(tmp_path)
     target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
     bug_candidate_dir = tmp_path / "bug-candidates"
@@ -154,7 +160,13 @@ def test_build_fetch_dir_is_target_scoped_without_harness(tmp_path: Path) -> Non
     fetch_dir = work_dir.get_build_fetch_dir(target, "build-1", "address", create=False)
 
     assert fetch_dir == (
-        tmp_path / "work" / "address" / "builds" / "build-1" / "FETCH_DIR" / target.get_docker_image_name().replace(":", "_")
+        tmp_path
+        / "work"
+        / "address"
+        / "builds"
+        / "build-1"
+        / "FETCH_DIR"
+        / target.get_docker_image_name().replace(":", "_")
     )
 
 
@@ -182,7 +194,9 @@ def test_prepare_build_fetch_dir_accepts_directed_inputs_without_harness(
     assert (fetch_dir / "bug-candidates" / "report.sarif").read_text() == "{}"
 
 
-def test_parallel_runs_with_same_build_id_use_distinct_exchange_dirs(tmp_path: Path) -> None:
+def test_parallel_runs_with_same_build_id_use_distinct_exchange_dirs(
+    tmp_path: Path,
+) -> None:
     work_dir = WorkDir(tmp_path / "work")
     target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
 

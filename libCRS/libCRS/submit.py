@@ -1,11 +1,13 @@
+import os
 import logging
 import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedEvent
+from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 from .common import file_hash, is_data_file, rsync_copy
 
@@ -19,21 +21,24 @@ class SubmitData:
 
 
 class NewFileHandler(FileSystemEventHandler):
-    def __init__(self, callback):
+    def __init__(self, callback: Callable[[Path], None]):
         super().__init__()
         self.callback = callback
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileSystemEvent) -> None:
         if not event.is_directory:
-            self.callback(Path(event.src_path))
+            self.callback(Path(os.fsdecode(event.src_path)))
 
-    def on_modified(self, event) -> None:
+    def on_modified(self, event: FileSystemEvent) -> None:
         if not event.is_directory:
-            self.callback(Path(event.src_path))
+            self.callback(Path(os.fsdecode(event.src_path)))
 
-    def on_moved(self, event: FileMovedEvent) -> None:
-        if not event.is_directory:
-            self.callback(Path(event.dest_path))
+    def on_moved(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
+            return
+        dest_path = getattr(event, "dest_path", None)
+        if dest_path is not None:
+            self.callback(Path(os.fsdecode(dest_path)))
 
 
 class SubmitHelper:
@@ -63,7 +68,9 @@ class SubmitHelper:
         if dst is not None and dst.exists():
             return
         with self.queue_lock:
-            self.queue.append(SubmitData(file_path=file_path, content_hash=content_hash))
+            self.queue.append(
+                SubmitData(file_path=file_path, content_hash=content_hash)
+            )
 
     def __flush(self, batch_time: float, batch_size: int) -> bool:
         cur_queue: list[SubmitData] = []

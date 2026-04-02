@@ -88,7 +88,7 @@ services:
   # OSS-CRS-LITELLM
   ###########################################
   oss-crs-litellm:
-    image: ghcr.io/berriai/litellm-database:main-stable
+    image: {{ litellm_image }}
     attach: false
     restart: on-failure:3
     depends_on:
@@ -96,7 +96,7 @@ services:
         condition: service_healthy
     environment:
       - LITELLM_MASTER_KEY={{ llm_context.litellm_master_key }}
-      - DATABASE_URL=postgresql://crs:{{ llm_context.postgres_password }}@postgres.oss-crs-infra-only:5432/crs
+      - DATABASE_URL=postgresql://{{ postgres_user }}:{{ llm_context.postgres_password }}@{{ postgres_host }}:{{ postgres_port }}/{{ postgres_user }}
     {%- for key, value in llm_context.litellm_env.items() %}
       - {{ key }}={{ value }}
     {%- endfor %}
@@ -115,21 +115,21 @@ services:
       retries: 10
       start_period: 15s
   oss-crs-postgres:
-    image: postgres:16-alpine
+    image: {{ postgres_image }}
     attach: false
     restart: on-failure:3
     environment:
-      - POSTGRES_USER=crs
+      - POSTGRES_USER={{ postgres_user }}
       - POSTGRES_PASSWORD={{ llm_context.postgres_password }}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U crs -h localhost -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres_user }} -h localhost -p {{ postgres_port }}"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
       {{ crs_compose_name }}-infra-only-network:
         aliases:
-          - postgres.oss-crs-infra-only
+          - {{ postgres_host }}
   oss-crs-litellm-key-gen:
     image: {{ crs_compose_name }}-oss-crs-litellm-key-gen:latest
     attach: false
@@ -141,7 +141,7 @@ services:
         condition: service_healthy
     environment:
       - LITELLM_MASTER_KEY={{ llm_context.litellm_master_key }}
-      - LITELLM_API_URL=http://litellm.oss-crs:4000
+      - LITELLM_API_URL={{ litellm_internal_url }}
     networks:
       {{ crs_compose_name }}-network:
     volumes:

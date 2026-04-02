@@ -62,7 +62,9 @@ def validate_sarif(doc: dict) -> list[str]:
             prefix = f"runs[{run_idx}].results[{res_idx}]"
             if not result.get("message"):
                 errors.append(f"{prefix}.message is required")
-            elif not isinstance(result["message"], dict) or not result["message"].get("text"):
+            elif not isinstance(result["message"], dict) or not result["message"].get(
+                "text"
+            ):
                 errors.append(f"{prefix}.message.text is required")
 
             locations = result.get("locations")
@@ -74,10 +76,14 @@ def validate_sarif(doc: dict) -> list[str]:
                         continue
                     artifact = phys.get("artifactLocation")
                     if artifact and not artifact.get("uri"):
-                        errors.append(f"{loc_prefix}.physicalLocation.artifactLocation.uri is required")
+                        errors.append(
+                            f"{loc_prefix}.physicalLocation.artifactLocation.uri is required"
+                        )
                     region = phys.get("region")
                     if region and not isinstance(region.get("startLine"), int):
-                        errors.append(f"{loc_prefix}.physicalLocation.region.startLine must be an integer")
+                        errors.append(
+                            f"{loc_prefix}.physicalLocation.region.startLine must be an integer"
+                        )
 
     return errors
 
@@ -101,15 +107,19 @@ def _parse_result(result: dict) -> BugCandidate:
                 function_name = logical["name"]
                 break
 
-        locations.append(BugLocation(
-            file_path=file_path,
-            start_line=start_line,
-            end_line=end_line,
-            function_name=function_name,
-        ))
+        locations.append(
+            BugLocation(
+                file_path=file_path,
+                start_line=start_line,
+                end_line=end_line,
+                function_name=function_name,
+            )
+        )
 
     message = result.get("message", {})
-    message_text = message.get("text", "") if isinstance(message, dict) else str(message)
+    message_text = (
+        message.get("text", "") if isinstance(message, dict) else str(message)
+    )
 
     return BugCandidate(
         rule_id=result.get("ruleId", ""),

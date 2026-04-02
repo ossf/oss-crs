@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#            Example for crs-bug-finding-gemini-cli (bug-finding)            #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-bug-finding-gemini-cli) --------------------------------------
+# The ASAN snapshot sidecar is declared in crs.yaml (snapshot: true / run_snapshot: true)
+# and handled automatically by the framework.
+crs-bug-finding-gemini-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here. Available models:
+    #   gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite,
+    #   gemini-3-pro-preview, gemini-3-flash-preview
+    CRS_AGENT: gemini_cli
+    GEMINI_MODEL: gemini-3-pro-preview
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-bug-finding-gemini-cli/litellm-config.yaml

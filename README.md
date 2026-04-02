@@ -34,21 +34,21 @@ git clone git@github.com:google/oss-fuzz.git ~/oss-fuzz
 ### 2. Run a Simple Bug-Finding CRS
 
 The example below uses **crs-libfuzzer**, a lightweight CRS that runs libFuzzer on the target.
-See [`./example/crs-libfuzzer/crs-libfuzzer-compose.yaml`](example/crs-libfuzzer/crs-libfuzzer-compose.yaml) for the full configuration.
+See [`./example/crs-libfuzzer/compose.yaml`](example/crs-libfuzzer/compose.yaml) for the full configuration.
 
 ```bash
 # Prepare the CRS (pull images, set up dependencies)
 uv run oss-crs prepare \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml
+  --compose-file ./example/crs-libfuzzer/compose.yaml
 
 # Build the target project
 uv run oss-crs build-target \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --compose-file ./example/crs-libfuzzer/compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2
 
 # Run the CRS against a specific harness (e.g., "xml")
 uv run oss-crs run \
-  --compose-file ./example/crs-libfuzzer/crs-libfuzzer-compose.yaml \
+  --compose-file ./example/crs-libfuzzer/compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
@@ -57,6 +57,8 @@ uv run oss-crs run \
 
 For a more advanced CRS that leverages LLMs, you can use **atlantis-multilang**. This CRS supports multiple languages and uses an LLM to generate and refine fuzz harnesses.
 See [`./example/multilang/multilang-compose.yaml`](example/multilang/multilang-compose.yaml) for the full configuration.
+
+> **Environment variables:** For LLM-backed runs, you can either `export` provider credentials in your shell or place them in a `.env` file in the directory where you run `oss-crs`. The CLI loads `.env` automatically via dotenv before parsing the compose file.
 
 ```bash
 # Prepare the LLM-powered CRS, for example, multilang
@@ -72,6 +74,7 @@ uv run oss-crs build-target \
 export OPENAI_API_KEY=<OPENAI_API_KEY>
 export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+# Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
   --compose-file ./example/multilang/multilang-compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
@@ -129,6 +132,7 @@ uv run oss-crs build-target \
 export OPENAI_API_KEY=<OPENAI_API_KEY>
 export GEMINI_API_KEY=<GEMINI_API_KEY>
 export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+# Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
   --compose-file ./example/ensemble/ensemble-compose.yaml  \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \

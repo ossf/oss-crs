@@ -27,9 +27,11 @@ from ..cgroup import (
 # Data Classes
 # =============================================================================
 
+
 @dataclass
 class CheckResult:
     """Result of a requirement check."""
+
     ok: bool
     detail: str = ""
     needs_fix: bool = False
@@ -38,9 +40,12 @@ class CheckResult:
 @dataclass
 class SetupStep:
     """A setup step that can be executed to fix a requirement."""
+
     title: str
     description: str
-    commands: Callable[[], list[tuple[str, str]]]  # Returns [(description, command), ...]
+    commands: Callable[
+        [], list[tuple[str, str]]
+    ]  # Returns [(description, command), ...]
     verify: Optional[Callable[[], bool]] = None
     skip_message: str = ""
 
@@ -48,6 +53,7 @@ class SetupStep:
 # =============================================================================
 # Requirement Checks
 # =============================================================================
+
 
 def check_docker_driver() -> CheckResult:
     """Check if Docker is using cgroupfs driver."""
@@ -60,7 +66,9 @@ def check_docker_driver() -> CheckResult:
     elif is_cgroupfs:
         return CheckResult(ok=True, detail="cgroupfs")
     else:
-        return CheckResult(ok=False, detail=f"using '{driver}', needs 'cgroupfs'", needs_fix=True)
+        return CheckResult(
+            ok=False, detail=f"using '{driver}', needs 'cgroupfs'", needs_fix=True
+        )
 
 
 def check_delegation() -> CheckResult:
@@ -102,6 +110,7 @@ def check_controllers() -> CheckResult:
 # =============================================================================
 # Setup Steps
 # =============================================================================
+
 
 def docker_setup_step() -> SetupStep:
     """Create the Docker configuration setup step."""
@@ -146,8 +155,10 @@ def controller_setup_step() -> SetupStep:
         title="Enable controllers in oss-crs cgroup",
         description="Enabling cpuset and memory controllers at oss-crs level...",
         commands=lambda: [
-            ("Enable controllers at oss-crs level",
-             f'echo "+cpuset +memory" | sudo tee {oss_crs_path}/cgroup.subtree_control')
+            (
+                "Enable controllers at oss-crs level",
+                f'echo "+cpuset +memory" | sudo tee {oss_crs_path}/cgroup.subtree_control',
+            )
         ],
     )
 
@@ -195,7 +206,9 @@ class SetupRunner:
             return False
 
         try:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
+            result = subprocess.run(
+                command, shell=True, capture_output=True, text=True, timeout=120
+            )
             if result.returncode == 0:
                 self.console.print(green("Success"))
                 return True
@@ -212,7 +225,9 @@ class SetupRunner:
     def execute_step(self, step: SetupStep) -> bool:
         """Execute a setup step with user interaction."""
         self.step_num += 1
-        self.console.print(f"\n[bold cyan]Step {self.step_num}:[/bold cyan] {step.title}")
+        self.console.print(
+            f"\n[bold cyan]Step {self.step_num}:[/bold cyan] {step.title}"
+        )
         self.console.print(step.description)
 
         proceed = confirm(f"Proceed with {step.title.lower()}?", auto_confirm=self.yes)
@@ -228,7 +243,9 @@ class SetupRunner:
         # Run all commands for this step
         for desc, cmd in step.commands():
             if not self.run_command(desc, cmd):
-                self.console.print(yellow(f"{step.title} incomplete. Please complete manually."))
+                self.console.print(
+                    yellow(f"{step.title} incomplete. Please complete manually.")
+                )
                 return False
 
         # Verify if verification function provided
@@ -245,7 +262,10 @@ class SetupRunner:
 
         for name, check_fn, key in REQUIREMENTS:
             # Skip controller check if directory doesn't exist
-            if key == "controllers" and not self.results.get("directory", CheckResult(ok=False)).ok:
+            if (
+                key == "controllers"
+                and not self.results.get("directory", CheckResult(ok=False)).ok
+            ):
                 continue
 
             result = check_fn()
@@ -264,14 +284,16 @@ class SetupRunner:
 
     def run(self, check_only: bool = False) -> bool:
         """Run the setup process."""
-        self.console.print(Panel(
-            "[bold]oss-crs setup[/bold]\n\n"
-            "This command configures your system for cgroup-parent mode,\n"
-            "which enables fine-grained CPU and memory resource control\n"
-            "for CRS containers without Docker-in-Docker.",
-            title="Cgroup-Parent Setup",
-            border_style="blue",
-        ))
+        self.console.print(
+            Panel(
+                "[bold]oss-crs setup[/bold]\n\n"
+                "This command configures your system for cgroup-parent mode,\n"
+                "which enables fine-grained CPU and memory resource control\n"
+                "for CRS containers without Docker-in-Docker.",
+                title="Cgroup-Parent Setup",
+                border_style="blue",
+            )
+        )
 
         # Run initial checks
         self.run_checks()
@@ -283,17 +305,25 @@ class SetupRunner:
             return False
 
         if self.all_ok():
-            self.console.print(f"\n{green('All checks passed!', bold=True)} Your system is ready for cgroup-parent mode.")
+            self.console.print(
+                f"\n{green('All checks passed!', bold=True)} Your system is ready for cgroup-parent mode."
+            )
             return True
 
         if check_only:
-            self.console.print(f"\n{yellow('Some checks failed.')} Run [bold]oss-crs setup[/bold] to fix issues.")
+            self.console.print(
+                f"\n{yellow('Some checks failed.')} Run [bold]oss-crs setup[/bold] to fix issues."
+            )
             return False
 
         # Interactive setup
         self.console.print("\n[bold]Setup required[/bold]")
-        self.console.print("Some configuration is needed. The following changes require [bold]sudo[/bold] privileges.")
-        self.console.print("You will be asked to confirm each command before it runs.\n")
+        self.console.print(
+            "Some configuration is needed. The following changes require [bold]sudo[/bold] privileges."
+        )
+        self.console.print(
+            "You will be asked to confirm each command before it runs.\n"
+        )
 
         # Docker configuration
         if self.needs_fix("docker"):
@@ -321,11 +351,19 @@ class SetupRunner:
         self.run_checks()
 
         if self.all_ok():
-            self.console.print(f"\n{green('Setup complete!', bold=True)} Your system is ready for cgroup-parent mode.")
-            self.console.print("\nCgroup-parent mode will be used automatically when available.")
+            self.console.print(
+                f"\n{green('Setup complete!', bold=True)} Your system is ready for cgroup-parent mode."
+            )
+            self.console.print(
+                "\nCgroup-parent mode will be used automatically when available."
+            )
         else:
-            self.console.print(f"\n{yellow('Setup incomplete.')} Some checks are still failing.")
-            self.console.print("Please address the issues above and run [bold]oss-crs setup[/bold] again.")
+            self.console.print(
+                f"\n{yellow('Setup incomplete.')} Some checks are still failing."
+            )
+            self.console.print(
+                "Please address the issues above and run [bold]oss-crs setup[/bold] again."
+            )
 
         return self.all_ok()
 
@@ -334,11 +372,11 @@ class SetupRunner:
 # CLI Entry Points
 # =============================================================================
 
+
 def add_setup_command(subparsers) -> None:
     """Add the setup command to the CLI parser."""
     setup = subparsers.add_parser(
-        "setup",
-        help="Configure system for cgroup-parent resource management"
+        "setup", help="Configure system for cgroup-parent resource management"
     )
     setup.add_argument(
         "--check",
@@ -346,7 +384,8 @@ def add_setup_command(subparsers) -> None:
         help="Only check status without making changes",
     )
     setup.add_argument(
-        "-y", "--yes",
+        "-y",
+        "--yes",
         action="store_true",
         help="Automatically accept all prompts (non-interactive mode)",
     )

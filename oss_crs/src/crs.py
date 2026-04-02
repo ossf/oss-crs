@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Optional
 import hashlib
+import json
 import os
+import subprocess
 
 from .config.crs import CRSConfig
 from .config.crs_compose import CRSEntry, CRSComposeEnv
@@ -9,7 +11,7 @@ from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
-from .utils import TmpDockerCompose
+from .utils import TmpDockerCompose, log_dim
 from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
@@ -83,26 +85,32 @@ class CRS:
         crs_compose_env: CRSComposeEnv,
         skip_init: bool = False,
     ) -> "CRS":
-        if entry.source.local_path:
-            return cls(
-                name, Path(entry.source.local_path), work_dir, entry, crs_compose_env
-            )
-        else:
-            # crs_src is a sibling directory to the work_dir
-            path = work_dir.path / "../crs_src" / name
-            init_result = init_crs_repo(
-                name,
-                entry.source.url,
-                entry.source.ref,
-                path,
-                skip_if_exists=skip_init,
-            )
-            if init_result.success:
-                return cls(name, path, work_dir, entry, crs_compose_env)
-            detail = init_result.error or "unknown repository initialization error"
+        source = entry.source
+        if source is None:
+            raise ValueError(f"CRS entry '{name}' is missing source configuration")
+        if source.local_path:
+            return cls(name, Path(source.local_path), work_dir, entry, crs_compose_env)
+        repo_url = source.url
+        branch = source.ref
+        if repo_url is None or branch is None:
             raise ValueError(
-                f"Failed to initialize CRS from entry: {name}; reason: {detail}"
+                f"CRS entry '{name}' must define either local_path or both url and ref"
             )
+        # crs_src is a sibling directory to the work_dir
+        path = work_dir.path / "../crs_src" / name
+        init_result = init_crs_repo(
+            name,
+            repo_url,
+            branch,
+            path,
+            skip_if_exists=skip_init,
+        )
+        if init_result.success:
+            return cls(name, path, work_dir, entry, crs_compose_env)
+        detail = init_result.error or "unknown repository initialization error"
+        raise ValueError(
+            f"Failed to initialize CRS from entry: {name}; reason: {detail}"
+        )
 
     def __init__(
         self,
@@ -119,19 +127,93 @@ class CRS:
         self.resource = resource
         self.crs_compose_env = crs_compose_env
 
+    def _try_pull_prebuilt_images(
+        self, hcl_path: Path, env: dict
+    ) -> Optional[list[str]]:
+        """Try to pull all prebuilt images defined in the bake plan.
+
+        Returns a list of pulled images on success, or None if any pull fails.
+        """
+        # Get the resolved build plan as JSON
+        result = subprocess.run(
+            ["docker", "buildx", "bake", "-f", str(hcl_path), "--print"],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=self.crs_path,
+        )
+        if result.returncode != 0:
+            return None
+
+        try:
+            plan = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+        targets = plan.get("target", {})
+        if not targets:
+            return None
+
+        pulled: list[str] = []
+        for target_name, target_conf in targets.items():
+            tags = target_conf.get("tags", [])
+            if not tags:
+                continue
+
+            # Find the first registry tag (contains a domain with a dot)
+            registry_tag = None
+            for tag in tags:
+                parts = tag.split("/")
+                if len(parts) >= 2 and "." in parts[0]:
+                    registry_tag = tag
+                    break
+
+            if registry_tag is None:
+                log_dim(f"No registry tag for target {target_name}, skipping pull")
+                return None
+
+            # Pull from registry
+            pull_result = subprocess.run(
+                ["docker", "pull", registry_tag],
+                capture_output=True,
+                text=True,
+            )
+            if pull_result.returncode != 0:
+                log_dim(f"Failed to pull {registry_tag}, falling back to bake")
+                return None
+
+            pulled.append(registry_tag)
+
+            # Tag with remaining tags
+            for tag in tags:
+                if tag != registry_tag:
+                    subprocess.run(
+                        ["docker", "tag", registry_tag, tag],
+                        capture_output=True,
+                        text=True,
+                    )
+
+        return pulled
+
     def prepare(
         self,
+        multi_task_progress: MultiTaskProgress,
         publish: bool = False,
         docker_registry: Optional[str] = None,
-        multi_task_progress: Optional[MultiTaskProgress] = None,
+        no_pull: bool = False,
     ) -> "TaskResult":
         """
         Run docker buildx bake to prepare CRS images.
 
+        When not publishing, first tries to pull prebuilt images from the
+        registry (based on tags defined in the HCL). Falls back to a full
+        bake build if any pull fails.
+
         Args:
             publish: If True, push baked images to the docker registry.
             docker_registry: Override registry for push/cache. If set, overrides config.
-            multi_task_progress: Optional progress tracker. If not provided, creates one.
+            multi_task_progress: Progress tracker used by the compose-level prepare flow.
+            no_pull: If True, skip pulling prebuilt images and always build locally.
 
         Returns:
             True if bake succeeded, False otherwise.
@@ -139,47 +221,12 @@ class CRS:
         if self.config.prepare_phase is None:
             return TaskResult(success=True)
 
-        # Create a single-task progress if not provided
-        standalone = multi_task_progress is None
         # Determine the registry to use (parameter overrides config)
         registry = docker_registry if docker_registry else self.config.docker_registry
         version = self.config.version
 
         # Build HCL file path (relative to crs_path)
         hcl_path = self.crs_path / self.config.prepare_phase.hcl
-
-        # Build the base command
-        cmd = ["docker", "buildx", "bake", "-f", str(hcl_path)]
-
-        # Add cache-from options (buildx silently ignores unavailable sources)
-        if registry:
-            cache_ref_version = f"{registry}/{self.name}:{version}"
-            cache_ref_latest = f"{registry}/{self.name}:latest"
-            cmd.extend(
-                [
-                    f"--set=*.cache-from=type=registry,ref={cache_ref_version}",
-                    f"--set=*.cache-from=type=registry,ref={cache_ref_latest}",
-                ]
-            )
-
-        # Add push and cache-to options if publishing
-        if publish:
-            if not registry:
-                error_msg = (
-                    "Cannot publish without a docker registry. "
-                    "Provide docker_registry parameter or set it in config."
-                )
-                return TaskResult(success=False, error=error_msg)
-
-            cmd.append("--push")
-            cache_ref_version = f"{registry}/{self.name}:{version}"
-            cache_ref_latest = f"{registry}/{self.name}:latest"
-            cmd.extend(
-                [
-                    f"--set=*.cache-to=type=registry,ref={cache_ref_version},mode=max",
-                    f"--set=*.cache-to=type=registry,ref={cache_ref_latest},mode=max",
-                ]
-            )
 
         # Set up environment for bake with centralized merge policy.
         env_plan = build_prepare_env(
@@ -189,11 +236,37 @@ class CRS:
             scope=f"{self.name}:prepare",
         )
         env = env_plan.effective_env
-        if multi_task_progress and hasattr(multi_task_progress, "add_note"):
+        if hasattr(multi_task_progress, "add_note"):
             for warning in env_plan.warnings:
                 multi_task_progress.add_note(warning)
 
-        # Display command info
+        # When not publishing and pull is enabled, try to pull prebuilt images first.
+        # This avoids expensive local builds when images are already in a registry.
+        if not publish and not no_pull:
+            pulled = self._try_pull_prebuilt_images(hcl_path, env)
+            if pulled:
+                info_text = (
+                    f"Pulled {len(pulled)} prebuilt images from registry\n"
+                    + "\n".join(f"  - {img}" for img in pulled)
+                )
+                if hasattr(multi_task_progress, "add_note"):
+                    multi_task_progress.add_note(info_text)
+                return TaskResult(success=True)
+
+        # Fall back to building via bake.
+        # NOTE: cache-from/cache-to are NOT set here. Each CRS's HCL file
+        # defines per-target cache refs with the correct image names.
+        cmd = ["docker", "buildx", "bake", "-f", str(hcl_path)]
+
+        if publish:
+            if not registry:
+                error_msg = (
+                    "Cannot publish without a docker registry. "
+                    "Provide docker_registry parameter or set it in config."
+                )
+                return TaskResult(success=False, error=error_msg)
+            cmd.append("--push")
+
         info_text = (
             f"HCL: {hcl_path}\n"
             f"Version: {version}\n"
@@ -201,13 +274,9 @@ class CRS:
             f"Publish: {publish}"
         )
 
-        if standalone:
-            # TODO
-            pass
-        else:
-            return multi_task_progress.run_command_with_streaming_output(
-                cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
-            )
+        return multi_task_progress.run_command_with_streaming_output(
+            cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
+        )
 
     def __is_supported_target(self, target: Target) -> bool:
         _ = target
@@ -363,6 +432,8 @@ class CRS:
         def prepare_docker_compose_file(
             progress, project_name: str, tmp_docker_compose: TmpDockerCompose
         ) -> "TaskResult":
+            docker_compose_path = tmp_docker_compose.docker_compose
+            assert docker_compose_path is not None
             rendered, warnings = renderer.render_build_target_docker_compose(
                 self,
                 target,
@@ -375,7 +446,7 @@ class CRS:
             )
             for warning in warnings:
                 progress.add_note(warning)
-            tmp_docker_compose.docker_compose.write_text(rendered)
+            docker_compose_path.write_text(rendered)
             return TaskResult(success=True)
 
         def build_docker_compose(
@@ -425,6 +496,9 @@ class CRS:
 
         with TmpDockerCompose(progress, "crs") as tmp_docker_compose:
             project_name = tmp_docker_compose.project_name
+            docker_compose_path = tmp_docker_compose.docker_compose
+            assert project_name is not None
+            assert docker_compose_path is not None
             progress.add_task(
                 "Prepare docker compose file",
                 lambda p: prepare_docker_compose_file(
@@ -447,7 +521,7 @@ class CRS:
             result = progress.run_added_tasks()
             if result.success:
                 return TaskResult(success=True)
-            docker_compose_contents = tmp_docker_compose.docker_compose.read_text()
+            docker_compose_contents = docker_compose_path.read_text()
             error = result.error or ""
             error += "\n"
             if docker_compose_output:
@@ -475,6 +549,8 @@ def get_image_content_hash(
         cwd=None,
     )
     if not ret.success:
+        return None
+    if ret.output is None:
         return None
     layers_json = ret.output.strip()
     return hashlib.sha256(layers_json.encode()).hexdigest()[:12]

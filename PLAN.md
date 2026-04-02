@@ -80,11 +80,11 @@ Features that will significantly improve the platform's utility for real-world c
 
 ### Infrastructure Services
 
-| Service | Status | Design Doc | Purpose |
-|---|---|---|---|
-| **Seed Deduplication** | 📝 Planned | [seed-dedup.md](docs/design/oss-crs-infra/seed-dedup.md) | Cross-CRS seed deduplication to reduce redundant fuzzing effort |
-| **PoV Verification / Deduplication** | 📝 Planned | [pov-dedup.md](docs/design/oss-crs-infra/pov-dedup.md) | Verify crash inputs and deduplicate bugs found by multiple CRSs |
-| **WebUI Dashboard** | 📝 Planned | [webui.md](docs/design/oss-crs-infra/webui.md) | Real-time monitoring: coverage metrics, bug candidates, PoV status, LLM usage |
+| Service | Status | Purpose |
+|---|---|---|
+| **Seed Deduplication** | 📝 Planned | Cross-CRS seed deduplication to reduce redundant fuzzing effort |
+| **PoV Verification / Deduplication** | 📝 Planned | Verify crash inputs and deduplicate bugs found by multiple CRSs |
+| **WebUI Dashboard** | 📝 Planned | Real-time monitoring: coverage metrics, bug candidates, PoV status, LLM usage |
 
 ### Bug-Fixing Pipeline
 

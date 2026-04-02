@@ -2,6 +2,7 @@ import json
 import subprocess
 import time
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Callable, Optional
 import yaml
 from rich.console import Console, Group
 
-from .utils import bold, get_console, green, log_error, yellow
+from .utils import bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
 from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
@@ -18,6 +19,15 @@ from rich.table import Table
 from rich.text import Text
 
 FRAMEWORK_HELPER_SERVICE_PREFIX = "oss-crs-"
+
+
+@dataclass
+class EarlyExitConfig:
+    """Configuration for early exit artifact monitoring."""
+
+    watch_dirs: list[Path]  # SUBMIT_DIR paths to monitor
+    artifact_subdir: str  # "povs" or "patches"
+    poll_interval: float = 2.0  # seconds between checks
 
 
 class TaskStatus(Enum):
@@ -61,12 +71,15 @@ class MultiTaskProgress:
         title: str = "Task Progress",
         console: Optional[Console] = None,
         deadline: Optional[float] = None,
+        early_exit_config: Optional[EarlyExitConfig] = None,
     ):
         self.tasks = tasks
         self.task_names = [name for name, _ in tasks]
         self.title = title
         self.console = console or get_console()
         self.deadline: Optional[float] = deadline
+        self.early_exit_config = early_exit_config
+        self._early_exit_triggered = threading.Event()
         self.statuses: dict[str, TaskStatus] = {
             name: TaskStatus.PENDING for name in self.task_names
         }
@@ -91,6 +104,17 @@ class MultiTaskProgress:
         self._cleanup_tasks: dict[Optional[str], list[str]] = {}
         # Set of parent task IDs whose cleanup is complete (errors should be shown)
         self._cleanup_complete: set[Optional[str]] = set()
+        self._headless = not self.console.is_interactive
+        self._entered = False
+
+    def _print_headless(self, message) -> None:
+        """Emit plain progress logs when Live rendering is disabled."""
+        if self._headless:
+            self.console.print(message)
+
+    def _task_label(self, task_name: str) -> str:
+        """Return the display label for a task."""
+        return escape(self._display_names.get(task_name, task_name))
 
     def _get_task_parent(self, task_id: str) -> Optional[str]:
         """Find the parent of a given task ID."""
@@ -101,6 +125,38 @@ class MultiTaskProgress:
             if task_id in children:
                 return parent
         return None
+
+    def _check_early_exit(self) -> bool:
+        """Check if any artifact files exist in watched directories."""
+        if not self.early_exit_config:
+            return False
+        for watch_dir in self.early_exit_config.watch_dirs:
+            artifact_dir = watch_dir / self.early_exit_config.artifact_subdir
+            if artifact_dir.exists():
+                files = [
+                    f
+                    for f in artifact_dir.iterdir()
+                    if f.is_file() and not f.name.startswith(".")
+                ]
+                if files:
+                    return True
+        return False
+
+    def _start_early_exit_monitor(self) -> threading.Thread:
+        """Start background thread that monitors for early exit condition."""
+        assert self.early_exit_config is not None
+        early_exit_config = self.early_exit_config
+
+        def monitor():
+            while not self._early_exit_triggered.is_set():
+                if self._check_early_exit():
+                    self._early_exit_triggered.set()
+                    return
+                time.sleep(early_exit_config.poll_interval)
+
+        thread = threading.Thread(target=monitor, daemon=True)
+        thread.start()
+        return thread
 
     def _get_status_icon(self, status: TaskStatus) -> str:
         icons = {
@@ -252,6 +308,15 @@ class MultiTaskProgress:
     def set_status(self, task_name: str, status: TaskStatus) -> None:
         """Update the status of a task."""
         self.statuses[task_name] = status
+        if self._headless and self._entered:
+            status_prefix = {
+                TaskStatus.PENDING: "[dim]PENDING[/dim]",
+                TaskStatus.IN_PROGRESS: "[yellow]START[/yellow]",
+                TaskStatus.SUCCESS: "[green]OK[/green]",
+                TaskStatus.FAILED: "[red]FAIL[/red]",
+                TaskStatus.STOPPED: "[yellow]STOP[/yellow]",
+            }[status]
+            self._print_headless(f"{status_prefix} {self._task_label(task_name)}")
         if status != TaskStatus.IN_PROGRESS:
             # Clear output and cmd_info when task completes
             self.current_output_lines = []
@@ -263,18 +328,28 @@ class MultiTaskProgress:
     def __set_task_info(self, task_name: str, info: str) -> None:
         """Set info text for a task (shown when task is in progress)."""
         self.task_info[task_name] = info
+        if self._headless:
+            self._print_headless(f"[dim]Info:[/dim] {escape(info)}")
         if self._live:
             self._live.update(self._build_display())
 
     def __set_cmd_info(self, task_name: str, cmd: str, cwd: str) -> None:
         """Set command info for a task (shown in command progress panel)."""
         self.cmd_info[task_name] = (cmd, cwd)
+        if self._headless:
+            self._print_headless(
+                f"[bold]Command:[/bold] {escape(cmd)}\n[bold]CWD:[/bold] {escape(cwd)}"
+            )
         if self._live:
             self._live.update(self._build_display())
 
     def set_error_info(self, task_name: str, error: str) -> None:
         """Set error message for a failed task."""
         self.error_info[task_name] = error
+        if self._headless:
+            self._print_headless(
+                f"[bold red]Error ({self._task_label(task_name)}):[/bold red] {escape(error)}"
+            )
         if self._live:
             self._live.update(self._build_display())
 
@@ -284,6 +359,8 @@ class MultiTaskProgress:
             if self._current_task not in self.task_notes:
                 self.task_notes[self._current_task] = []
             self.task_notes[self._current_task].append(note)
+            if self._headless:
+                self._print_headless(f"[dim cyan]Note:[/dim cyan] {escape(note)}")
             if self._live:
                 self._live.update(self._build_display())
 
@@ -392,6 +469,15 @@ class MultiTaskProgress:
                     result = self._task_funcs[task_id](self)
                     if result.success:
                         self.set_status(task_id, TaskStatus.SUCCESS)
+                        if result.interrupted:
+                            # Early exit: success + interrupted, just log it
+                            self._current_task = prev_task
+                            main_result = TaskResult(
+                                success=True,
+                                output=result.output,
+                                interrupted=True,
+                            )
+                            break  # Stop on early exit, continue to cleanup
                     elif result.interrupted:
                         self.set_status(task_id, TaskStatus.STOPPED)
                     else:
@@ -484,10 +570,18 @@ class MultiTaskProgress:
     def add_output_line(self, line: str) -> None:
         """Add an output line for the current in-progress task."""
         self.current_output_lines.append(line)
+        if self._headless:
+            self._print_headless(escape(line))
         if self._live:
             self._live.update(self._build_display())
 
     def __enter__(self) -> "MultiTaskProgress":
+        self._entered = True
+        if self._headless:
+            self._print_headless(f"[bold]{escape(self.title)}[/bold]")
+            for item in self._head:
+                self._print_headless(item)
+            return self
         self._live = Live(
             self._build_display(),
             console=self.console,
@@ -500,6 +594,7 @@ class MultiTaskProgress:
         if self._live:
             self._live.__exit__(*args)
             self._live = None
+        self._entered = False
 
     def run_command_with_streaming_output(
         self,
@@ -520,15 +615,25 @@ class MultiTaskProgress:
             True if command succeeded, False otherwise.
         """
         task_name = self._current_task
-        if info_text:
+        if info_text and task_name is not None:
             self.__set_task_info(task_name, info_text)
-        self.__set_cmd_info(self._current_task, " ".join(cmd), str(cwd) if cwd else ".")
+        if task_name is not None:
+            self.__set_cmd_info(task_name, " ".join(cmd), str(cwd) if cwd else ".")
         output_lines = []
 
         def process_output(line: str) -> None:
             """Process a line of output."""
             output_lines.append(line)
             self.add_output_line(line)
+
+        def _graceful_terminate(proc: subprocess.Popen, timeout: int = 20) -> None:
+            """Gracefully terminate a process: SIGTERM, wait, then SIGKILL if needed."""
+            proc.terminate()
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
         try:
             process = subprocess.Popen(
@@ -542,17 +647,14 @@ class MultiTaskProgress:
             )
 
             timed_out = threading.Event()
+            early_exited = threading.Event()
             timer = None
+            early_exit_thread = None
 
             if self.deadline is not None:
                 remaining = self.deadline - time.monotonic()
                 if remaining <= 0:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=20)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                    _graceful_terminate(process)
                     error_msg = (
                         f"Deadline already exceeded before running:\n{' '.join(cmd)}"
                     )
@@ -562,29 +664,38 @@ class MultiTaskProgress:
 
                 def _on_timeout():
                     timed_out.set()
-                    process.terminate()
-                    try:
-                        process.wait(timeout=20)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
+                    # Stop the early exit monitor thread
+                    self._early_exit_triggered.set()
+                    _graceful_terminate(process)
 
                 timer = threading.Timer(remaining, _on_timeout)
                 timer.daemon = True
                 timer.start()
 
+            # Early exit uses a thread that waits for the trigger event
+            if self.early_exit_config is not None:
+
+                def _on_early_exit():
+                    self._early_exit_triggered.wait()  # Block until artifact found
+                    if timed_out.is_set():
+                        return  # Timeout already handled it
+                    # Confirm it's a real artifact (not just signaled by timeout)
+                    if self._check_early_exit():
+                        early_exited.set()
+                        _graceful_terminate(process, timeout=30)
+
+                early_exit_thread = threading.Thread(target=_on_early_exit, daemon=True)
+                early_exit_thread.start()
+
             try:
+                assert process.stdout is not None
                 for line in iter(process.stdout.readline, ""):
                     line = line.rstrip()
                     if line:
                         process_output(line)
                 process.wait()
             except KeyboardInterrupt:
-                process.terminate()
-                try:
-                    process.wait(timeout=20)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+                _graceful_terminate(process)
                 error = "\n".join(output_lines)
                 error += "\n\n📝 Process interrupted by user"
                 return TaskResult(success=False, error=error, interrupted=True)
@@ -598,6 +709,11 @@ class MultiTaskProgress:
                 if task_name:
                     self.set_error_info(task_name, error_msg)
                 return TaskResult(success=False, error=error_msg, interrupted=True)
+
+            if early_exited.is_set():
+                output = "\n".join(output_lines)
+                output += "\n\n■ Early exit: artifact discovered. Containers gracefully stopped."
+                return TaskResult(success=True, output=output, interrupted=True)
 
             if process.returncode == 0:
                 return TaskResult(success=True, output="\n".join(output_lines))
@@ -673,6 +789,8 @@ class MultiTaskProgress:
             border_style="green",
         )
         self._tail.append(result_panel)
+        if self._headless:
+            self._print_headless(result_panel)
         if self._live:
             self._live.update(self._build_display())
 
@@ -697,7 +815,7 @@ class MultiTaskProgress:
         if ret.success:
             return ret
         docker_compose_contents = docker_compose_path.read_text()
-        ret.error += (
+        ret.error = (ret.error or "") + (
             f"\n📝 Docker compose file contents:\n---\n{docker_compose_contents}\n---"
         )
         return ret
@@ -778,12 +896,15 @@ class MultiTaskProgress:
             ignored_helper_exit_services = running_helpers_before_stop
 
         # If compose returned success, double-check no containers failed
-        if result.success:
+        # Skip if interrupted (early exit) since we intentionally killed the containers
+        if result.success and not result.interrupted:
             check_result = self._check_failed_containers(
                 project_name, docker_compose_path, ignored_helper_exit_services
             )
             if not check_result.success:
-                check_result.error = result.output + "\n\n" + check_result.error
+                check_result.error = (
+                    (result.output or "") + "\n\n" + (check_result.error or "")
+                )
                 return check_result
 
         return result

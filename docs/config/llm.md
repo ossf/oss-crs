@@ -9,7 +9,7 @@ For complete documentation, refer to:
 - [LiteLLM Proxy Configuration](https://docs.litellm.ai/docs/proxy/configs)
 - [LiteLLM Supported Providers](https://docs.litellm.ai/docs/providers)
 
-> **Note:** Use `os.environ/VAR_NAME` format to reference environment variables (e.g., `os.environ/OPENAI_API_KEY`). OSS-CRS extracts these references and validates that the environment variables are set at runtime.
+> **Note:** Use `os.environ/VAR_NAME` format to reference environment variables (e.g., `os.environ/OPENAI_API_KEY`). OSS-CRS extracts these references and validates that the environment variables are set at runtime. You can satisfy them either by exporting variables in your shell or by putting them in a `.env` file in the directory where you run `oss-crs`; the CLI calls `load_dotenv()` automatically on startup.
 
 ---
 

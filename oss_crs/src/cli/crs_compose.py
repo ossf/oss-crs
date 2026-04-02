@@ -8,8 +8,6 @@ from ..crs_compose import CRSCompose
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from .artifacts import handle_artifacts
-from ..utils import normalize_run_id
-from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir
 from .setup import add_setup_command, handle_setup
 
 
@@ -110,9 +108,15 @@ def add_prepare_command(subparsers):
     add_common_arguments(prepare)
     prepare.add_argument(
         "--publish",
-        type=bool,
+        action="store_true",
         default=False,
-        help="Publish prepared CRS docker images to the specified docker resgistry",
+        help="Publish prepared CRS docker images to the specified docker registry",
+    )
+    prepare.add_argument(
+        "--no-pull",
+        action="store_true",
+        default=False,
+        help="Skip pulling prebuilt images and always build locally",
     )
 
 
@@ -201,6 +205,12 @@ def add_run_command(subparsers):
         type=Path,
         default=None,
         help="Directory of initial seed files, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch seed <local_path>",
+    )
+    run.add_argument(
+        "--early-exit",
+        action="store_true",
+        default=False,
+        help="Stop run when first artifact is discovered (POV for bug-finding, patch for bug-fixing CRSs)",
     )
 
 
@@ -354,7 +364,7 @@ def cli() -> bool:
     )
 
     if args.command == "prepare":
-        if not crs_compose.prepare(publish=args.publish):
+        if not crs_compose.prepare(publish=args.publish, no_pull=args.no_pull):
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
@@ -400,6 +410,7 @@ def cli() -> bool:
             seed_dir=args.seed_dir,
             bug_candidate=bug_candidate,
             bug_candidate_dir=bug_candidate_dir,
+            early_exit=args.early_exit,
         ):
             return False
     elif args.command == "artifacts":

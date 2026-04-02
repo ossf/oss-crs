@@ -1,0 +1,6 @@
+name: crs-bug-finding-codex
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-codex.git
+  ref: main

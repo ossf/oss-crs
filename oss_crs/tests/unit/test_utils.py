@@ -38,22 +38,24 @@ class TestNormalizeRunId:
         for input_id in inputs:
             result1 = normalize_run_id(input_id)
             result2 = normalize_run_id(input_id)
-            assert result1 == result2, f"Output should be deterministic for '{input_id}'"
+            assert result1 == result2, (
+                f"Output should be deterministic for '{input_id}'"
+            )
 
     def test_filesystem_safe(self):
         """Result should be safe for filesystem use across platforms."""
         dangerous_inputs = [
-            "test/run",      # Unix path separator
-            "test\\run",     # Windows path separator
-            "test:run",      # Windows drive separator
-            "test*run",      # Glob wildcard
-            "test?run",      # Glob wildcard
-            'test"run',      # Quote
-            "test<run>",     # Angle brackets
-            "test|run",      # Pipe
-            "CON",           # Windows reserved name
-            "test\x00run",   # Null byte
-            "test\nrun",     # Newline
+            "test/run",  # Unix path separator
+            "test\\run",  # Windows path separator
+            "test:run",  # Windows drive separator
+            "test*run",  # Glob wildcard
+            "test?run",  # Glob wildcard
+            'test"run',  # Quote
+            "test<run>",  # Angle brackets
+            "test|run",  # Pipe
+            "CON",  # Windows reserved name
+            "test\x00run",  # Null byte
+            "test\nrun",  # Newline
         ]
         # Only lowercase alphanumeric, hyphens, and underscores allowed
         safe_pattern = re.compile(r"^[a-z0-9_-]+$")
@@ -61,8 +63,9 @@ class TestNormalizeRunId:
         for dangerous in dangerous_inputs:
             try:
                 result = normalize_run_id(dangerous)
-                assert safe_pattern.match(result), \
+                assert safe_pattern.match(result), (
                     f"'{result}' from '{dangerous}' is not filesystem safe"
+                )
             except ValueError:
                 # Empty result after normalization is also acceptable
                 pass
@@ -80,8 +83,9 @@ class TestNormalizeRunId:
         for unicode_input in unicode_inputs:
             try:
                 result = normalize_run_id(unicode_input)
-                assert safe_pattern.match(result), \
+                assert safe_pattern.match(result), (
                     f"'{result}' from '{unicode_input}' is not valid"
+                )
             except ValueError:
                 # If all chars are unicode, result may be empty - that's ok
                 pass

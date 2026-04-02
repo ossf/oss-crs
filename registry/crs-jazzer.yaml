@@ -1,4 +1,4 @@
-name: crs-libfuzzer
+name: crs-jazzer
 type:
   - bug-finding
 source:

@@ -1,7 +1,5 @@
 """Unit tests for required_inputs validation in CRSCompose."""
 
-from pathlib import Path
-
 from oss_crs.src.crs_compose import CRSCompose
 
 
@@ -77,22 +75,29 @@ def test_required_bug_candidate_passes_with_dir(tmp_path):
 def test_multiple_crs_all_satisfied(tmp_path):
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
-    compose = _make_compose([
-        _FakeCRS("dgf", ["diff", "bug-candidate"]),
-        _FakeCRS("afl", None),
-    ])
+    compose = _make_compose(
+        [
+            _FakeCRS("dgf", ["diff", "bug-candidate"]),
+            _FakeCRS("afl", None),
+        ]
+    )
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
-    assert compose._validate_required_inputs(diff=diff_file, bug_candidate=bc).success is True
+    assert (
+        compose._validate_required_inputs(diff=diff_file, bug_candidate=bc).success
+        is True
+    )
 
 
 def test_multiple_crs_one_unsatisfied(tmp_path):
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
-    compose = _make_compose([
-        _FakeCRS("dgf", ["diff", "bug-candidate"]),
-        _FakeCRS("afl", None),
-    ])
+    compose = _make_compose(
+        [
+            _FakeCRS("dgf", ["diff", "bug-candidate"]),
+            _FakeCRS("afl", None),
+        ]
+    )
     result = compose._validate_required_inputs(diff=diff_file)
     assert result.success is False
     assert "bug-candidate" in result.error
@@ -114,9 +119,9 @@ def test_required_bug_candidate_fails_when_missing():
 
 
 def test_all_four_inputs_required_and_satisfied(tmp_path):
-    compose = _make_compose([
-        _FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate"])
-    ])
+    compose = _make_compose(
+        [_FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate"])]
+    )
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
     pov_file = tmp_path / "crash.pov"
@@ -125,9 +130,12 @@ def test_all_four_inputs_required_and_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
-    assert compose._validate_required_inputs(
-        diff=diff_file, pov=pov_file, seed_dir=seed_subdir, bug_candidate=bc
-    ).success is True
+    assert (
+        compose._validate_required_inputs(
+            diff=diff_file, pov=pov_file, seed_dir=seed_subdir, bug_candidate=bc
+        ).success
+        is True
+    )
 
 
 def test_error_message_includes_crs_name_and_missing_inputs():
@@ -142,10 +150,12 @@ def test_error_message_includes_crs_name_and_missing_inputs():
 
 
 def test_multiple_crs_both_unsatisfied():
-    compose = _make_compose([
-        _FakeCRS("crs-a", ["diff"]),
-        _FakeCRS("crs-b", ["pov"]),
-    ])
+    compose = _make_compose(
+        [
+            _FakeCRS("crs-a", ["diff"]),
+            _FakeCRS("crs-b", ["pov"]),
+        ]
+    )
     result = compose._validate_required_inputs()
     assert result.success is False
     assert "crs-a" in result.error
@@ -154,10 +164,12 @@ def test_multiple_crs_both_unsatisfied():
 
 def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     """Ensemble: each CRS requires different inputs, all provided."""
-    compose = _make_compose([
-        _FakeCRS("crs-a", ["diff", "seed"]),
-        _FakeCRS("crs-b", ["pov", "bug-candidate"]),
-    ])
+    compose = _make_compose(
+        [
+            _FakeCRS("crs-a", ["diff", "seed"]),
+            _FakeCRS("crs-b", ["pov", "bug-candidate"]),
+        ]
+    )
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
     pov_file = tmp_path / "crash.pov"
@@ -166,17 +178,25 @@ def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
-    assert compose._validate_required_inputs(
-        diff=diff_file, pov=pov_file, seed_dir=seed_subdir, bug_candidate=bc,
-    ).success is True
+    assert (
+        compose._validate_required_inputs(
+            diff=diff_file,
+            pov=pov_file,
+            seed_dir=seed_subdir,
+            bug_candidate=bc,
+        ).success
+        is True
+    )
 
 
 def test_multiple_crs_different_inputs_partially_satisfied(tmp_path):
     """Ensemble: each CRS requires different inputs, only one CRS satisfied."""
-    compose = _make_compose([
-        _FakeCRS("crs-a", ["diff"]),
-        _FakeCRS("crs-b", ["pov", "bug-candidate"]),
-    ])
+    compose = _make_compose(
+        [
+            _FakeCRS("crs-a", ["diff"]),
+            _FakeCRS("crs-b", ["pov", "bug-candidate"]),
+        ]
+    )
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
     result = compose._validate_required_inputs(diff=diff_file)

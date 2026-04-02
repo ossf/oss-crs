@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportMissingImports=false
 """HTTP builder server for incremental patch builds.
 
 Endpoints:
@@ -245,7 +246,9 @@ def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     response.setdefault(
         "build_log",
         "\n".join(
-            part for part in [response["build_stdout"], response["build_stderr"]] if part
+            part
+            for part in [response["build_stdout"], response["build_stderr"]]
+            if part
         ),
     )
 

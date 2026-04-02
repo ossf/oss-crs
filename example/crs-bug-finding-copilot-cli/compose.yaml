@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#            Example for crs-bug-finding-copilot-cli (bug-finding)           #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-bug-finding-copilot-cli) -------------------------------------
+# The ASAN snapshot sidecar is declared in crs.yaml (snapshot: true / run_snapshot: true)
+# and handled automatically by the framework.
+crs-bug-finding-copilot-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here.
+    CRS_AGENT: copilot_cli
+    COPILOT_MODEL: gpt-5.3-codex
+    COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
+    # COPILOT_SUBSCRIPTION_TOKEN: ${COPILOT_SUBSCRIPTION_TOKEN}  # Compatibility alias
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-bug-finding-copilot-cli/litellm-config.yaml

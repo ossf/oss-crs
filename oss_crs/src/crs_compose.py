@@ -9,10 +9,18 @@ from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .llm import LLM
 from .crs import CRS
-from .ui import MultiTaskProgress, TaskResult
+from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
 from .target import Target
 from .templates import renderer
-from .utils import TmpDockerCompose, normalize_run_id, generate_run_id, rm_with_docker, log_success, log_warning, log_dim
+from .utils import (
+    TmpDockerCompose,
+    normalize_run_id,
+    generate_run_id,
+    rm_with_docker,
+    log_success,
+    log_warning,
+    log_dim,
+)
 from .workdir import WorkDir
 from .cgroup import (
     check_cgroup_parent_available,
@@ -272,12 +280,12 @@ class CRSCompose:
         return build_fetch_dir
 
     def __prepare_oss_crs_infra(
-        self, publish: bool = False, docker_registry: str = None
+        self, publish: bool = False, docker_registry: Optional[str] = None
     ) -> "TaskResult":
         # TODO
         return TaskResult(success=True)
 
-    def prepare(self, publish: bool = False) -> bool:
+    def prepare(self, publish: bool = False, no_pull: bool = False) -> bool:
         # Collect task names (infra + all CRS)
         tasks = [
             (
@@ -295,6 +303,7 @@ class CRSCompose:
                         publish=publish,
                         docker_registry=self.config.docker_registry,
                         multi_task_progress=progress,
+                        no_pull=no_pull,
                     ),
                 )
             )
@@ -376,7 +385,9 @@ class CRSCompose:
                 )
 
         if bug_candidate is not None and bug_candidate_dir is not None:
-            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
             return False
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
@@ -388,7 +399,9 @@ class CRSCompose:
             )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
-            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            print(
+                f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
+            )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
@@ -427,7 +440,9 @@ class CRSCompose:
                         sanitizer,
                         build_fetch_dir=build_fetch_dir,
                         diff_path=diff,
-                        bug_candidate_dir=bug_candidate if bug_candidate else bug_candidate_dir,
+                        bug_candidate_dir=bug_candidate
+                        if bug_candidate
+                        else bug_candidate_dir,
                         input_hash=input_hash,
                     ),
                 )
@@ -462,6 +477,7 @@ class CRSCompose:
         seed_dir: Optional[Path] = None,
         bug_candidate: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
+        early_exit: bool = False,
     ) -> bool:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -489,7 +505,9 @@ class CRSCompose:
             print(f"Error: Diff file does not exist: {diff}")
             return False
         if bug_candidate is not None and bug_candidate_dir is not None:
-            print("Error: --bug-candidate and --bug-candidate-dir are mutually exclusive.")
+            print(
+                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
+            )
             return False
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
@@ -501,7 +519,9 @@ class CRSCompose:
             )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
-            print(f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}")
+            print(
+                f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
+            )
             return False
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
@@ -580,6 +600,7 @@ class CRSCompose:
             seed_dir=seed_dir,
             cgroup_parent=cgroup_parent,
             bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
+            early_exit=early_exit,
         )
 
     def _validate_required_inputs(
@@ -645,16 +666,18 @@ class CRSCompose:
         ]
 
         if self.llm.exists():
-            tasks.extend([
-                (
-                    "Validate required LLMs for CRS targets",
-                    lambda _: self.llm.validate_required_llms(self.crs_list),
-                ),
-                (
-                    "Validate required environment variables for LiteLLM",
-                    lambda _: self.llm.validate_required_envs(),
-                ),
-            ])
+            tasks.extend(
+                [
+                    (
+                        "Validate required LLMs for CRS targets",
+                        lambda _: self.llm.validate_required_llms(self.crs_list),
+                    ),
+                    (
+                        "Validate required environment variables for LiteLLM",
+                        lambda _: self.llm.validate_required_envs(),
+                    ),
+                ]
+            )
 
         with MultiTaskProgress(
             tasks=tasks,
@@ -698,6 +721,7 @@ class CRSCompose:
         seed_dir: Optional[Path] = None,
         cgroup_parent: bool = False,
         bug_candidate: Optional[Path] = None,
+        early_exit: bool = False,
     ) -> bool:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -707,9 +731,10 @@ class CRSCompose:
                 sanitizer=sanitizer,
                 pov_files=pov_files or [],
                 diff_path=diff_path,
-                seed_dir=seed_dir, 
+                seed_dir=seed_dir,
                 cgroup_parent=cgroup_parent,
                 bug_candidate=bug_candidate,
+                early_exit=early_exit,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -726,6 +751,7 @@ class CRSCompose:
         seed_dir: Optional[Path] = None,
         cgroup_parent: bool = False,
         bug_candidate: Optional[Path] = None,
+        early_exit: bool = False,
     ) -> bool:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -742,11 +768,39 @@ class CRSCompose:
                 log_warning("Falling back to per-container resource limits.")
                 cgroup_parents = None
 
+        # Build early exit configuration if enabled
+        early_exit_config: Optional[EarlyExitConfig] = None
+        if early_exit:
+            # Bug-fixing CRSs watch for patches, bug-finding watch for POVs
+            has_bug_fixing = any(crs.config.is_bug_fixing for crs in self.crs_list)
+            artifact_subdir = "patches" if has_bug_fixing else "povs"
+            # Collect SUBMIT_DIR paths for all CRSs
+            watch_dirs: list[Path] = [
+                self.work_dir.get_submit_dir(
+                    crs.name, target, run_id, sanitizer, create=False
+                )
+                for crs in self.crs_list
+            ]
+            # Also watch exchange dir when multiple CRSs (shared artifact location)
+            if len(self.crs_list) > 1:
+                exchange_dir = self.work_dir.get_exchange_dir(
+                    target, run_id, sanitizer, create=False
+                )
+                watch_dirs.append(exchange_dir)
+            early_exit_config = EarlyExitConfig(
+                watch_dirs=watch_dirs,
+                artifact_subdir=artifact_subdir,
+            )
+
         with MultiTaskProgress(
             tasks=[],
             title="CRS Compose Run",
             deadline=self.deadline,
+            early_exit_config=early_exit_config,
         ) as progress:
+            # Start early exit monitor thread if configured
+            if early_exit_config:
+                progress._start_early_exit_monitor()
             with TmpDockerCompose(
                 progress, "crs_compose", run_id=run_id, auto_cleanup=False
             ) as tmp_docker_compose:
@@ -842,6 +896,7 @@ class CRSCompose:
         ]
 
         try:
+
             def _run_capture(cmd: list[str]) -> tuple[str, str, int]:
                 try:
                     result = subprocess.run(
@@ -946,7 +1001,9 @@ class CRSCompose:
                     "Some per-CRS log links failed; see capture-metadata.json."
                 )
             if warnings:
-                (logs_dir / "capture-warning.txt").write_text("\n".join(warnings) + "\n")
+                (logs_dir / "capture-warning.txt").write_text(
+                    "\n".join(warnings) + "\n"
+                )
         except Exception as exc:
             (logs_dir / "capture-warning.txt").write_text(
                 "Unexpected failure during compose log capture.\n"
@@ -1009,6 +1066,10 @@ class CRSCompose:
         cgroup_parents: Optional[dict[str, str]] = None,
         bug_candidate: Optional[Path] = None,
     ) -> TaskResult:
+        docker_compose_path = tmp_docker_compose.docker_compose
+        assert docker_compose_path is not None
+        pov_file_list: list[Path] = pov_files or []
+
         def prepare_docker_compose(progress: MultiTaskProgress) -> TaskResult:
             content, warnings = renderer.render_run_crs_compose_docker_compose(
                 self,
@@ -1022,7 +1083,7 @@ class CRSCompose:
             )
             for warning in warnings:
                 progress.add_note(warning)
-            tmp_docker_compose.docker_compose.write_text(content)
+            docker_compose_path.write_text(content)
             return TaskResult(success=True)
 
         def cleanup_exchange_dir(progress: MultiTaskProgress) -> TaskResult:
@@ -1052,17 +1113,19 @@ class CRSCompose:
         def copy_povs(progress: MultiTaskProgress) -> TaskResult:
             pov_subdir = _get_exchange_dir() / "povs"
             pov_subdir.mkdir(parents=True, exist_ok=True)
-            for f in pov_files:
+            for f in pov_file_list:
                 shutil.copy2(f, pov_subdir / f.name)
             return TaskResult(success=True)
 
         def copy_diff(progress: MultiTaskProgress) -> TaskResult:
+            assert diff_path is not None
             diff_subdir = _get_exchange_dir() / "diffs"
             diff_subdir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(diff_path, diff_subdir / "ref.diff")
             return TaskResult(success=True)
 
         def copy_seeds(progress: MultiTaskProgress) -> TaskResult:
+            assert seed_dir is not None
             seed_subdir = _get_exchange_dir() / "seeds"
             seed_subdir.mkdir(parents=True, exist_ok=True)
             for f in seed_dir.iterdir():
@@ -1071,6 +1134,7 @@ class CRSCompose:
             return TaskResult(success=True)
 
         def copy_bug_candidates(progress: MultiTaskProgress) -> TaskResult:
+            assert bug_candidate is not None
             bc_subdir = _get_exchange_dir() / "bug-candidates"
             bc_subdir.mkdir(parents=True, exist_ok=True)
             if bug_candidate.is_file():
@@ -1097,7 +1161,9 @@ class CRSCompose:
             progress.add_task("Copy seed files to exchange dir", copy_seeds)
 
         if bug_candidate:
-            progress.add_task("Copy bug-candidate SARIF to exchange dir", copy_bug_candidates)
+            progress.add_task(
+                "Copy bug-candidate SARIF to exchange dir", copy_bug_candidates
+            )
 
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose
@@ -1105,7 +1171,7 @@ class CRSCompose:
         progress.add_task(
             "Build docker images in the combined docker compose file",
             lambda progress: progress.docker_compose_build(
-                project_name, tmp_docker_compose.docker_compose
+                project_name, docker_compose_path
             ),
         )
 
@@ -1117,10 +1183,13 @@ class CRSCompose:
         tmp_docker_compose: TmpDockerCompose,
         progress: MultiTaskProgress,
     ) -> TaskResult:
-        ret = progress.docker_compose_up(
-            project_name, tmp_docker_compose.docker_compose
-        )
+        docker_compose_path = tmp_docker_compose.docker_compose
+        assert docker_compose_path is not None
+        ret = progress.docker_compose_up(project_name, docker_compose_path)
         if ret.success:
             return ret
-        ret.error += "\n\n📝 Depending on your Dockerfile, You might need to run `uv run oss-crs prepare` to apply your changes."
+        ret.error = (ret.error or "") + (
+            "\n\n📝 Depending on your Dockerfile, You might need to run "
+            "`uv run oss-crs prepare` to apply your changes."
+        )
         return ret

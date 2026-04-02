@@ -1,0 +1,28 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              roboduck (bug-finding, multi-agent LLM + fuzzing)             #
+##############################################################################
+
+run_env: local
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# Roboduck: multi-agent LLM-orchestrated bug-finding CRS by Team Theori.
+# Combines coverage-guided fuzzing, Infer static analysis, and LLM code
+# analysis. Supports seed/POV exchange for ensemble campaigns.
+roboduck:
+  cpuset: "2-15"
+  memory: "48G"
+  additional_env:
+    ROBODUCK_MODE: bug-finding
+    MODEL_MAP: /crs/configs/models-oss-crs.toml
+    CRS_RUNNER_IMAGE: gcr.io/oss-fuzz-base/base-runner
+
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: example/roboduck/litellm-config.yaml

@@ -228,11 +228,11 @@ class LocalCRSUtils(CRSUtils):
         if local_path.exists():
             raise FileExistsError(f"Local path '{local_path}' already exists")
 
-        OSS_CRS_SHARED_DIR = Path(get_env("OSS_CRS_SHARED_DIR"))
-        shared_path = OSS_CRS_SHARED_DIR / shared_path
-        shared_path.mkdir(parents=True, exist_ok=True)
+        shared_root = Path(get_env("OSS_CRS_SHARED_DIR"))
+        target_shared_path = shared_root / shared_path
+        target_shared_path.mkdir(parents=True, exist_ok=True)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.symlink_to(shared_path)
+        local_path.symlink_to(target_shared_path)
 
     def register_log_dir(self, local_path: Path) -> None:
         if local_path.exists():

@@ -1,0 +1,381 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "oss_crs/**"
+      - "oss-crs-infra/**"
+      - "libCRS/**"
+      - "uv.lock"
+      - "pyproject.toml"
+
+env:
+  RUFF_PATHS: oss_crs oss-crs-infra libCRS
+  PYRIGHT_PATHS: oss_crs/src libCRS/libCRS oss-crs-infra
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+      - name: Ruff check
+        run: uv run ruff check $RUFF_PATHS
+      - name: Ruff format
+        run: uv run ruff format --check $RUFF_PATHS
+      - name: Pyright
+        run: uv run pyright $PYRIGHT_PATHS
+      - name: Unit Tests
+        run: uv run pytest -m "not integration" -v oss_crs
+
+  integration-test:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: [verify]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: sync
+        run: uv sync --frozen --dev
+      - name: Integration Tests
+        run: uv run pytest -m "integration and not smoke and not cgroup_parent_required" -v oss_crs
+
+  smoke-c:
+    name: Smoke test (C)
+    runs-on: ubuntu-latest
+    needs: [verify]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+
+      - name: Create CI compose (bugfinding)
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-libfuzzer.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-libfuzzer:
+            cpuset: "1-3"
+            memory: "10G"
+          EOF
+
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Prepare CRSs
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c
+
+      - name: Bugfinding (crs-libfuzzer)
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 600 \
+            --build-id smoke-c \
+            --run-id bugfinding-c \
+            --early-exit
+
+      - name: Verify POVs found
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --build-id smoke-c \
+            --run-id bugfinding-c)
+          echo "$artifacts" | jq .
+          pov_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.pov')
+          echo "POV directory: $pov_dir"
+          if [ ! -d "$pov_dir" ] || [ -z "$(ls -A "$pov_dir")" ]; then
+            echo "ERROR: No POVs found"
+            exit 1
+          fi
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+
+      - name: Create smoke-c workdir tarball
+        if: failure()
+        run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-c-workdir.tar.gz \
+            --empty-message "No smoke-c workdir artifacts were found."
+          tarball=/tmp/smoke-c-workdir.tar.gz
+          ls -lh "$tarball"
+
+      - name: Upload smoke-c workdir artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-c-workdir
+          path: /tmp/smoke-c-workdir.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+  smoke-c-patch:
+    name: Smoke test (C patching)
+    runs-on: ubuntu-latest
+    needs: [verify]
+    timeout-minutes: 40
+    env:
+      EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
+      EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+
+      - name: Create CI compose (bugfixing - codex)
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-codex.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-codex:
+            cpuset: "1-3"
+            memory: "10G"
+            llm_budget: 5
+            additional_env:
+              CRS_AGENT: codex
+              CODEX_MODEL: gpt-5.2-codex
+          llm_config:
+            litellm:
+              mode: internal
+              internal:
+                config_path: /tmp/ci-config/litellm-codex.yaml
+          EOF
+
+      - name: Create CI litellm config (codex)
+        run: |
+          cp example/crs-codex/litellm-config.yaml /tmp/ci-config/litellm-codex.yaml
+
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Prepare CRSs
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target for bugfixing
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c-patch
+
+      - name: Verify fixed POV fixture
+        run: |
+          pov_dir=oss_crs/tests/integration/fixtures/mock-c-povs
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Using $pov_count fixed POV file(s) from $pov_dir"
+          if [ "$pov_count" -lt 1 ]; then
+            echo "ERROR: No fixed POV files found"
+            exit 1
+          fi
+
+      - name: Bugfixing (crs-codex)
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 1200 \
+            --build-id smoke-c-patch \
+            --run-id bugfixing-c \
+            --pov-dir oss_crs/tests/integration/fixtures/mock-c-povs \
+            --early-exit
+
+      - name: Verify patches found
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --build-id smoke-c-patch \
+            --run-id bugfixing-c)
+          echo "$artifacts" | jq .
+          patch_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.patch // empty')
+          if [ -n "$patch_dir" ] && [ -d "$patch_dir" ] && [ -n "$(ls -A "$patch_dir" 2>/dev/null)" ]; then
+            echo "Found patches:"
+            ls -la "$patch_dir"
+          else
+            echo "WARNING: No patches found (may be expected if LLM could not fix)"
+          fi
+
+      - name: Create smoke-c-patch workdir tarball
+        if: failure()
+        run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-c-patch-workdir.tar.gz \
+            --empty-message "No smoke-c-patch workdir artifacts were found."
+          tarball=/tmp/smoke-c-patch-workdir.tar.gz
+          ls -lh "$tarball"
+
+      - name: Upload smoke-c-patch workdir artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-c-patch-workdir
+          path: /tmp/smoke-c-patch-workdir.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+  smoke-java:
+    name: Smoke test (Java)
+    runs-on: ubuntu-latest
+    needs: [verify]
+    timeout-minutes: 30
+    env:
+      EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
+      EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+
+      - name: Create CI compose (bugfinding - jazzer)
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-jazzer.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-jazzer:
+            cpuset: "1-3"
+            memory: "10G"
+          EOF
+
+      - name: Setup mock-java repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-java-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Prepare CRSs
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-jazzer.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-java target
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-jazzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-java-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-java-repo \
+            --build-id smoke-java
+
+      - name: Bugfinding (crs-jazzer)
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-jazzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-java-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-java-repo \
+            --target-harness OssFuzz1 \
+            --timeout 600 \
+            --build-id smoke-java \
+            --run-id bugfinding-java \
+            --early-exit
+
+      - name: Verify POVs found
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-jazzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-java-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-java-repo \
+            --target-harness OssFuzz1 \
+            --build-id smoke-java \
+            --run-id bugfinding-java)
+          echo "$artifacts" | jq .
+          pov_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.pov')
+          echo "POV directory: $pov_dir"
+          if [ ! -d "$pov_dir" ] || [ -z "$(ls -A "$pov_dir")" ]; then
+            echo "ERROR: No POVs found"
+            exit 1
+          fi
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+
+      - name: Create smoke-java workdir tarball
+        if: failure()
+        run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-java-workdir.tar.gz \
+            --empty-message "No smoke-java workdir artifacts were found."
+          tarball=/tmp/smoke-java-workdir.tar.gz
+          ls -lh "$tarball"
+
+      - name: Upload smoke-java workdir artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-java-workdir
+          path: /tmp/smoke-java-workdir.tar.gz
+          if-no-files-found: warn
+          retention-days: 2

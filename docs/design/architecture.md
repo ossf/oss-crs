@@ -185,7 +185,7 @@ $ libCRS get-service-domain <service name>
 
 oss-crs-infra provides centralized services that all CRSs share. It runs in its own resource-constrained containers with dedicated CPU and memory allocations.
 
-### ✅ LLM Budget Management (Implemented) — [litellm.md](oss-crs-infra/litellm.md)
+### ✅ LLM Budget Management (Implemented)
 
 The LLM subsystem uses [LiteLLM](https://github.com/BerriAI/litellm) as a proxy:
 
@@ -209,15 +209,27 @@ LiteLLM integration modes:
 - **External mode**: OSS-CRS injects externally provided `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY`, and does not start internal LiteLLM sidecars.
 - **Disabled mode** (`llm_config: null`): OSS-CRS performs no LiteLLM validation or sidecar setup.
 
-### 📝 Seed Deduplication Service (Planned) — [seed-dedup.md](oss-crs-infra/seed-dedup.md)
+### Pinned Infrastructure Images
+
+The LiteLLM and PostgreSQL container images are pinned by digest in
+`oss_crs/src/constants.py` to ensure reproducible deployments. Current versions:
+
+| Image | Version | Source constant |
+|---|---|---|
+| `ghcr.io/berriai/litellm-database` | LiteLLM 1.82.3 | `LITELLM_IMAGE` |
+| `postgres` | PostgreSQL 16.13 | `POSTGRES_IMAGE` |
+
+To update, pull the new digest with `skopeo inspect` and update `constants.py`.
+
+### 📝 Seed Deduplication Service (Planned)
 
 Will provide cross-CRS seed deduplication to avoid redundant fuzzing effort across CRSs in an ensemble.
 
-### 📝 PoV Verification/Deduplication Service (Planned) — [pov-dedup.md](oss-crs-infra/pov-dedup.md)
+### 📝 PoV Verification/Deduplication Service (Planned)
 
 Will verify proof-of-vulnerability inputs and deduplicate crashes found by multiple CRSs, providing a unified view of unique bugs.
 
-### 📝 WebUI (Planned) — [webui.md](oss-crs-infra/webui.md)
+### 📝 WebUI (Planned)
 
 A monitoring dashboard for observing the status of running CRSs, including:
 - Code coverage metrics

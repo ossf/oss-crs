@@ -18,7 +18,7 @@ def init_crs_utils() -> CRSUtils:
 
 
 class DaemonContext:
-    def __init__(self, log_path: str = None):
+    def __init__(self, log_path: str | None = None):
         self.log_path = log_path
         self.log_file = None
 
@@ -279,13 +279,17 @@ def main():
         "response_dir", type=Path, help="Directory to receive build results"
     )
     apply_patch_build_parser.add_argument(
-        "--builder", type=str, required=True,
+        "--builder",
+        type=str,
+        required=True,
         help="Builder sidecar module name (resolved to URL via get-service-domain)",
     )
 
     def _apply_patch_build(args):
         exit_code = crs_utils.apply_patch_build(
-            args.patch_path, args.response_dir, args.builder,
+            args.patch_path,
+            args.response_dir,
+            args.builder,
         )
         sys.exit(exit_code)
 
@@ -303,21 +307,30 @@ def main():
         "response_dir", type=Path, help="Directory to receive POV results"
     )
     run_pov_parser.add_argument(
-        "--harness", type=str, required=True,
+        "--harness",
+        type=str,
+        required=True,
         help="Harness binary name in /out/",
     )
     run_pov_parser.add_argument(
-        "--build-id", type=str, required=True,
+        "--build-id",
+        type=str,
+        required=True,
         help="Build ID from a prior apply-patch-build call",
     )
     run_pov_parser.add_argument(
-        "--builder", type=str, required=True,
+        "--builder",
+        type=str,
+        required=True,
         help="Builder sidecar module name (resolved to URL via get-service-domain)",
     )
 
     def _run_pov(args):
         exit_code = crs_utils.run_pov(
-            args.pov_path, args.harness, args.build_id, args.response_dir,
+            args.pov_path,
+            args.harness,
+            args.build_id,
+            args.response_dir,
             args.builder,
         )
         sys.exit(exit_code)
@@ -333,17 +346,23 @@ def main():
         "response_dir", type=Path, help="Directory to receive test results"
     )
     run_test_parser.add_argument(
-        "--build-id", type=str, required=True,
+        "--build-id",
+        type=str,
+        required=True,
         help="Build ID from a prior apply-patch-build call",
     )
     run_test_parser.add_argument(
-        "--builder", type=str, required=True,
+        "--builder",
+        type=str,
+        required=True,
         help="Builder sidecar module name (resolved to URL via get-service-domain)",
     )
 
     def _run_test(args):
         exit_code = crs_utils.run_test(
-            args.build_id, args.response_dir, args.builder,
+            args.build_id,
+            args.response_dir,
+            args.builder,
         )
         sys.exit(exit_code)
 
