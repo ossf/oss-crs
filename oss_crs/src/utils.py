@@ -144,6 +144,9 @@ class TmpDockerCompose:
             shutil.rmtree(self.dir, ignore_errors=True)
 
 
+PRESERVED_BUILDER_REPO = "oss-crs-builder"
+
+
 def preserved_builder_image_name(crs_name: str, build_name: str, build_id: str) -> str:
     """Deterministic image name for a preserved builder image.
 
@@ -151,17 +154,16 @@ def preserved_builder_image_name(crs_name: str, build_name: str, build_id: str) 
     by _create_incremental_snapshots for snapshot creation, and by the sidecar
     compose template for BASE_IMAGE_* env vars.
     """
-    return f"oss-crs-builder:{crs_name}-{build_name}-{build_id}"
+    return f"{PRESERVED_BUILDER_REPO}:{crs_name}-{build_name}-{build_id}"
 
 
 def build_snapshot_tag(crs_name: str, build_name: str, build_id: str) -> str:
     """Full image tag for a builder snapshot.
 
-    Format: oss-crs-snapshot:build__{crs_name}__{build_name}__{build_id}
-    Uses __ as separator to avoid ambiguity with hyphenated names.
+    Format: oss-crs-snapshot:build-{crs_name}-{build_name}-{build_id}
     Used by _create_incremental_snapshots, _check_snapshots_exist, and the sidecar.
     """
-    return f"oss-crs-snapshot:build__{crs_name}__{build_name}__{build_id}"
+    return f"oss-crs-snapshot:build-{crs_name}-{build_name}-{build_id}"
 
 
 def rm_with_docker(path: Path) -> None:

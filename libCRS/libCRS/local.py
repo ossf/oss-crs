@@ -202,34 +202,15 @@ class LocalCRSUtils(CRSUtils):
         return None
 
     def submit_build_output(self, src_path: str, dst_path: Path, rebuild_id: "int | None" = None) -> None:
-        phase = os.environ.get("OSS_CRS_CURRENT_PHASE", "build-target")
-        if phase == "run" and rebuild_id is None:
-            raise ValueError("rebuild_id is required during run phase")
-        if phase == "build-target" and rebuild_id is not None:
-            raise ValueError("rebuild_id must not be set during build-target phase")
+        """Write build output to the build output directory.
 
+        Both build-target and run phases use the same mechanism: rsync to the
+        mounted OSS_CRS_BUILD_OUT_DIR. The ephemeral container mounts the
+        rebuild output dir at the same path, so no HTTP upload is needed.
+        """
         src = Path(src_path)
-        if rebuild_id is not None:
-            # Run phase: upload to sidecar rebuild output dir
-            self._submit_to_sidecar(src, dst_path, rebuild_id)
-        else:
-            # Build-target phase: write to local build output dir
-            dst = _get_build_out_dir() / dst_path
-            rsync_copy(src, dst)
-
-    def _submit_to_sidecar(self, src: Path, dst_path: Path, rebuild_id: int) -> None:
-        """Upload build output to the sidecar's rebuild output directory."""
-        crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
-        builder = self._resolve_builder(None)
-        builder_url = self._get_service_url(builder)
-        with open(src, "rb") as f:
-            resp = http_requests.post(
-                f"{builder_url}/upload-build-output",
-                files={"file": (str(dst_path), f)},
-                data={"crs_name": crs_name, "rebuild_id": str(rebuild_id)},
-                timeout=120,
-            )
-        resp.raise_for_status()
+        dst = _get_build_out_dir() / dst_path
+        rsync_copy(src, dst)
 
     def skip_build_output(self, dst_path: str) -> None:
         with tempfile.NamedTemporaryFile() as tmp_file:

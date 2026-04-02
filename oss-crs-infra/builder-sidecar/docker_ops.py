@@ -82,7 +82,7 @@ def _build_snapshot_tag(crs_name: str, builder_name: str, build_id: str) -> str:
 
     Must match the format in oss_crs/src/utils.py:build_snapshot_tag().
     """
-    return f"oss-crs-snapshot:build__{crs_name}__{builder_name}__{build_id}"
+    return f"oss-crs-snapshot:build-{crs_name}-{builder_name}-{build_id}"
 
 
 def get_build_image(client: "docker.DockerClient", base_image: str, builder_name: str, crs_name: str) -> str:
@@ -239,7 +239,7 @@ def run_ephemeral_build(
         stdout, stderr = _stream_and_capture_logs(container, f"build:{builder_name}")
 
         if exit_code == 0 and not snapshot_exists:
-            container.commit(repository="oss-crs-snapshot", tag=f"build__{crs_name}__{builder_name}__{rebuild_id}")
+            container.commit(repository="oss-crs-snapshot", tag=f"build-{crs_name}-{builder_name}-{rebuild_id}")
 
         return {
             "exit_code": exit_code,

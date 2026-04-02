@@ -9,7 +9,7 @@ Endpoints:
     GET  /status/{job_id}       - Poll job status
     GET  /builds                - List all known job IDs
     POST /test                  - Submit a test job
-    GET  /download-build-output - Download rebuild artifacts as zip
+
 
 Environment variables:
     REBUILD_OUT_DIR         - Host path for artifact output (required)
@@ -22,18 +22,16 @@ Environment variables:
 """
 
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import hashlib
-import io
 import os
 from concurrent.futures import ThreadPoolExecutor
-import zipfile
 from pathlib import Path
 
 from docker_ops import (
     get_build_image, get_test_image,
-    next_rebuild_id, rebuild_output_dir, run_ephemeral_build, run_ephemeral_test,
+    next_rebuild_id, run_ephemeral_build, run_ephemeral_test,
 )
 import docker
 
@@ -157,58 +155,6 @@ async def run_test(
     _executor.submit(_run_job, "test", job_id, patch_content, crs_name, rebuild_id, cpuset, mem_limit)
     return JobResponse(id=job_id, status="queued")
 
-
-@app.post("/upload-build-output")
-async def upload_build_output(
-    file: UploadFile = File(...),
-    crs_name: str = Form(...),
-    rebuild_id: int = Form(...),
-):
-    """Upload a file to the rebuild output directory."""
-    rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
-    output_dir = rebuild_output_dir(rebuild_out_dir, crs_name, rebuild_id)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = file.filename or "output"
-    dst = output_dir / filename
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    content = await file.read()
-    dst.write_bytes(content)
-
-    return {"status": "ok", "path": str(dst.relative_to(rebuild_out_dir))}
-
-
-@app.get("/download-build-output")
-def download_build_output(crs_name: str, rebuild_id: int):
-    """Download rebuild artifacts as a zip archive.
-
-    Query params:
-        crs_name: CRS identifier.
-        rebuild_id: Rebuild ID integer.
-    """
-    rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
-    output_dir = rebuild_output_dir(rebuild_out_dir, crs_name, rebuild_id)
-
-    if not output_dir.exists():
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"No artifacts for crs={crs_name!r} rebuild_id={rebuild_id}"},
-        )
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zipf:
-        for file_path in output_dir.rglob("*"):
-            if file_path.is_file():
-                arcname = file_path.relative_to(output_dir)
-                zipf.write(file_path, arcname=str(arcname))
-    buf.seek(0)
-
-    filename = f"{crs_name}_{rebuild_id}.zip"
-    return StreamingResponse(
-        content=buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
 
 
 # ---------------------------------------------------------------------------

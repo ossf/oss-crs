@@ -70,7 +70,7 @@ def test_ephemeral_build_lifecycle(tmp_path):
 
     # Verify container was cleaned up (OPS-03 behavior)
     # No containers with our build label should remain
-    snapshot_tag = f"oss-crs-snapshot:build__{crs_name}__{builder_name}__{build_id}"
+    snapshot_tag = f"oss-crs-snapshot:build-{crs_name}-{builder_name}-{build_id}"
 
     # Cleanup: remove snapshot image if created
     try:
@@ -91,7 +91,7 @@ def test_snapshot_creation_and_reuse(tmp_path):
     rebuild_out_dir = tmp_path / "rebuild_out"
     rebuild_out_dir.mkdir()
 
-    snapshot_tag = f"oss-crs-snapshot:build__{crs_name}__{builder_name}__{build_id}"
+    snapshot_tag = f"oss-crs-snapshot:build-{crs_name}-{builder_name}-{build_id}"
 
     try:
         # First build: should use base image (no snapshot exists)
@@ -147,8 +147,8 @@ def test_snapshot_tag_includes_crs_and_builder_name(tmp_path):
     assert result == base_image
 
     # The expected tag format when a snapshot exists would be:
-    expected_tag = f"oss-crs-snapshot:build__{crs_name}__{builder_name}__{build_id}"
-    assert expected_tag == "oss-crs-snapshot:build__my-crs__my-custom-builder__tag-format-test"
+    expected_tag = f"oss-crs-snapshot:build-{crs_name}-{builder_name}-{build_id}"
+    assert expected_tag == "oss-crs-snapshot:build-my-crs-my-custom-builder-tag-format-test"
 
 
 def test_container_cleanup_on_failure(tmp_path):

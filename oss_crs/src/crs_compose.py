@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
+from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
 from .llm import LLM
 from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
@@ -259,8 +260,6 @@ class CRSCompose:
         Returns:
             True if all snapshots committed successfully, False otherwise (with cleanup).
         """
-        from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
-
         client = docker.from_env()
         committed_tags: list[str] = []
         target_env = target.get_target_env()
@@ -276,7 +275,7 @@ class CRSCompose:
                 if not crs.config.target_build_phase or not crs.config.target_build_phase.builds:
                     continue
                 for build_config in crs.config.target_build_phase.builds:
-                    tag = f"build__{crs.name}__{build_config.name}__{build_id}"
+                    tag = f"build-{crs.name}-{build_config.name}-{build_id}"
                     builder_image = preserved_builder_image_name(
                         crs.name, build_config.name, build_id,
                     )

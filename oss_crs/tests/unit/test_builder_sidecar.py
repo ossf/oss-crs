@@ -106,8 +106,8 @@ class TestGetBuildImage:
         client = MagicMock()
         client.images.get.return_value = MagicMock()
         result = get_build_image(client, "base:latest", TEST_BUILDER_NAME, TEST_CRS_NAME)
-        assert result == f"oss-crs-snapshot:build__{TEST_CRS_NAME}__{TEST_BUILDER_NAME}__bid123"
-        client.images.get.assert_called_once_with(f"oss-crs-snapshot:build__{TEST_CRS_NAME}__{TEST_BUILDER_NAME}__bid123")
+        assert result == f"oss-crs-snapshot:build-{TEST_CRS_NAME}-{TEST_BUILDER_NAME}-bid123"
+        client.images.get.assert_called_once_with(f"oss-crs-snapshot:build-{TEST_CRS_NAME}-{TEST_BUILDER_NAME}-bid123")
 
     @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true", "OSS_CRS_BUILD_ID": "bid123"})
     def test_returns_base_when_not_found(self):
@@ -183,7 +183,7 @@ class TestRunEphemeralBuild:
             run_ephemeral_build("base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path)
         container.commit.assert_called_once_with(
             repository="oss-crs-snapshot",
-            tag=f"build__test-crs__{TEST_BUILDER_NAME}__1",
+            tag=f"build-test-crs-{TEST_BUILDER_NAME}-1",
         )
 
     def test_existing_snapshot_skips_commit(self, tmp_path):
@@ -458,7 +458,7 @@ class TestSnapshotTagNaming:
         client = MagicMock()
         client.images.get.side_effect = docker.errors.ImageNotFound("nope")
         get_build_image(client, "base:latest", TEST_BUILDER_NAME, TEST_CRS_NAME)
-        client.images.get.assert_called_once_with(f"oss-crs-snapshot:build__{TEST_CRS_NAME}__{TEST_BUILDER_NAME}__myid")
+        client.images.get.assert_called_once_with(f"oss-crs-snapshot:build-{TEST_CRS_NAME}-{TEST_BUILDER_NAME}-myid")
 
     @patch.dict(os.environ, {"INCREMENTAL_BUILD": "true", "OSS_CRS_BUILD_ID": "myid"})
     def test_test_snapshot_uses_test_prefix(self):
@@ -470,7 +470,7 @@ class TestSnapshotTagNaming:
 
     def test_build_and_test_tags_are_distinct(self):
         """Build and test snapshot tags for same build_id must differ."""
-        build_tag = f"oss-crs-snapshot:build__{TEST_CRS_NAME}__{TEST_BUILDER_NAME}__myid"
+        build_tag = f"oss-crs-snapshot:build-{TEST_CRS_NAME}-{TEST_BUILDER_NAME}-myid"
         test_tag = "oss-crs-snapshot:test-myid"
         assert build_tag != test_tag
 

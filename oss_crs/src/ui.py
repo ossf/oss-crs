@@ -11,7 +11,7 @@ from typing import Callable, Optional
 import yaml
 from rich.console import Console, Group
 
-from .utils import bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
+from .utils import PRESERVED_BUILDER_REPO, bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
 from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
@@ -1289,7 +1289,7 @@ class MultiTaskProgress:
 
             # Don't remove preserved builder images — they're tagged copies of
             # compose-built images kept for the sidecar and snapshot workflows.
-            image_refs = {r for r in image_refs if not r.startswith("oss-crs-builder:")}
+            image_refs = {r for r in image_refs if not r.startswith(f"{PRESERVED_BUILDER_REPO}:")}
             if image_refs:
                 rm_result = subprocess.run(
                     ["docker", "image", "rm", "-f", *sorted(image_refs)],
