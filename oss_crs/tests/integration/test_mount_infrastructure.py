@@ -1,77 +1,85 @@
 """Integration tests for mount infrastructure verification.
 
-These tests verify that volume mount definitions for /OSS_CRS_FUZZ_PROJ and
-/OSS_CRS_TARGET_SOURCE are correctly generated in docker-compose output.
+These tests verify that OSS_CRS_FUZZ_PROJ and OSS_CRS_TARGET_SOURCE
+env vars are correctly set in both build and run phases via env_policy.
 
-Integration tests here operate at the renderer level (not live Docker), verifying
-the full rendering pipeline including context propagation from Target objects.
+Volume mount rendering is covered by unit tests in test_template_rendering.py.
+These tests focus on the env_policy layer which was previously untested for FUZZ_PROJ.
 """
 
-import pytest
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).parent.parent.parent.parent
+from oss_crs.src.env_policy import build_target_builder_env, build_run_service_env
 
 
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
-def test_fuzz_proj_mount_in_build_target():
-    """Rendered build-target compose should include /OSS_CRS_FUZZ_PROJ:ro mount."""
-    # After implementation: render_build_target_docker_compose() output should
-    # contain proj_path:/OSS_CRS_FUZZ_PROJ:ro volume entry.
-    pass
+def _make_target_env(**overrides):
+    env = {
+        "engine": "libfuzzer",
+        "sanitizer": "address",
+        "architecture": "x86_64",
+        "name": "proj",
+        "language": "c",
+        "repo_path": "/src",
+    }
+    env.update(overrides)
+    return env
 
 
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
-def test_target_source_mount_in_build_target_when_provided():
-    """Rendered build-target compose should include /OSS_CRS_TARGET_SOURCE:ro when has_repo."""
-    # After implementation: with target._has_repo=True, output should
-    # contain repo_path:/OSS_CRS_TARGET_SOURCE:ro volume entry.
-    pass
-
-
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
-def test_target_source_mount_absent_in_build_target_when_not_provided():
-    """Rendered build-target compose should NOT include /OSS_CRS_TARGET_SOURCE when no repo."""
-    # After implementation: with target._has_repo=False, output should
-    # NOT contain /OSS_CRS_TARGET_SOURCE volume entry.
-    pass
-
-
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
-def test_fuzz_proj_mount_in_run_crs():
-    """Rendered run-crs-compose should include /OSS_CRS_FUZZ_PROJ:ro for each CRS service."""
-    # After implementation: render_run_crs_compose_docker_compose() output should
-    # contain proj_path:/OSS_CRS_FUZZ_PROJ:ro for all CRS module services.
-    pass
-
-
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
-def test_target_source_mount_in_run_crs_when_provided():
-    """Rendered run-crs-compose should include /OSS_CRS_TARGET_SOURCE:ro when has_repo."""
-    # After implementation: with target._has_repo=True, all CRS module services should
-    # contain repo_path:/OSS_CRS_TARGET_SOURCE:ro volume entry.
-    pass
-
-
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
 def test_fuzz_proj_env_in_build():
     """Build env should include OSS_CRS_FUZZ_PROJ=/OSS_CRS_FUZZ_PROJ."""
-    # After implementation: build_target_builder_env() effective_env should
-    # contain OSS_CRS_FUZZ_PROJ=/OSS_CRS_FUZZ_PROJ.
-    pass
+    plan = build_target_builder_env(
+        target_env=_make_target_env(),
+        run_env_type="local",
+        build_id="b1",
+        crs_additional_env=None,
+        build_additional_env=None,
+        scope="test:mount",
+    )
+    assert plan.effective_env["OSS_CRS_FUZZ_PROJ"] == "/OSS_CRS_FUZZ_PROJ"
 
 
-@pytest.mark.skip(reason="Implementation pending - Task 2/3")
 def test_fuzz_proj_env_in_run():
     """Run env should include OSS_CRS_FUZZ_PROJ=/OSS_CRS_FUZZ_PROJ."""
-    # After implementation: build_run_service_env() effective_env should
-    # contain OSS_CRS_FUZZ_PROJ=/OSS_CRS_FUZZ_PROJ.
-    pass
+    plan = build_run_service_env(
+        target_env=_make_target_env(),
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="patcher",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        scope="test:mount",
+    )
+    assert plan.effective_env["OSS_CRS_FUZZ_PROJ"] == "/OSS_CRS_FUZZ_PROJ"
 
 
-@pytest.mark.skip(reason="Implementation pending - Task 3")
-def test_target_source_env_conditional():
-    """OSS_CRS_TARGET_SOURCE should only appear in env when include_target_source=True."""
-    # After implementation: build_target_builder_env() and build_run_service_env()
-    # should include OSS_CRS_TARGET_SOURCE only when include_target_source=True.
-    pass
+def test_target_source_env_unconditional_in_build():
+    """OSS_CRS_TARGET_SOURCE should always appear in build env (unconditional)."""
+    plan = build_target_builder_env(
+        target_env=_make_target_env(),
+        run_env_type="local",
+        build_id="b1",
+        crs_additional_env=None,
+        build_additional_env=None,
+        scope="test:mount",
+    )
+    assert plan.effective_env["OSS_CRS_TARGET_SOURCE"] == "/OSS_CRS_TARGET_SOURCE"
+
+
+def test_target_source_env_unconditional_in_run():
+    """OSS_CRS_TARGET_SOURCE should always appear in run env (unconditional)."""
+    plan = build_run_service_env(
+        target_env=_make_target_env(),
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="patcher",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        scope="test:mount",
+    )
+    assert plan.effective_env["OSS_CRS_TARGET_SOURCE"] == "/OSS_CRS_TARGET_SOURCE"
