@@ -13,3 +13,5 @@ tags
 .planning
 .oss-crs-workdir/
 third_party/
+docs/meeting/*/main.md
+docs/meeting/*/*.svg
