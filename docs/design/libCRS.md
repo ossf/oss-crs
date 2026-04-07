@@ -41,7 +41,8 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
 | `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
-| `OSS_CRS_SNAPSHOT_IMAGE` | Docker image tag of the snapshot (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) |
+| `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (written by builder sidecar, read by CRS modules) |
+| `BUILDER_MODULE` | Builder sidecar service name for DNS resolution (framework-injected, defaults to `builder-sidecar`) |
 
 ## Architecture
 
@@ -373,78 +374,87 @@ $ libCRS get-service-domain my-analyzer
 
 ### Builder Sidecar Commands
 
-These commands communicate with a builder sidecar service to apply patches, run PoVs, and run tests against incremental builds. The `--builder` flag specifies which builder module to use — libCRS resolves the module name to a URL internally via `get-service-domain`.
+These commands communicate with the framework-injected builder and runner sidecars to apply patches, rebuild, run PoVs, and run tests. The sidecars are always available during the run phase — CRS developers do not need to declare them in `crs.yaml`.
+
+The `BUILDER_MODULE` environment variable (framework-injected as `builder-sidecar`) is used for DNS resolution. The `--builder` flag is optional and only needed to override the default.
 
 #### `apply-patch-build` ✅
 
-Apply a unified diff patch to the snapshot image and rebuild. Sends the patch to the builder's `/build` endpoint, polls until completion, and writes the result to the response directory.
+Apply a unified diff patch and rebuild in an ephemeral container. Sends the patch to the builder sidecar's `/build` endpoint, polls until completion, and writes results to the response directory.
 
 ```bash
-$ libCRS apply-patch-build <patch_path> <response_dir> --builder <module_name>
+$ libCRS apply-patch-build <patch_path> <response_dir> [--builder-name <name>]
 ```
 
 | Argument | Description |
 |---|---|
 | `patch_path` | Path to the unified diff file |
-| `response_dir` | Directory to receive build results (build ID, exit code, logs) |
-| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+| `response_dir` | Directory to receive build results |
+| `--builder-name` | Builder config name (e.g., `default-build`). Auto-detected if omitted. |
+| `--rebuild-id` | Rebuild ID (auto-increments if omitted) |
 
 The command exits with the build's exit code (0 = success, non-zero = failure). The response directory contains:
-- `build_id` — The build identifier for use with `run-pov` and `run-test`
-- Build logs and exit status
+- `retcode` — Exit code (0 = success)
+- `rebuild_id` — The rebuild identifier for use with `run-pov`
+- `stdout.log` / `stderr.log` — Build output
 
 **Example:**
 ```bash
-$ libCRS apply-patch-build /tmp/fix.diff /tmp/build-result --builder builder-asan
-$ cat /tmp/build-result/build_id
-abc123
+$ libCRS apply-patch-build /tmp/fix.diff /tmp/build-result
+$ cat /tmp/build-result/rebuild_id
+2
 ```
 
 #### `run-pov` ✅
 
-Run a PoV (proof-of-vulnerability) binary against a specific patched build. Sends the PoV to the builder's `/run-pov` endpoint.
+Run a PoV (proof-of-vulnerability) binary against a specific rebuild's output. Sends the PoV to the runner sidecar's `/run-pov` endpoint.
 
 ```bash
-$ libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
 ```
 
 | Argument | Description |
 |---|---|
 | `pov_path` | Path to the PoV binary file |
 | `response_dir` | Directory to receive PoV results |
-| `--harness` | Harness binary name in `/out/` |
-| `--build-id` | Build ID from a prior `apply-patch-build` call |
-| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+| `--harness` | **(Required)** Harness binary name in `/out/` |
+| `--rebuild-id` | **(Required)** Rebuild ID from a prior `apply-patch-build` call |
+
+The response directory contains:
+- `retcode` — Exit code (0 = no crash / fix works, non-zero = still crashes)
+- `stdout.log` / `stderr.log` — PoV execution output
 
 **Example:**
 ```bash
 $ libCRS run-pov /tmp/crash-input /tmp/pov-result \
-    --harness fuzz_target --build-id abc123 --builder builder-asan
+    --harness fuzz_target --rebuild-id 2
 ```
 
-#### `run-test` ✅
+#### `apply-patch-test` ✅
 
-Run the project's bundled `test.sh` against a specific patched build. Sends the request to the builder's `/run-test` endpoint.
+Apply a unified diff patch and run the project's bundled `test.sh` in an ephemeral container. Sends the patch to the builder sidecar's `/test` endpoint.
 
 ```bash
-$ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
+$ libCRS apply-patch-test <patch_path> <response_dir>
 ```
 
 | Argument | Description |
 |---|---|
+| `patch_path` | Path to the unified diff file |
 | `response_dir` | Directory to receive test results |
-| `--build-id` | Build ID from a prior `apply-patch-build` call |
-| `--builder` | **(Required)** Builder sidecar module name (e.g., `builder-asan`) |
+
+The response directory contains:
+- `retcode` — Exit code (0 = tests pass, non-zero = failure)
+- `stdout.log` / `stderr.log` — Test output
 
 **Example:**
 ```bash
-$ libCRS run-test /tmp/test-result --build-id abc123 --builder builder-asan
+$ libCRS apply-patch-test /tmp/fix.diff /tmp/test-result
 ```
 
-`run-test` contract notes:
-- `test.sh` is resolved by the builder sidecar at `/OSS_CRS_PROJ_PATH/test.sh`.
-- `/OSS_CRS_PROJ_PATH` must be present inside the runtime snapshot image used by the sidecar.
-- If `test.sh` is missing, the sidecar returns a skipped-success result (`test_exit_code=0`) by contract.
+`apply-patch-test` contract notes:
+- `test.sh` is resolved by the builder sidecar (checked at `/src/run_tests.sh`, `/src/test.sh`, `$OSS_CRS_PROJ_PATH/test.sh`).
+- If no test script is found, the sidecar returns a skipped-success result (`retcode=0`) by contract.
 
 ## Typical Usage in a CRS
 
@@ -492,23 +502,24 @@ ANALYZER_HOST=$(libCRS get-service-domain analyzer)
 
 ```bash
 #!/bin/bash
-# run-patcher.sh — executed in a patcher module (uses --builder to specify which builder sidecar to talk to)
+# run-patcher.sh — executed in a patcher module
+# Builder/runner sidecars are injected by the framework (BUILDER_MODULE env var is set automatically)
 
 # Generate a patch (your CRS logic)
 generate_patch > /tmp/patch.diff
 
-# Apply the patch and rebuild incrementally
-libCRS apply-patch-build /tmp/patch.diff /tmp/build-result --builder builder-asan
-BUILD_ID=$(cat /tmp/build-result/build_id)
+# Apply the patch and rebuild in an ephemeral container
+libCRS apply-patch-build /tmp/patch.diff /tmp/build-result
+REBUILD_ID=$(cat /tmp/build-result/rebuild_id)
 
 # Run PoV against the patched build
 libCRS run-pov /tmp/crash-input /tmp/pov-result \
-  --harness fuzz_target --build-id "$BUILD_ID" --builder builder-asan
+  --harness fuzz_target --rebuild-id "$REBUILD_ID"
 
-# Run the project's test suite against the patched build
-libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
+# Run the project's test suite
+libCRS apply-patch-test /tmp/patch.diff /tmp/test-result
 
-# If both pass, submit the patch
+# If all pass, submit the patch
 libCRS submit patch /tmp/patch.diff
 ```
 
@@ -526,9 +537,11 @@ libCRS submit patch /tmp/patch.diff
 | `submit` | ✅ Implemented | Single-file submission |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
 | `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |
+| `apply-patch-build` | ✅ Implemented | Ephemeral rebuild via builder sidecar |
+| `run-pov` | ✅ Implemented | PoV reproduction via runner sidecar |
+| `apply-patch-test` | ✅ Implemented | Patch + test.sh via builder sidecar |
 | `fetch` | ✅ Implemented | One-shot fetch from FETCH_DIR via InfraClient |
 | `apply-patch-build` | ✅ Implemented | Sends patch to builder sidecar `/build` endpoint |
 | `run-pov` | ✅ Implemented | Sends PoV to builder sidecar `/run-pov` endpoint |
-| `run-test` | ✅ Implemented | Sends test request to builder sidecar `/run-test` endpoint |
 | `AzureCRSUtils` | 📝 Planned | Azure deployment backend for `CRSUtils` |
 | InfraClient integration | ✅ Implemented | Exchange sidecar copies from SUBMIT_DIR to EXCHANGE_DIR; InfraClient fetches from FETCH_DIR |

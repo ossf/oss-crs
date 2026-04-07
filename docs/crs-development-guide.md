@@ -315,7 +315,8 @@ Your containers receive these environment variables automatically:
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
 | `ARCHITECTURE` | Target architecture | `x86_64` |
 | `FUZZING_LANGUAGE` | Target language | `c` |
-| `OSS_CRS_SNAPSHOT_IMAGE` | Snapshot Docker image tag (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) | `my-crs-snapshot-asan:latest` |
+| `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (builder sidecar output) | `/OSS_CRS_REBUILD_OUT_DIR` |
+| `BUILDER_MODULE` | Builder sidecar service name for DNS (framework-injected) | `builder-sidecar` |
 
 Notes:
 - `additional_env` keys are validated with pattern `[A-Za-z_][A-Za-z0-9_]*`.
@@ -356,10 +357,10 @@ libCRS submit <type> <file_path>
 # Network
 libCRS get-service-domain <service_name>
 
-# Incremental build (builder sidecar)
-libCRS apply-patch-build <patch_path> <response_dir> --builder <module_name>
-libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
-libCRS run-test <response_dir> --build-id <id> --builder <module_name>
+# Builder sidecar (framework-injected, BUILDER_MODULE set automatically)
+libCRS apply-patch-build <patch_path> <response_dir>
+libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
+libCRS apply-patch-test <patch_path> <response_dir>
 ```
 
 For the complete libCRS reference, see [design/libCRS.md](design/libCRS.md).
@@ -531,13 +532,13 @@ FUZZER_ADDR=$(libCRS get-service-domain fuzzer)
 
 ---
 
-## Incremental Builds (Builder Sidecar)
+## Builder Sidecar
 
-Incremental builds let your CRS apply patches and rebuild the target **without recompiling from scratch**. Instead of running the full build-target phase for each patch, the framework creates a Docker snapshot of the compiled project, and a builder sidecar service applies patches on top of it.
+The builder sidecar lets your CRS apply patches and rebuild the target **without recompiling from scratch**. The framework automatically injects a builder sidecar and runner sidecar alongside your CRS containers during the run phase — no configuration needed in `crs.yaml`.
 
 ### When to Use
 
-Use incremental builds when your CRS needs to:
+Use the builder sidecar when your CRS needs to:
 - Generate and test patches (bug-fixing CRSs)
 - Rapidly rebuild after small source changes
 - Run PoVs or tests against patched builds
@@ -546,62 +547,54 @@ Use incremental builds when your CRS needs to:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                    my-crs (Isolated)                          │
+│                    Docker Compose (run phase)                  │
 │                                                               │
 │  ┌──────────────┐    ┌──────────────────┐                    │
-│  │   patcher    │───▶│  builder-asan    │                    │
-│  │  (module)    │    │  (builder sidecar)│                    │
-│  │              │───▶│                  │                    │
-│  └──────────────┘    └──────────────────┘                    │
-│         │                                                    │
-│         │            ┌──────────────────┐                    │
-│         └───────────▶│ builder-coverage │                    │
-│                      │ (builder sidecar)│                    │
+│  │   patcher    │───▶│ builder-sidecar  │ (framework-injected)│
+│  │  (your CRS)  │    │ ephemeral builds │                    │
+│  │              │    └──────────────────┘                    │
+│  │              │    ┌──────────────────┐                    │
+│  │              │───▶│ runner-sidecar   │ (framework-injected)│
+│  └──────────────┘    │ PoV reproduction │                    │
 │                      └──────────────────┘                    │
 │                                                               │
 │  Patcher uses libCRS commands:                               │
-│    apply-patch-build  →  send patch to builder, get build ID │
+│    apply-patch-build  →  rebuild with patch, get rebuild_id  │
 │    run-pov            →  run PoV against a patched build     │
-│    run-test           →  run test.sh against a patched build │
+│    apply-patch-test   →  apply patch and run test.sh         │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-1. During `build-target`, snapshot build steps (with `snapshot: true`) create a Docker image of the fully compiled target.
-2. During `run`, builder sidecar modules (with `run_snapshot: true`) start from the snapshot image and expose an HTTP API.
+1. During `build-target`, the framework builds your CRS's builder image and preserves it.
+2. During `run`, the framework injects `oss-crs-builder-sidecar` and `oss-crs-runner-sidecar` containers. The builder sidecar launches ephemeral containers from the preserved builder image to apply patches and rebuild.
 3. Your patcher module sends patches via `libCRS apply-patch-build`, which calls the builder's `/build` endpoint.
-4. The builder applies the patch, recompiles incrementally, and returns the result.
+4. The builder applies the patch in a fresh container, recompiles, and returns the result.
 
-### Adding to `crs.yaml`
+### CRS Configuration
+
+No special `crs.yaml` entries are needed for the sidecar. Just declare your builder and patcher as usual:
 
 ```yaml
 target_build_phase:
-  - name: asan-snapshot
-    dockerfile: oss-crs-infra:default-builder
-    snapshot: true
-    additional_env:
-      SANITIZER: address
-  - name: coverage-snapshot
-    dockerfile: oss-crs-infra:default-builder
-    snapshot: true
-    additional_env:
-      SANITIZER: coverage
+  - name: default-build
+    dockerfile: oss-crs/builder.Dockerfile
+    outputs:
+      - build
+      - src
 
 crs_run_phase:
   patcher:
-    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
-  builder-asan:
-    dockerfile: oss-crs-infra:default-builder
-    run_snapshot: true
-  builder-coverage:
-    dockerfile: oss-crs-infra:default-builder
-    run_snapshot: true
+    dockerfile: oss-crs/patcher.Dockerfile
 ```
 
-Only builder sidecar modules get `run_snapshot: true`. The patcher is a regular module that uses the `--builder` flag on libCRS commands to specify which builder sidecar to communicate with.
+The framework automatically:
+- Injects `BUILDER_MODULE=builder-sidecar` into all CRS run-phase containers
+- Creates DNS aliases `builder-sidecar.<crs-name>` and `runner-sidecar.<crs-name>`
+- Mounts the Docker socket and rebuild output volumes
 
 ### Compose File Setup
 
-No special compose file configuration is needed. The framework automatically detects snapshot builds from `crs.yaml`. Just reference your CRS as usual:
+No special compose file configuration is needed. Just reference your CRS as usual:
 
 ```yaml
 run_env: local
@@ -618,8 +611,6 @@ my-patcher-crs:
     local_path: /path/to/my-crs
 ```
 
-No separate `oss-crs-builder` entry is needed — each CRS declares its own builder sidecars in `crs.yaml`.
-
 Framework-generated helper sidecars reserve the `oss-crs-` service-name prefix.
 If you add new OSS-CRS-managed helper containers, keep that prefix so teardown
 classification treats their expected shutdown exits as non-fatal.
@@ -629,89 +620,45 @@ classification treats their expected shutdown exits as non-fatal.
 ```bash
 #!/bin/bash
 # run-patcher.sh — entry script for a patcher module
+# BUILDER_MODULE is set automatically by the framework
 
 # 1. Generate a patch (your CRS logic)
 generate_patch > /tmp/patch.diff
 
-# 2. Apply the patch and rebuild (specify which builder sidecar to use)
-libCRS apply-patch-build /tmp/patch.diff /tmp/build-result --builder builder-asan
+# 2. Apply the patch and rebuild in an ephemeral container
+libCRS apply-patch-build /tmp/patch.diff /tmp/build-result
 # Exit code 0 = build succeeded, non-zero = build failed
-# /tmp/build-result/ contains build_id and build output
+# /tmp/build-result/ contains rebuild_id, retcode, stdout.log, stderr.log
 
-BUILD_ID=$(cat /tmp/build-result/build_id)
+REBUILD_ID=$(cat /tmp/build-result/rebuild_id)
 
 # 3. Run PoV against the patched build
 libCRS run-pov /tmp/crash-input /tmp/pov-result \
-  --harness fuzz_target --build-id "$BUILD_ID" --builder builder-asan
+  --harness fuzz_target --rebuild-id "$REBUILD_ID"
 
-# 4. Run the project's test suite against the patched build
-libCRS run-test /tmp/test-result --build-id "$BUILD_ID" --builder builder-asan
+# 4. Run the project's test suite
+libCRS apply-patch-test /tmp/patch.diff /tmp/test-result
 ```
 
-`run-test` contract notes:
-- Builder sidecar resolves the test script at `/OSS_CRS_PROJ_PATH/test.sh`.
-- `/OSS_CRS_PROJ_PATH` must exist inside the runtime snapshot image used by the builder sidecar.
-- If `test.sh` is missing, sidecar returns skipped-success (`test_exit_code=0`) by contract.
+`apply-patch-test` contract notes:
+- The builder sidecar resolves the test script (checks `/src/run_tests.sh`, `/src/test.sh`, `$OSS_CRS_PROJ_PATH/test.sh`).
+- If no test script is found, the sidecar returns skipped-success (`retcode=0`) by contract.
 
-### Multi-Sanitizer Setup
+### Incremental Build Snapshots (`--incremental-build`)
 
-You can create separate snapshot builds for each sanitizer. Each builder sidecar module runs independently, so your patcher can test patches against multiple sanitizer configurations in parallel:
+For faster rebuilds across multiple runs, operators can pass `--incremental-build` to both `build-target` and `run`:
 
-```yaml
-target_build_phase:
-  - name: asan-snapshot
-    dockerfile: oss-crs-infra:default-builder
-    snapshot: true
-    additional_env:
-      SANITIZER: address
-  - name: ubsan-snapshot
-    dockerfile: oss-crs-infra:default-builder
-    snapshot: true
-    additional_env:
-      SANITIZER: undefined
+```bash
+# Create snapshots during build
+oss-crs build-target --incremental-build --compose-file ... --build-id my-build
 
-crs_run_phase:
-  patcher:
-    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
-  builder-asan:
-    dockerfile: oss-crs-infra:default-builder
-    run_snapshot: true
-  builder-ubsan:
-    dockerfile: oss-crs-infra:default-builder
-    run_snapshot: true
+# Use snapshots during run (ephemeral containers start from snapshot instead of base image)
+oss-crs run --incremental-build --compose-file ... --build-id my-build --run-id my-run
 ```
 
-### Custom Builder Sidecar
+Without `--incremental-build`, ephemeral containers start from the base builder image each time (clean builds). With it, they start from a Docker snapshot of the compiled target, making rebuilds significantly faster.
 
-If the default builder (`oss-crs-infra:default-builder`) doesn't meet your needs, you can write your own. Use the default builder as a starting point and customize the build logic, caching strategy, or compilation flags.
-
-```yaml
-target_build_phase:
-  - name: my-snapshot
-    dockerfile: oss-crs/my-custom-builder.Dockerfile  # your own build logic
-    snapshot:
-      sanitizer: address
-
-crs_run_phase:
-  patcher:
-    dockerfile: oss-crs/docker-compose/patcher.Dockerfile
-    run_snapshot:
-      - my-builder
-  my-builder:
-    dockerfile: oss-crs/my-custom-sidecar.Dockerfile  # your own sidecar
-```
-
-Your custom sidecar must implement the same HTTP API on port 8080:
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/health` | GET | Healthcheck — return 200 when ready |
-| `/build` | POST | Accept `patch` file upload, apply and compile, return build ID |
-| `/run-pov` | POST | Accept `pov` file, `harness_name`, `build_id`, run the PoV |
-| `/run-test` | POST | Accept `build_id`, run the project's test suite |
-| `/status/<id>` | GET | Poll job status (`queued`, `running`, `done`) |
-
-See [builder/README.md](../builder/README.md) for the full API specification and implementation reference.
+This is an operator concern — CRS developers don't need to do anything special.
 
 ---
 
@@ -853,12 +800,10 @@ Before publishing your CRS, verify:
 - [ ] `required_inputs` lists inputs the CRS depends on (if any)
 - [ ] The CRS runs successfully against at least one OSS-Fuzz project
 
-**Additional checks for incremental builds:**
+**Additional checks for bug-fixing CRSs (builder sidecar):**
 
-- [ ] Snapshot build steps have `snapshot: true` and use `oss-crs-infra:default-builder` (or a custom builder Dockerfile)
-- [ ] Builder sidecar modules have `run_snapshot: true` in `crs_run_phase`
-- [ ] Patcher module uses `apply-patch-build`, `run-pov`, and/or `run-test` commands correctly
-- [ ] Each sanitizer has its own snapshot build step and builder sidecar module
+- [ ] Patcher module uses `apply-patch-build`, `run-pov`, and/or `apply-patch-test` commands correctly
+- [ ] No `BUILDER_MODULE` in `additional_env` (framework injects it automatically)
 
 ---
 

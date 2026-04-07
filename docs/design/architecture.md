@@ -169,11 +169,11 @@ $ libCRS fetch diff /shared-diffs
 # An exchange sidecar copies submissions from SUBMIT_DIR to EXCHANGE_DIR (CRS containers do not write to EXCHANGE_DIR directly)
 ```
 
-#### ✅ Builder Sidecar Functions
+#### ✅ Builder Sidecar Functions (framework-injected, BUILDER_MODULE set automatically)
 ```
-$ libCRS apply-patch-build <patch diff file> <response dir> --builder <module_name>
-$ libCRS run-pov <pov_path> <response_dir> --harness <name> --build-id <id> --builder <module_name>
-$ libCRS run-test <response_dir> --build-id <id> --builder <module_name>
+$ libCRS apply-patch-build <patch_path> <response_dir>
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
+$ libCRS apply-patch-test <patch_path> <response_dir>
 ```
 
 #### ✅ Network Functions
