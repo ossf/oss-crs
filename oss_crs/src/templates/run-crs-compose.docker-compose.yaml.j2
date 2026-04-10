@@ -56,6 +56,8 @@ services:
 {%- if fetch_dir %}
       - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
+      - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
+      - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
 {%- if bug_fix_ensemble and not crs.config.is_bug_fixing_ensemble %}
     attach: false
 {%- endif %}

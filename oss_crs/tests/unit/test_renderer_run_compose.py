@@ -58,6 +58,7 @@ def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
             get_shared_dir=lambda *_args, **_kwargs: tmp_path / "shared",
             get_log_dir=lambda *_args, **_kwargs: tmp_path / "log",
             get_rebuild_out_dir=lambda *_args, **_kwargs: tmp_path / "rebuild_out",
+            get_target_source_dir=lambda *_args, **_kwargs: tmp_path / "target-source",
         ),
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
@@ -68,6 +69,9 @@ def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
     target = SimpleNamespace(
         get_target_env=lambda: {"harness": "fuzz_parse_buffer"},
         get_docker_image_name=lambda: "target:latest",
+        proj_path=tmp_path / "proj",
+        repo_path=tmp_path / "repo",
+        _has_repo=False,
     )
     tmp_compose = SimpleNamespace(dir=tmp_path / "tmp-compose")
 

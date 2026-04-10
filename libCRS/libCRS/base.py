@@ -28,8 +28,8 @@ class DataType(str, Enum):
 
 
 class SourceType(str, Enum):
-    TARGET = "target"
-    REPO = "repo"
+    FUZZ_PROJ = "fuzz-proj"
+    TARGET_SOURCE = "target-source"
 
     def __str__(self) -> str:
         return self.value
@@ -49,16 +49,12 @@ class CRSUtils(ABC):
         pass
 
     @abstractmethod
-    def download_source(self, source_type: SourceType, dst_path: Path) -> Path:
+    def download_source(self, source_type: SourceType, dst_path: Path) -> None:
         """Download source tree to local destination path.
 
         source_type:
-            - target: OSS_CRS_PROJ_PATH
-            - repo: OSS_CRS_REPO_PATH
-
-        Returns:
-            The primary source directory inside ``dst_path`` that callers should
-            operate on after the copy completes.
+            - fuzz-proj: /OSS_CRS_FUZZ_PROJ (fuzz project mount)
+            - target-source: /OSS_CRS_TARGET_SOURCE (target source mount)
         """
         pass
 

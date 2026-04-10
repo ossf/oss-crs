@@ -317,6 +317,8 @@ Your containers receive these environment variables automatically:
 | `FUZZING_LANGUAGE` | Target language | `c` |
 | `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (builder sidecar output) | `/OSS_CRS_REBUILD_OUT_DIR` |
 | `BUILDER_MODULE` | Builder sidecar service name for DNS (framework-injected) | `builder-sidecar` |
+| `OSS_CRS_FUZZ_PROJ` | Fuzz project mount path (read-only) | `/OSS_CRS_FUZZ_PROJ` |
+| `OSS_CRS_TARGET_SOURCE` | Target source mount path (read-only) | `/OSS_CRS_TARGET_SOURCE` |
 
 Notes:
 - `additional_env` keys are validated with pattern `[A-Za-z_][A-Za-z0-9_]*`.
@@ -338,6 +340,7 @@ Use these with any OpenAI-compatible client library. All requests are proxied th
 # Build outputs
 libCRS submit-build-output <src_path> <dst_path>
 libCRS download-build-output <src_path> <dst_path>
+libCRS download-source <type> <dst_path>         # type: fuzz-proj, target-source
 libCRS skip-build-output <dst_path>
 
 # Automatic directory submission (runs as daemon)

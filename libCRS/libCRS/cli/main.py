@@ -134,14 +134,14 @@ def main():
     # download-source command
     download_source_parser = subparsers.add_parser(
         "download-source",
-        help="Download source tree from target/repo source path to destination",
+        help="Download source tree from mount path to destination",
     )
     download_source_parser.add_argument(
         "type",
         type=SourceType,
         choices=list(SourceType),
         metavar="TYPE",
-        help="Source type: target, repo",
+        help="Source type: fuzz-proj, target-source",
     )
     download_source_parser.add_argument(
         "dst_path",

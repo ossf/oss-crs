@@ -83,6 +83,7 @@ def render_build_target_docker_compose(
     build_id: str,
     sanitizer: str,
     build_fetch_dir: Optional[Path] = None,
+    target_source_path: Optional[Path] = None,
 ) -> tuple[str, list[str]]:
     """Render the docker-compose file for building a target.
 
@@ -94,6 +95,8 @@ def render_build_target_docker_compose(
         build_id (str): Build identifier.
         sanitizer (str): Sanitizer to use (e.g., "address", "undefined").
         build_fetch_dir: Optional path to build-time fetch directory.
+        target_source_path: Resolved path to the target source directory.
+            If provided, used directly. Otherwise falls back to target.repo_path.
 
     Returns:
         tuple[str, list[str]]: Rendered docker-compose content and warning notes.
@@ -137,6 +140,10 @@ def render_build_target_docker_compose(
             "memory": resource.memory,
         },
         "build_fetch_dir": str(build_fetch_dir) if build_fetch_dir else None,
+        "fuzz_proj_path": str(target.proj_path.resolve()),
+        "target_source_path": str(target_source_path)
+        if target_source_path
+        else str(target.repo_path.resolve()),
     }
     return render_template(template_path, context), env_plan.warnings
 
@@ -267,6 +274,14 @@ def render_run_crs_compose_docker_compose(
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
+        "fuzz_proj_path": str(target.proj_path.resolve()),
+        "target_source_path": str(target.repo_path.resolve())
+        if target._has_repo
+        else str(
+            crs_compose.work_dir.get_target_source_dir(
+                target, build_id, sanitizer, create=False
+            )
+        ),
         "litellm_image": LITELLM_IMAGE,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
         "postgres_image": POSTGRES_IMAGE,

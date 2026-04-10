@@ -291,6 +291,28 @@ class WorkDir:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def get_target_source_dir(
+        self,
+        target: "Target",
+        build_id: str,
+        sanitizer: str,
+        create: bool = True,
+    ) -> Path:
+        """Get the extracted target source directory for a build.
+
+        Structure: <sanitizer>/builds/<build_id>/targets/<target_key>/target-source/
+        """
+        target_key = self._get_target_key(target)
+        path = (
+            self.get_build_dir(build_id, sanitizer)
+            / "targets"
+            / target_key
+            / "target-source"
+        )
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def get_build_fetch_dir(
         self,
         target: Target,

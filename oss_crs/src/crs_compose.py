@@ -642,6 +642,17 @@ class CRSCompose:
         if target_base_image is None:
             return False
 
+        # Resolve target source path: user-provided repo or extracted WORKDIR
+        if target._has_repo:
+            resolved_source_path = target.repo_path.resolve()
+        else:
+            source_dir = self.work_dir.get_target_source_dir(
+                target, build_id, sanitizer
+            )
+            if not target.extract_workdir_to_host(source_dir, target_base_image):
+                return False
+            resolved_source_path = source_dir
+
         tasks = []
 
         if bug_candidate is not None and bug_candidate_dir is not None:
@@ -704,6 +715,7 @@ class CRSCompose:
                         if bug_candidate
                         else bug_candidate_dir,
                         input_hash=input_hash,
+                        target_source_path=resolved_source_path,
                     ),
                 )
             )
