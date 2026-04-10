@@ -316,6 +316,8 @@ Your containers receive these environment variables automatically:
 | `ARCHITECTURE` | Target architecture | `x86_64` |
 | `FUZZING_LANGUAGE` | Target language | `c` |
 | `OSS_CRS_SNAPSHOT_IMAGE` | Snapshot Docker image tag (set on non-builder modules that are not `run_snapshot` when a snapshot tag exists for the run) | `my-crs-snapshot-asan:latest` |
+| `OSS_CRS_FUZZ_PROJ` | Fuzz project mount path (read-only) | `/OSS_CRS_FUZZ_PROJ` |
+| `OSS_CRS_TARGET_SOURCE` | Target source mount path (read-only) | `/OSS_CRS_TARGET_SOURCE` |
 
 Notes:
 - `additional_env` keys are validated with pattern `[A-Za-z_][A-Za-z0-9_]*`.
@@ -337,6 +339,7 @@ Use these with any OpenAI-compatible client library. All requests are proxied th
 # Build outputs
 libCRS submit-build-output <src_path> <dst_path>
 libCRS download-build-output <src_path> <dst_path>
+libCRS download-source <type> <dst_path>         # type: fuzz-proj, target-source
 libCRS skip-build-output <dst_path>
 
 # Automatic directory submission (runs as daemon)

@@ -293,6 +293,7 @@ class CRS:
         diff_path: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
         input_hash: Optional[str] = None,
+        target_source_path: Optional[Path] = None,
     ) -> "TaskResult":
         if (
             self.config.target_build_phase is None
@@ -332,6 +333,7 @@ class CRS:
                         diff_path=diff_path,
                         bug_candidate_dir=bug_candidate_dir,
                         input_hash=input_hash,
+                        target_source_path=target_source_path,
                     )
                 ),
             )
@@ -421,6 +423,7 @@ class CRS:
         diff_path: Optional[Path] = None,
         bug_candidate_dir: Optional[Path] = None,
         input_hash: Optional[str] = None,
+        target_source_path: Optional[Path] = None,
     ) -> "TaskResult":
         build_out_dir = self.work_dir.get_build_output_dir(
             self.name, target, build_id, sanitizer
@@ -443,6 +446,7 @@ class CRS:
                 build_id,
                 sanitizer,
                 build_fetch_dir=build_fetch_dir,
+                target_source_path=target_source_path,
             )
             for warning in warnings:
                 progress.add_note(warning)

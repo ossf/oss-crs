@@ -57,6 +57,7 @@ class _DummyTarget:
     def __init__(self, sanitizer: str = "address"):
         self.snapshot_sanitizers: list[str] = []
         self._sanitizer = sanitizer
+        self._has_repo = False
 
     def build_docker_image(self):
         return "dummy:image"
@@ -65,6 +66,9 @@ class _DummyTarget:
         _ = progress
         self.snapshot_sanitizers.append(sanitizer)
         return TaskResult(success=True)
+
+    def extract_workdir_to_host(self, dest_dir, image_tag):
+        return True
 
     def get_target_env(self):
         return {
@@ -90,6 +94,13 @@ class _DummyWorkDir:
     def get_build_fetch_dir(self, target, build_id, sanitizer, create: bool = False):
         _ = target
         path = self._base / sanitizer / build_id / "fetch"
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def get_target_source_dir(self, target, build_id, sanitizer, create: bool = True):
+        _ = target
+        path = self._base / sanitizer / build_id / "target-source"
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
