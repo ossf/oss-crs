@@ -92,6 +92,7 @@ async def run_pov(
                 ["/usr/local/bin/reproduce", harness_name],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=pov_timeout,
                 env=env,
                 cwd=rebuild_out,
