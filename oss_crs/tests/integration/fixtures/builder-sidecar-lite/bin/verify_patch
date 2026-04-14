@@ -128,7 +128,7 @@ def main() -> int:
 
     for pov_file in pov_files:
         pov_resp = RESPONSE_DIR / f"pov-before-{pov_file.stem}"
-        rc = crs.run_pov(pov_file, harness, 0, pov_resp)
+        rc = crs.run_pov(pov_file, harness, pov_resp)
         if rc == 0:
             fail(
                 "run_povs_original",
@@ -208,7 +208,7 @@ def main() -> int:
     still_crash = []
     for pov_file in pov_files:
         pov_resp = RESPONSE_DIR / f"pov-after-{pov_file.stem}"
-        rc = crs.run_pov(pov_file, harness, patched_rid, pov_resp)
+        rc = crs.run_pov(pov_file, harness, pov_resp, patched_rid)
         if rc != 0:
             stderr_log = pov_resp / "stderr.log"
             stderr_tail = ""

@@ -155,7 +155,7 @@ def main() -> int:
             f"Running POV {pov_file.name} (harness={harness_name}, rebuild_id={rebuild_id})..."
         )
         pov_response = RESPONSE_DIR / "pov"
-        pov_rc = crs.run_pov(pov_file, harness_name, rebuild_id, pov_response)
+        pov_rc = crs.run_pov(pov_file, harness_name, pov_response, rebuild_id)
 
         log(f"POV exit code: {pov_rc}")
         stderr_file = pov_response / "stderr.log"

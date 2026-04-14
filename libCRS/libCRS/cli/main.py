@@ -344,9 +344,9 @@ def main():
     )
     run_pov_parser.add_argument(
         "--rebuild-id",
-        type=int,
-        required=True,
-        help="Rebuild ID from a prior apply-patch-build call",
+        type=str,
+        default=None,
+        help="Rebuild ID from a prior apply-patch-build call. Omit to run against the base build.",
     )
     run_pov_parser.add_argument(
         "--builder",
@@ -359,8 +359,8 @@ def main():
         exit_code = crs_utils.run_pov(
             args.pov_path,
             args.harness,
-            args.rebuild_id,
             args.response_dir,
+            args.rebuild_id,
             args.builder,
         )
         sys.exit(exit_code)

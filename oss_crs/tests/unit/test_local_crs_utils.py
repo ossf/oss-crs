@@ -310,7 +310,7 @@ class TestRunPov:
         pov_file = tmp_path / "crash"
         pov_file.write_bytes(b"crashdata")
 
-        crs_utils.run_pov(pov_file, "fuzzer", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzzer", response_dir, "1", "test-runner")
 
         # Verify POST was to the runner URL (test-runner service)
         call_url = mock_requests.post.call_args[0][0]
@@ -325,7 +325,7 @@ class TestRunPov:
         pov_file = tmp_path / "crash"
         pov_file.write_bytes(b"crashdata")
 
-        crs_utils.run_pov(pov_file, "fuzzer", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzzer", response_dir, "1", "test-runner")
 
         call_kwargs = mock_requests.post.call_args
         data = call_kwargs.kwargs.get("data") or (
@@ -350,7 +350,7 @@ class TestRunPov:
         pov_file = tmp_path / "testcase"
         pov_file.write_bytes(b"testdata")
 
-        crs_utils.run_pov(pov_file, "fuzzer", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzzer", response_dir, "1", "test-runner")
 
         call_kwargs = mock_requests.post.call_args
         data = call_kwargs.kwargs.get("data") or (
@@ -369,7 +369,7 @@ class TestRunPov:
         pov_file.write_bytes(b"crashdata")
 
         exit_code = crs_utils.run_pov(
-            pov_file, "fuzzer", 1, response_dir, "test-runner"
+            pov_file, "fuzzer", response_dir, "1", "test-runner"
         )
 
         assert exit_code == 1
@@ -386,7 +386,7 @@ class TestRunPov:
         pov_file.write_bytes(b"crashdata")
 
         exit_code = crs_utils.run_pov(
-            pov_file, "fuzzer", 1, response_dir, "test-runner"
+            pov_file, "fuzzer", response_dir, "1", "test-runner"
         )
 
         assert exit_code == 0
@@ -402,7 +402,7 @@ class TestRunPov:
         pov_file = tmp_path / "crash"
         pov_file.write_bytes(b"crashdata")
 
-        crs_utils.run_pov(pov_file, "fuzzer", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzzer", response_dir, "1", "test-runner")
 
         # Only one POST call (the /run-pov call), no GET for /status/{job_id}
         assert mock_requests.post.call_count == 1
@@ -583,7 +583,7 @@ class TestResponseDirCompat:
         pov_file = tmp_path / "pov_input"
         pov_file.write_bytes(b"povdata")
 
-        crs_utils.run_pov(pov_file, "fuzz", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzz", response_dir, "1", "test-runner")
 
         assert (response_dir / "retcode").exists()
         assert (response_dir / "stderr.log").exists()
@@ -651,7 +651,7 @@ class TestResponseDirCompat:
         pov_file = tmp_path / "pov_input"
         pov_file.write_bytes(b"povdata")
 
-        crs_utils.run_pov(pov_file, "fuzz", 1, response_dir, "test-runner")
+        crs_utils.run_pov(pov_file, "fuzz", response_dir, "1", "test-runner")
 
         content = (response_dir / "retcode").read_text()
         assert content == "77"

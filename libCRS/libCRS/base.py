@@ -151,8 +151,8 @@ class CRSUtils(ABC):
         self,
         pov_path: Path,
         harness_name: str,
-        rebuild_id: int,
         response_dir: Path,
+        rebuild_id: "str | None" = None,
         builder: "str | None" = None,
     ) -> int:
         """Run a POV binary against a specific rebuild's output.
@@ -160,7 +160,7 @@ class CRSUtils(ABC):
         Args:
             pov_path: Path to the POV binary file.
             harness_name: Harness binary name in /out/.
-            rebuild_id: Rebuild ID from a prior apply_patch_build call.
+            rebuild_id: Rebuild ID. None or "base" runs against the original unpatched build.
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log
             builder: Runner sidecar module name. Defaults to RUNNER_MODULE env var or "runner-sidecar".

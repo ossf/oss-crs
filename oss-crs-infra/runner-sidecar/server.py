@@ -45,7 +45,7 @@ def health():
 async def run_pov(
     pov: UploadFile = File(...),
     harness_name: str = Form(...),
-    rebuild_id: int = Form(...),
+    rebuild_id: str = Form(...),
     crs_name: str = Form(...),
 ):
     """Execute POV reproduction via OSS-Fuzz reproduce script.

@@ -310,8 +310,8 @@ class LocalCRSUtils(CRSUtils):
         self,
         pov_path: Path,
         harness_name: str,
-        rebuild_id: int,
         response_dir: Path,
+        rebuild_id: "str | None" = None,
         builder: "str | None" = None,
     ) -> int:
         """Run a POV binary against a specific rebuild's output via the runner sidecar."""
@@ -326,7 +326,7 @@ class LocalCRSUtils(CRSUtils):
         runner_url = self._get_service_url(builder)
         data = {
             "harness_name": harness_name,
-            "rebuild_id": str(rebuild_id),
+            "rebuild_id": rebuild_id or "base",
             "crs_name": crs_name,
         }
         try:
@@ -388,7 +388,9 @@ class LocalCRSUtils(CRSUtils):
                 "mem_limit": mem_limit,
             }
             test_timeout = int(os.environ.get("OSS_CRS_TEST_TIMEOUT", "1200"))
-            result = self._submit_and_poll("/test", builder, files, data, timeout=test_timeout)
+            result = self._submit_and_poll(
+                "/test", builder, files, data, timeout=test_timeout
+            )
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:
