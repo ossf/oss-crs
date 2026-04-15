@@ -16,10 +16,30 @@ COPY libCRS /opt/libCRS
 RUN /opt/libCRS/install.sh
 ```
 
+`install.sh` accepts flags to control what gets installed:
+
+| Flag | Installs |
+|------|----------|
+| *(no flag)* | CLI + Python library (same as `--all`) |
+| `--all` | CLI + Python library |
+| `--cli` | CLI entry point only (`/usr/local/bin/libCRS`) |
+| `--python` | Importable Python library only (`import libcrs`) |
+
+Flags can be combined (e.g., `--cli --python` is equivalent to `--all`).
+
+```bash
+# CLI only (e.g. containers that only shell out to libCRS)
+RUN /opt/libCRS/install.sh --cli
+
+# Python library only (e.g. containers that import libcrs)
+RUN /opt/libCRS/install.sh --python
+```
+
 This installs:
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
 - `rsync` (used for file operations)
-- The `libCRS` CLI tool, available at `/usr/local/bin/libCRS`
+- The `libCRS` CLI tool, available at `/usr/local/bin/libCRS` (when `--cli` or `--all`)
+- The `libcrs` Python package into the system Python (when `--python` or `--all`)
 
 ### Dependencies
 

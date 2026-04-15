@@ -9,7 +9,12 @@ COPY --from=libcrs . /opt/libCRS
 RUN /opt/libCRS/install.sh
 ```
 
-This installs the `libCRS` CLI at `/usr/local/bin/libCRS`.
+By default (no flags, or `--all`) this installs both the CLI and the Python library. Use `--cli` or `--python` to install only one:
+
+```dockerfile
+RUN /opt/libCRS/install.sh --cli     # CLI entry point only
+RUN /opt/libCRS/install.sh --python  # importable Python library only
+```
 
 ## Commands
 
