@@ -1,0 +1,6 @@
+name: patchsense-crs
+type:
+  - bug-fixing
+source:
+  url: https://github.com/aaronsrhodes/patchsense-crs.git
+  ref: main
