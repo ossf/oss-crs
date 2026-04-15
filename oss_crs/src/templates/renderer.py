@@ -126,7 +126,9 @@ def render_build_target_docker_compose(
         "crs": {
             "name": crs.name,
             "path": str(crs.crs_path),
-            "builder_dockerfile": str(crs.crs_path / build_config.dockerfile),
+            "builder_dockerfile": _resolve_module_dockerfile(
+                crs.crs_path, build_config.dockerfile
+            ),
             "version": crs.config.version,
         },
         "effective_env": env_plan.effective_env,
