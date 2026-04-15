@@ -330,7 +330,7 @@ Notes:
 | Variable | Description |
 |---|---|
 | `OSS_CRS_LLM_API_URL` | LiteLLM proxy endpoint (e.g., `http://litellm.oss-crs:4000`) |
-| `OSS_CRS_LLM_API_KEY` | Per-CRS API key for LLM access |
+| `OSS_CRS_LLM_API_KEY_FILE` | Path to file containing per-CRS API key for LLM access |
 
 Use these with any OpenAI-compatible client library. All requests are proxied through LiteLLM, which enforces your budget.
 
@@ -688,8 +688,11 @@ At runtime, use the provided environment variables with any OpenAI-compatible cl
 from openai import OpenAI
 import os
 
+with open(os.environ["OSS_CRS_LLM_API_KEY_FILE"]) as f:
+    api_key = f.read().strip()
+
 client = OpenAI(
-    api_key=os.environ["OSS_CRS_LLM_API_KEY"],
+    api_key=api_key,
     base_url=os.environ["OSS_CRS_LLM_API_URL"],
 )
 

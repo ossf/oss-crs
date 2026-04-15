@@ -31,14 +31,22 @@ services:
       args:
         - target_base_image={{target.get_docker_image_name()}}
         - crs_version={{ crs.config.version }}
+{%- if snapshot_image_tag and (module_config.run_snapshot or crs.config.is_builder) %}
+        - snapshot_image={{ snapshot_image_tag }}
+{%- endif %}
     environment:
 {%- for env_key, env_value in module_envs[crs.name + "_" + module_name].items() %}
       - {{ env_key }}={{ env_value }}
 {%- endfor %}
-{%- if llm_context is defined and llm_context.mode == "internal" %}
+{%- if llm_context is defined and llm_context.mode == "internal" and not crs.config.is_builder %}
     depends_on:
       oss-crs-litellm-key-gen:
         condition: service_completed_successfully
+{%- endif %}
+{%- if llm_context is defined and crs.name in llm_context.secret_files %}
+    secrets:
+      - source: oss_crs_llm_api_key_{{ crs.name }}
+        target: oss_crs_llm_api_key
 {%- endif %}
 {%- if cgroup_parents and crs.name in cgroup_parents %}
     # Using cgroup-parent mode: resources managed by parent cgroup
@@ -84,12 +92,15 @@ services:
     depends_on:
       oss-crs-postgres:
         condition: service_healthy
+{%- if llm_context.litellm_env %}
     environment:
-      - LITELLM_MASTER_KEY={{ llm_context.litellm_master_key }}
-      - DATABASE_URL=postgresql://{{ postgres_user }}:{{ llm_context.postgres_password }}@{{ postgres_host }}:{{ postgres_port }}/{{ postgres_user }}
     {%- for key, value in llm_context.litellm_env.items() %}
       - {{ key }}={{ value }}
     {%- endfor %}
+{%- endif %}
+    secrets:
+      - litellm_master_key
+      - postgres_password
     volumes:
       - {{ llm_context.litellm_config_path }}:/app/config.yaml:ro
     networks:
@@ -97,7 +108,12 @@ services:
       {{ crs_compose_name }}-network:
         aliases:
           - litellm.oss-crs
-    command: --config /app/config.yaml
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        export LITELLM_MASTER_KEY=$$(cat /run/secrets/litellm_master_key)
+        && export DATABASE_URL=postgresql://{{ postgres_user }}:$$(cat /run/secrets/postgres_password)@{{ postgres_host }}:{{ postgres_port }}/{{ postgres_user }}
+        && exec litellm --config /app/config.yaml
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
       interval: 5s
@@ -110,7 +126,9 @@ services:
     restart: on-failure:3
     environment:
       - POSTGRES_USER={{ postgres_user }}
-      - POSTGRES_PASSWORD={{ llm_context.postgres_password }}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+    secrets:
+      - postgres_password
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U {{ postgres_user }} -h localhost -p {{ postgres_port }}"]
       interval: 5s
@@ -130,8 +148,9 @@ services:
       oss-crs-litellm:
         condition: service_healthy
     environment:
-      - LITELLM_MASTER_KEY={{ llm_context.litellm_master_key }}
       - LITELLM_API_URL={{ litellm_internal_url }}
+    secrets:
+      - litellm_master_key
     networks:
       {{ crs_compose_name }}-network:
     volumes:
@@ -160,7 +179,7 @@ services:
   ###########################################
   # OSS-CRS-LIFECYCLE SIDECAR
   ###########################################
-{#- Collect non-builder, non-ensemble bug-fixing CRS services #}
+{#- Collect non-ensemble bug-fixing CRS services #}
 {%- set watch_services = [] %}
 {%- for crs in crs_list %}
 {%- if not crs.config.is_bug_fixing_ensemble and crs.config.is_bug_fixing %}
@@ -260,3 +279,16 @@ services:
 {%- for crs in crs_list %}
           - runner-sidecar.{{ crs.name }}
 {%- endfor %}
+{%- if llm_context is defined %}
+secrets:
+{%- if llm_context.mode == "internal" %}
+  litellm_master_key:
+    file: {{ llm_context.master_key_file }}
+  postgres_password:
+    file: {{ llm_context.postgres_password_file }}
+{%- endif %}
+{%- for crs_name, key_file in llm_context.secret_files.items() %}
+  oss_crs_llm_api_key_{{ crs_name }}:
+    file: {{ key_file }}
+{%- endfor %}
+{%- endif %}
