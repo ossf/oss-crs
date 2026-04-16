@@ -1,0 +1,39 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Shellphish QuickSeed (LLM-driven Java seed generation)        #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: external
+    model_check: false
+    external:
+      url_env: AIXCC_LITELLM_HOSTNAME
+      key_env: LITELLM_KEY
+
+# --- CRS (Shellphish QuickSeed) -------------------------------------------
+# LLM-driven seed generation for Java targets: static analysis → CodeQL →
+# code-swipe ranking → LLM generates seeds traversing vulnerable paths →
+# seeds delivered to Jazzer via fuzzer_sync.
+#
+# For local development, add source.local_path:
+#   crs-shellphish-quickseed:
+#     source:
+#       local_path: /path/to/shellphish-oss-crs
+#     cpuset: "2-7"
+#     memory: "24G"
+#     llm_budget: 10
+crs-shellphish-quickseed:
+  cpuset: "2-7"
+  memory: "24G"
+  llm_budget: 10

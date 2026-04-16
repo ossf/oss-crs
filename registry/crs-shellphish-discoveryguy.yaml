@@ -1,0 +1,6 @@
+name: crs-shellphish-discoveryguy
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/shellphish-oss-crs.git
+  ref: crs-shellphish-discoveryguy

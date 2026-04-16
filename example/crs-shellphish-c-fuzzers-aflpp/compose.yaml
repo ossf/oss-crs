@@ -1,0 +1,28 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Shellphish C Fuzzers — AFL++ only                             #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (Shellphish C Fuzzers — AFL++) -----------------------------------
+# AFL++ multi-instance fuzzing (1 main + N-1 secondary).
+# All available cores go to AFL++.
+# Pure fuzzer — no LLM needed.
+#
+# For local development, add source.local_path:
+#   crs-shellphish-c-fuzzers-aflpp:
+#     source:
+#       local_path: /path/to/shellphish-oss-crs
+#     cpuset: "2-7"
+#     memory: "24G"
+crs-shellphish-c-fuzzers-aflpp:
+  cpuset: "2-7"
+  memory: "24G"

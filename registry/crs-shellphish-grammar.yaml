@@ -1,0 +1,6 @@
+name: crs-shellphish-grammar
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/shellphish-oss-crs.git
+  ref: crs-shellphish-grammar
