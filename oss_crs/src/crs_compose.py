@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
 from .llm import LLM
@@ -655,7 +655,12 @@ class CRSCompose:
                 return False
             resolved_source_path = source_dir
 
-        tasks = []
+        tasks: list[tuple[str, Callable[[MultiTaskProgress], TaskResult]]] = [
+            (
+                "Validate machine resources",
+                lambda _: self._validate_machine_resources(),
+            ),
+        ]
 
         if bug_candidate is not None and bug_candidate_dir is not None:
             print(
