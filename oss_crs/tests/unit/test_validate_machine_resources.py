@@ -48,7 +48,9 @@ def patched_resources(monkeypatch):
     warnings = []
     monkeypatch.setattr("oss_crs.src.crs_compose.os.cpu_count", lambda: MOCK_CPU_COUNT)
     monkeypatch.setattr("oss_crs.src.crs_compose.get_host_memory", lambda: MOCK_MEMORY)
-    monkeypatch.setattr("oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg))
+    monkeypatch.setattr(
+        "oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg)
+    )
     return warnings
 
 
@@ -96,7 +98,6 @@ def test_memory_over_limit_warns(patched_resources):
     assert "does not have adequate resources" in patched_resources[0]
 
 
-
 def test_crs_entry_exceeds_cpu_count_warns(patched_resources):
     compose = _make_compose(
         "0-3",
@@ -134,7 +135,9 @@ def test_undetectable_cpu_skips_check(monkeypatch):
     warnings = []
     monkeypatch.setattr("oss_crs.src.crs_compose.os.cpu_count", lambda: None)
     monkeypatch.setattr("oss_crs.src.crs_compose.get_host_memory", lambda: MOCK_MEMORY)
-    monkeypatch.setattr("oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg))
+    monkeypatch.setattr(
+        "oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg)
+    )
 
     compose = _make_compose("0-3")
     compose._validate_machine_resources()
@@ -146,7 +149,9 @@ def test_undetectable_memory_skips_check(monkeypatch):
     warnings = []
     monkeypatch.setattr("oss_crs.src.crs_compose.os.cpu_count", lambda: MOCK_CPU_COUNT)
     monkeypatch.setattr("oss_crs.src.crs_compose.get_host_memory", lambda: None)
-    monkeypatch.setattr("oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg))
+    monkeypatch.setattr(
+        "oss_crs.src.crs_compose.log_warning", lambda msg: warnings.append(msg)
+    )
 
     compose = _make_compose("0-3")
     compose._validate_machine_resources()
