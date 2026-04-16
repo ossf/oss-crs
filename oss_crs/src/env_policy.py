@@ -189,7 +189,7 @@ def build_run_service_env(
     if llm_api_url:
         system_env["OSS_CRS_LLM_API_URL"] = llm_api_url
     if llm_api_key:
-        system_env["OSS_CRS_LLM_API_KEY"] = llm_api_key
+        system_env["OSS_CRS_LLM_API_KEY_FILE"] = "/run/secrets/oss_crs_llm_api_key"
 
     return _resolve_env(
         phase="run",

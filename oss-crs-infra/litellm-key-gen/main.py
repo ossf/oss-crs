@@ -3,7 +3,17 @@ import os
 import yaml
 import requests
 
-LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY")
+
+def _read_secret(path: str) -> str | None:
+    """Read a Docker secret file."""
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+LITELLM_MASTER_KEY = _read_secret("/run/secrets/litellm_master_key")
 LITELLM_API_URL = os.getenv("LITELLM_API_URL")
 
 
