@@ -1,0 +1,6 @@
+name: crs-claude-code-old-cli
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-claude-code.git
+  ref: cli-2.0.17

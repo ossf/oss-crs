@@ -1,0 +1,6 @@
+name: crs-bug-finding-gemini-cli-old-cli
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-gemini-cli.git
+  ref: cli-0.9.0

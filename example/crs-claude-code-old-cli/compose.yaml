@@ -1,0 +1,37 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#         Example for crs-claude-code-old-cli (bug-fixing, old CLI)          #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-claude-code-old-cli) -----------------------------------------
+# Same upstream as crs-claude-code, but pinned to an older Claude Code CLI
+# (2.0.17, released 2025-10-15) for A/B comparison against the current
+# stable default.
+crs-claude-code-old-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here. Available models:
+    #   claude-opus-4-6, claude-opus-4-5-20251101, claude-opus-4-1-20250805,
+    #   claude-sonnet-4-5-20250929, claude-sonnet-4-20250514, claude-haiku-4-5-20251001
+    CRS_AGENT: claude_code
+    ANTHROPIC_MODEL: claude-opus-4-6
+    CLAUDE_CODE_CLI_VERSION: 2.0.17
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-claude-code-old-cli/litellm-config.yaml

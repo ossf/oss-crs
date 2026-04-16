@@ -1,0 +1,6 @@
+name: crs-claude-code-old-model
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-claude-code.git
+  ref: main

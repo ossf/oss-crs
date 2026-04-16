@@ -1,0 +1,6 @@
+name: crs-bug-finding-claude-code-old-model
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-claude-code.git
+  ref: main

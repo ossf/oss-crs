@@ -1,0 +1,6 @@
+name: crs-bug-finding-copilot-cli-old-cli
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-copilot-cli.git
+  ref: cli-0.0.341

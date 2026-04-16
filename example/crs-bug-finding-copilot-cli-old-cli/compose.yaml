@@ -1,0 +1,36 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#   Example for crs-bug-finding-copilot-cli-old-cli (bug-finding, old CLI)   #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-bug-finding-copilot-cli-old-cli) -----------------------------
+# Same upstream as crs-bug-finding-copilot-cli, but pinned to an older
+# Copilot CLI (0.0.341, released 2025-10-15) for A/B comparison.
+crs-bug-finding-copilot-cli-old-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here.
+    CRS_AGENT: copilot_cli
+    COPILOT_MODEL: gpt-5.4
+    COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
+    COPILOT_CLI_VERSION: 0.0.341
+    # COPILOT_SUBSCRIPTION_TOKEN: ${COPILOT_SUBSCRIPTION_TOKEN}  # Compatibility alias
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-bug-finding-copilot-cli-old-cli/litellm-config.yaml

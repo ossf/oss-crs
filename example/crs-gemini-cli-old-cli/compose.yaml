@@ -1,0 +1,36 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#            Example for crs-gemini-cli-old-cli (bug-fixing, old CLI)        #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-gemini-cli-old-cli) ------------------------------------------
+# Same upstream as crs-gemini-cli, but pinned to an older Gemini CLI
+# (0.9.0, released 2025-10-15) for A/B comparison.
+crs-gemini-cli-old-cli:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    # Override CRS defaults here. Available models:
+    #   gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite,
+    #   gemini-3-pro-preview, gemini-3-flash-preview
+    CRS_AGENT: gemini_cli
+    GEMINI_MODEL: gemini-2.5-pro
+    GEMINI_CLI_VERSION: 0.9.0
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-gemini-cli-old-cli/litellm-config.yaml

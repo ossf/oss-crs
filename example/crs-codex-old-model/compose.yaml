@@ -1,0 +1,33 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#            Example for crs-codex-old-model (bug-fixing, old model)         #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-codex-old-model) ---------------------------------------------
+# Same upstream as crs-codex with the latest stable CLI, but pinned to the
+# previous-generation Codex model for A/B comparison.
+crs-codex-old-model:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: codex
+    CODEX_MODEL: gpt-5.2-codex
+    CODEX_CLI_VERSION: 0.121.0
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-codex-old-model/litellm-config.yaml

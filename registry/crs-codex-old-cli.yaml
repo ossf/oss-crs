@@ -1,6 +1,6 @@
-name: crs-codex
+name: crs-codex-old-cli
 type:
   - bug-fixing
 source:
   url: https://github.com/Team-Atlanta/crs-codex.git
-  ref: main
+  ref: cli-0.47.0

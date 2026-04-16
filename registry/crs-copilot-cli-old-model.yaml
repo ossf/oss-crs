@@ -1,0 +1,6 @@
+name: crs-copilot-cli-old-model
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-copilot-cli.git
+  ref: main

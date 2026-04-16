@@ -1,0 +1,33 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#   Example for crs-bug-finding-claude-code-old-model (bug-finding, old model)
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-bug-finding-claude-code-old-model) ---------------------------
+# Same upstream as crs-bug-finding-claude-code with the latest stable CLI,
+# but pinned to the previous-generation Claude model for A/B comparison.
+crs-bug-finding-claude-code-old-model:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: claude_code
+    ANTHROPIC_MODEL: claude-opus-4-5-20251101
+    CLAUDE_CODE_CLI_VERSION: 2.1.92
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-bug-finding-claude-code-old-model/litellm-config.yaml

@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#          Example for crs-copilot-cli-old-model (bug-fixing, old model)     #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-copilot-cli-old-model) ---------------------------------------
+# Same upstream as crs-copilot-cli with the latest stable CLI, but pinned to
+# the previous-generation Copilot model for A/B comparison.
+crs-copilot-cli-old-model:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: copilot_cli
+    COPILOT_MODEL: gpt-5.3-codex
+    COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
+    COPILOT_CLI_VERSION: 1.0.28
+    # COPILOT_SUBSCRIPTION_TOKEN: ${COPILOT_SUBSCRIPTION_TOKEN}  # Compatibility alias
+    # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-copilot-cli-old-model/litellm-config.yaml
