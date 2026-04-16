@@ -19,6 +19,7 @@ stricter subset of Keep a Changelog).
 - buttercup-seed-gen to registry/ and example/
 - `libCRS download-source fuzz-proj <dest>`: copies clean fuzz project
 - `libCRS download-source target-source <dest>`: copies clean target source
+- Warn user when compose file resource configs exceed machine resources (#49)
 
 ### Changed
 - Builder sidecar redesigned: framework-injected ephemeral containers replace CRS-declared long-running builders. Rebuilds launch a fresh container per patch from the preserved builder image.
