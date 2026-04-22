@@ -64,7 +64,6 @@ def _make_crs(
     config = SimpleNamespace(
         version="1.0",
         type=["bug-fixing"],
-        is_builder=False,
         is_bug_fixing=True,
         is_bug_fixing_ensemble=False,
         crs_run_phase=SimpleNamespace(modules={"patcher": module_config}),

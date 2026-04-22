@@ -159,8 +159,8 @@ class SupportedTarget(BaseModel):
 class CRSType(Enum):
     BUG_FINDING = "bug-finding"
     BUG_FIXING = "bug-fixing"
-    BUILDER = "builder"
     BUG_FIXING_ENSEMBLE = "bug-fixing-ensemble"
+    BUG_FINDING_TRIAGE = "bug-finding-triage"
 
 
 VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
@@ -183,10 +183,6 @@ class CRSConfig(BaseModel):
     required_inputs: Optional[list[str]] = Field(default=None)
 
     @property
-    def is_builder(self) -> bool:
-        return CRSType.BUILDER in self.type
-
-    @property
     def is_bug_fixing(self) -> bool:
         return (
             CRSType.BUG_FIXING in self.type or CRSType.BUG_FIXING_ENSEMBLE in self.type
@@ -195,6 +191,10 @@ class CRSConfig(BaseModel):
     @property
     def is_bug_fixing_ensemble(self) -> bool:
         return CRSType.BUG_FIXING_ENSEMBLE in self.type
+
+    @property
+    def is_triage(self) -> bool:
+        return CRSType.BUG_FINDING_TRIAGE in self.type
 
     @field_validator("version")
     @classmethod

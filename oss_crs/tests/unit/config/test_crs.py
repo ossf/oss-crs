@@ -158,6 +158,18 @@ class TestCRSTypeProperties:
         assert config.is_bug_fixing is True
         assert config.is_bug_fixing_ensemble is True
 
+    def test_triage_is_triage(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-finding-triage"]))
+        assert config.is_triage is True
+
+    def test_triage_is_not_bug_fixing(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-finding-triage"]))
+        assert config.is_bug_fixing is False
+
+    def test_triage_is_not_bug_fixing_ensemble(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["bug-finding-triage"]))
+        assert config.is_bug_fixing_ensemble is False
+
 
 class TestSidecarDeploymentConditions:
     """Tests for exchange/lifecycle sidecar deployment logic.
@@ -178,7 +190,7 @@ class TestSidecarDeploymentConditions:
         from oss_crs.src.config.crs import CRSType
 
         bug_finding_count = sum(
-            1 for c in configs if CRSType.BUG_FINDING in c.type and not c.is_builder
+            1 for c in configs if CRSType.BUG_FINDING in c.type
         )
         bug_finding_ensemble = bug_finding_count > 1
         bug_fix_ensemble = any(c.is_bug_fixing_ensemble for c in configs)
