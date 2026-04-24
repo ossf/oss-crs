@@ -24,6 +24,7 @@ def init_crs_repo(
     branch: str,
     dest_path: Path,
     skip_if_exists: bool = False,
+    offline: bool = False,
 ) -> TaskResult:
     # Use file lock to prevent race conditions when multiple runs access same CRS repo
     lock_path = dest_path.parent / f".{name}.lock"
@@ -33,40 +34,51 @@ def init_crs_repo(
             return TaskResult(success=True)
 
         tasks = []
-        if dest_path.exists():
-            tasks = [
-                (
-                    "Git Fetch",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
-                        cwd=dest_path,
-                    ),
-                ),
-                (
-                    "Git Reset",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "reset", "--hard", f"origin/{branch}"],
-                        cwd=dest_path,
-                    ),
-                ),
-            ]
+
+        fetch_task = (
+            "Git Fetch",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
+                cwd=dest_path,
+            ),
+        )
+
+        reset_task = (
+            "Git Reset",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=["git", "reset", "--hard", f"origin/{branch}"],
+                cwd=dest_path,
+            ),
+        )
+
+        clone_task = (
+            "Cloning CRS repository",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=[
+                    "git",
+                    "clone",
+                    "--recurse-submodules",
+                    "--branch",
+                    branch,
+                    repo_url,
+                    str(dest_path),
+                ]
+            ),
+        )
+
+        if offline and not dest_path.exists():
+            error_msg = (
+                    f"Repository at {dest_path} does not exist and --offline is enabled."
+            )
+            return TaskResult(success=False, error=error_msg)
+        elif offline and dest_path.exists():
+            tasks.append(reset_task)
+        elif not offline and dest_path.exists():
+            tasks.append(fetch_task)
+            tasks.append(reset_task)
         else:
-            tasks = [
-                (
-                    "Cloning CRS repository",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=[
-                            "git",
-                            "clone",
-                            "--recurse-submodules",
-                            "--branch",
-                            branch,
-                            repo_url,
-                            str(dest_path),
-                        ]
-                    ),
-                ),
-            ]
+            tasks.append(clone_task)
+
         with MultiTaskProgress(tasks, title=f"Init CRS: {name}") as progress:
             return progress.run_added_tasks()
 
@@ -85,6 +97,7 @@ class CRS:
         work_dir: "WorkDir",
         crs_compose_env: CRSComposeEnv,
         skip_init: bool = False,
+        offline: bool = False,
     ) -> "CRS":
         source = entry.source
         if source is None:
@@ -105,6 +118,7 @@ class CRS:
             branch,
             path,
             skip_if_exists=skip_init,
+            offline=offline,
         )
         if init_result.success:
             return cls(name, path, work_dir, entry, crs_compose_env)

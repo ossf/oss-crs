@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- `--offline` flag for all subcommands: disables git fetch
 - `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
 
 ### Added

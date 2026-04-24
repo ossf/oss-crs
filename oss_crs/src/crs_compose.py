@@ -47,13 +47,13 @@ import requests.exceptions
 class CRSCompose:
     @classmethod
     def from_yaml_file(
-        cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False
+        cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False, offline: bool = False
     ) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
-        return cls(config, work_dir, skip_crs_init=skip_crs_init)
+        return cls(config, work_dir, skip_crs_init=skip_crs_init, offline=offline)
 
     def __init__(
-        self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False
+        self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False, offline: bool = False
     ):
         hash = config.md5_hash()
         self.config = config
@@ -67,6 +67,7 @@ class CRSCompose:
                 self.work_dir,
                 self.crs_compose_env,
                 skip_init=skip_crs_init,
+                offline=offline,
             )
             for name, crs_cfg in self.config.crs_entries.items()
         ]
