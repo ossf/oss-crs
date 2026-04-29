@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-from .common import is_data_file, rsync_copy
+from .common import is_data_file, rsync_copy_files
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,6 @@ class InfraClient:
         for f in type_dir.iterdir():
             dst_file = dst / f.name
             if is_data_file(f) and not dst_file.exists():
-                rsync_copy(f, dst_file)
                 new_files.append(f.name)
+        rsync_copy_files(type_dir, new_files, dst)
         return new_files
