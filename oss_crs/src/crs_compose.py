@@ -5,7 +5,7 @@ import json
 import os
 import hashlib
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
 from .llm import LLM
@@ -22,6 +22,7 @@ from .utils import (
     rm_with_docker,
     get_host_memory,
     log_success,
+    log_error,
     log_warning,
     log_dim,
 )
@@ -650,6 +651,9 @@ class CRSCompose:
         if target_base_image is None:
             return False
 
+        if not self._validate_machine_resources():
+            return False
+
         # Resolve target source path: user-provided repo or extracted WORKDIR
         if target._has_repo:
             resolved_source_path = target.repo_path.resolve()
@@ -661,12 +665,7 @@ class CRSCompose:
                 return False
             resolved_source_path = source_dir
 
-        tasks: list[tuple[str, Callable[[MultiTaskProgress], TaskResult]]] = [
-            (
-                "Validate machine resources",
-                lambda _: self._validate_machine_resources(),
-            ),
-        ]
+        tasks = []
 
         if bug_candidate is not None and bug_candidate_dir is not None:
             print(
@@ -931,7 +930,7 @@ class CRSCompose:
             return TaskResult(success=False, error="\n".join(errors))
         return TaskResult(success=True)
 
-    def _validate_machine_resources(self) -> TaskResult:
+    def _validate_machine_resources(self) -> bool:
         """Validate that machine resources and resource config do not conflict."""
         # Get machine CPU count and memory (in Bytes)
         machine_cpu_count = os.cpu_count()
@@ -941,7 +940,7 @@ class CRSCompose:
             log_warning(
                 "Could not determine machine resources. Skipping resource check."
             )
-            return TaskResult(success=True)
+            return True
 
         # Collect entries for shared infra and all crs
         entries = [("oss_crs_infra", self.config.oss_crs_infra)]
@@ -969,12 +968,13 @@ class CRSCompose:
         memory_check = total_memory_required <= machine_memory
 
         if not cpu_check or not memory_check:
-            log_warning(
+            log_error(
                 f"Machine does not have adequate resources. "
                 f"Only {machine_cpu_count} CPUs and {machine_memory // (1024**3)}G memory available. "
                 f"Please edit the compose file. "
             )
-        return TaskResult(success=True)
+            return False
+        return True
 
     def __validate_before_run(
         self,
@@ -998,10 +998,6 @@ class CRSCompose:
                     bug_candidate=bug_candidate,
                     bug_candidate_dir=bug_candidate_dir,
                 ),
-            ),
-            (
-                "Validate machine resources",
-                lambda _: self._validate_machine_resources(),
             ),
         ]
 
