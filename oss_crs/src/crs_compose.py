@@ -641,11 +641,11 @@ class CRSCompose:
         # Normalize build_id at library boundary; generate timestamp-based ID if not provided
         build_id = normalize_run_id(build_id) if build_id else generate_run_id()
 
-        target_base_image = target.build_docker_image()
-        if target_base_image is None:
+        if not self._validate_machine_resources():
             return False
 
-        if not self._validate_machine_resources():
+        target_base_image = target.build_docker_image()
+        if target_base_image is None:
             return False
 
         # Resolve target source path: user-provided repo or extracted WORKDIR
