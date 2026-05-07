@@ -7,6 +7,7 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- patchsense-crs to registry/ — semantic patch correctness validator; classifies AI-generated patches as root-cause-fix vs. symptom-suppression (96% precision on held-out AIxCC test cases)
 - `--incremental-build` flag for `oss-crs build-target` and `oss-crs run` — creates Docker snapshots of compiled builder images for faster rebuilds across runs
 - Framework-injected builder and runner sidecars during run phase — CRS developers no longer declare them in `crs.yaml`
 - `libCRS apply-patch-test` command — applies a patch and runs the project's `test.sh` in a fresh ephemeral container
