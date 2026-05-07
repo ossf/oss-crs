@@ -1,0 +1,19 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for atlantis-c-bullseye (bug-finding)                 #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-3"
+  memory: "16G"
+
+# --- CRS (atlantis-c-bullseye) ---------------------------------------------
+# Directed fuzzing with Bullseye — no LLM or builder sidecar needed.
+atlantis-c-bullseye:
+  cpuset: "4-15"
+  memory: "32G"
