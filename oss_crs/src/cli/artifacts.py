@@ -5,7 +5,13 @@ import re
 import sys
 import datetime
 
-from ..config.artifacts import ArtifactsOutput, CRSArtifacts, ExchangeDir, RunLogs
+from ..config.artifacts import (
+    ArtifactsOutput,
+    CRSArtifacts,
+    ExchangeDir,
+    RunLogs,
+    RunMeta,
+)
 from ..target import Target
 from ..utils import normalize_run_id, select
 
@@ -134,6 +140,7 @@ def handle_artifacts(args, crs_compose, target: Target) -> bool:
 
     # Build structured result
     output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
+    output.meta = RunMeta.from_work_dir(work_dir, run_id, sanitizer)
 
     if harness:
         output.exchange_dir = ExchangeDir.from_work_dir(

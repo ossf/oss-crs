@@ -20,6 +20,7 @@ logic for the CRS Compose work directory structure:
                     └── LOG_DIR/<harness>/
 """
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -463,6 +464,10 @@ class WorkDir:
         """Get the BUILD_ID file path for a run."""
         return self.get_run_dir(run_id, sanitizer) / "BUILD_ID"
 
+    def get_run_meta_file(self, run_id: str, sanitizer: str) -> Path:
+        """Get the run metadata file path for a run."""
+        return self.get_run_dir(run_id, sanitizer) / "meta.json"
+
     def read_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:
         """Read the build-id that was used for a specific run."""
         build_id_file = self.get_build_id_file(run_id, sanitizer)
@@ -477,3 +482,13 @@ class WorkDir:
         run_dir = self.get_run_dir(run_id, sanitizer)
         run_dir.mkdir(parents=True, exist_ok=True)
         self.get_build_id_file(run_id, sanitizer).write_text(build_id)
+
+    def write_run_meta_for_run(
+        self, run_id: str, sanitizer: str, metadata: dict
+    ) -> None:
+        """Write run metadata to meta.json for a specific run."""
+        run_dir = self.get_run_dir(run_id, sanitizer)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        self.get_run_meta_file(run_id, sanitizer).write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+        )

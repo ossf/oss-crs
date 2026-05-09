@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-import shutil
-import subprocess
-import re
+import hashlib
 import json
 import os
-import hashlib
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
@@ -38,6 +38,12 @@ import requests.exceptions
 
 
 class CRSCompose:
+    _LITELLM_COST_PATTERNS = (
+        re.compile(r'"response_cost"\s*:\s*([0-9]+(?:\.[0-9]+)?)'),
+        re.compile(r"response_cost\s*=\s*([0-9]+(?:\.[0-9]+)?)"),
+    )
+    _LIBCRS_BUILD_REQUEST_PATTERN = re.compile(r"apply-patch-build")
+
     @classmethod
     def from_yaml_file(
         cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False
@@ -1138,6 +1144,8 @@ class CRSCompose:
                     if not success:
                         log_dim(f"Note: Cgroup cleanup deferred: {msg}")
 
+                self._write_run_meta(target, actual_run_id, sanitizer)
+
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
                     if ret.success:
@@ -1318,6 +1326,75 @@ class CRSCompose:
                 dst.symlink_to(rel_src)
             except OSError:
                 shutil.copy2(src, dst)
+
+    @staticmethod
+    def _count_files(path: Path) -> int:
+        if not path.exists() or not path.is_dir():
+            return 0
+        return sum(1 for p in path.iterdir() if p.is_file())
+
+    def _sum_llm_credits_from_service_logs(self, services_dir: Path) -> float:
+        if not services_dir.exists() or not services_dir.is_dir():
+            return 0.0
+        total = 0.0
+        for log_path in services_dir.glob("*.log"):
+            try:
+                content = log_path.read_text(errors="ignore")
+            except OSError:
+                continue
+            for pattern in self._LITELLM_COST_PATTERNS:
+                for match in pattern.finditer(content):
+                    try:
+                        total += float(match.group(1))
+                    except (TypeError, ValueError):
+                        continue
+        return round(total, 6)
+
+    def _count_build_requests_from_service_logs(self, services_dir: Path) -> int:
+        if not services_dir.exists() or not services_dir.is_dir():
+            return 0
+        count = 0
+        for log_path in services_dir.glob("*.log"):
+            try:
+                content = log_path.read_text(errors="ignore")
+            except OSError:
+                continue
+            count += len(self._LIBCRS_BUILD_REQUEST_PATTERN.findall(content))
+        return count
+
+    def _collect_run_meta(self, target: Target, run_id: str, sanitizer: str) -> dict:
+        povs_found = 0
+        seeds_shared = 0
+        for crs in self.crs_list:
+            submit_dir = self.work_dir.get_submit_dir(
+                crs.name, target, run_id, sanitizer, create=False
+            )
+            povs_found += self._count_files(submit_dir / "povs")
+            seeds_shared += self._count_files(submit_dir / "seeds")
+
+        run_logs_dir = self.work_dir.get_run_logs_dir(
+            target, run_id, sanitizer, create=False
+        )
+        services_dir = run_logs_dir / "services"
+
+        return {
+            "llm_credits_used": self._sum_llm_credits_from_service_logs(services_dir),
+            "povs_found": povs_found,
+            "seeds_shared": seeds_shared,
+            "builds_requested": self._count_build_requests_from_service_logs(
+                services_dir
+            ),
+        }
+
+    def _write_run_meta(self, target: Target, run_id: str, sanitizer: str) -> None:
+        try:
+            metadata = self._collect_run_meta(target, run_id, sanitizer)
+            self.work_dir.write_run_meta_for_run(run_id, sanitizer, metadata)
+        except Exception as exc:
+            log_dim(
+                "Note: Failed to write run metadata "
+                f"for run '{run_id}': {type(exc).__name__}: {exc}"
+            )
 
     def __show_result_local(
         self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress

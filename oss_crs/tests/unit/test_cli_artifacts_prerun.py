@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Tests for artifacts command pre-run path resolution behavior."""
 
+import json
 from types import SimpleNamespace
 
 from oss_crs.src.cli.artifacts import handle_artifacts
@@ -28,6 +29,9 @@ class _FakeWorkDir:
 
     def read_build_id_for_run(self, _run_id: str, _sanitizer: str) -> str | None:
         return None
+
+    def get_run_meta_file(self, run_id: str, sanitizer: str):
+        return self._tmp / sanitizer / "runs" / run_id / "meta.json"
 
     def get_exchange_dir(
         self, target, run_id: str, sanitizer: str, *, create: bool = False
@@ -206,3 +210,34 @@ def test_artifacts_resolves_default_sanitizer_from_compose(tmp_path, capsys) -> 
 
     out = capsys.readouterr().out
     assert '"sanitizer": "memory"' in out
+
+
+def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -> None:
+    run_id = "existing-run-id"
+    sanitizer = "address"
+    meta_path = tmp_path / sanitizer / "runs" / run_id / "meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(
+        json.dumps(
+            {
+                "llm_credits_used": 1.25,
+                "povs_found": 2,
+                "seeds_shared": 3,
+                "builds_requested": 4,
+            }
+        )
+    )
+
+    compose = _make_compose(tmp_path, resolved_run_id=run_id)
+    args = _make_args(run_id, sanitizer=sanitizer)
+    target = _FakeTarget("fuzz_target")
+
+    ok = handle_artifacts(args, compose, target)
+    assert ok is True
+
+    out = capsys.readouterr().out
+    assert '"meta"' in out
+    assert '"llm_credits_used": 1.25' in out
+    assert '"povs_found": 2' in out
+    assert '"seeds_shared": 3' in out
+    assert '"builds_requested": 4' in out
