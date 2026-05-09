@@ -1,4 +1,5 @@
 import hashlib
+
 # SPDX-License-Identifier: MIT
 import json
 import os
