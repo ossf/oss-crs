@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Docker SDK container lifecycle module for the builder sidecar.
 
 Provides public functions:

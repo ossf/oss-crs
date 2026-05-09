@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """E2E sidecar test using the libCRS Python API.
 
 Mirrors test-e2e.sh but exercises the Python interface directly.

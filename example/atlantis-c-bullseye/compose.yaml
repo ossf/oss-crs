@@ -1,6 +1,6 @@
 ##############################################################################
 #                        CRS Compose Configuration                           #
-#        Example for atlantis-multilang-wo-concolic (bug-finding)            #
+#              Example for atlantis-c-bullseye (bug-finding)                 #
 ##############################################################################
 
 # --- General Settings -------------------------------------------------------
@@ -12,12 +12,8 @@ oss_crs_infra:
   cpuset: "0-3"
   memory: "16G"
 
-# --- CRS (atlantis-multilang-wo-concolic) -----------------------------------
-atlantis-multilang-wo-concolic:
-  cpuset: "4-8"
-  memory: "16G"
-  llm_budget: 100
-
-# --- LLM Configuration -----------------------------------------------------
-llm_config:
-  litellm_config: ./example/atlantis-multilang-wo-concolic/litellm-config.yaml
+# --- CRS (atlantis-c-bullseye) ---------------------------------------------
+# Directed fuzzing with Bullseye — no LLM or builder sidecar needed.
+atlantis-c-bullseye:
+  cpuset: "4-15"
+  memory: "32G"

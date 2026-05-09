@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from oss_crs.src.env_policy import (
     build_prepare_env,
     build_run_service_env,
@@ -190,7 +191,10 @@ def test_run_env_preserves_existing_precedence_and_system_wins() -> None:
     assert plan.effective_env["OSS_CRS_TARGET_HARNESS"] == "h1"
     assert plan.effective_env["OSS_CRS_FETCH_DIR"] == "/OSS_CRS_FETCH_DIR"
     assert plan.effective_env["OSS_CRS_LLM_API_URL"] == "http://llm"
-    assert plan.effective_env["OSS_CRS_LLM_API_KEY"] == "sk-test"
+    assert (
+        plan.effective_env["OSS_CRS_LLM_API_KEY_FILE"]
+        == "/run/secrets/oss_crs_llm_api_key"
+    )
     assert plan.effective_env["BUILDER_MODULE"] == "builder-sidecar"
     assert any("ENV001" in warning for warning in plan.warnings)
 

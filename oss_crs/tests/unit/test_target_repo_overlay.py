@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for repo override behavior in target Dockerfile generation."""
 
 from pathlib import Path

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for oss_crs.src.cpuset module.
 
 Tests the CPU set parsing and mapping algorithm as specified in issue #68.

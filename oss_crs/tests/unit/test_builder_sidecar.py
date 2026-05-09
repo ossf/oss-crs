@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for builder-sidecar docker_ops.py and server.py.
 
 Uses fully mocked Docker SDK — no real Docker daemon required.

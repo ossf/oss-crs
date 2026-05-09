@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Lifecycle sidecar: signals when all watched CRS containers have exited.
 
 Monitors Docker container events for a set of Compose services and writes

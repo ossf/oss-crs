@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 import re
 from typing import Mapping
 

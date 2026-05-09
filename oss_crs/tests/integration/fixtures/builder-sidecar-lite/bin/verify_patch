@@ -111,11 +111,15 @@ def fail(step: str, reason: str) -> None:
     """Record a failure for ``step`` and exit with non-zero status.
 
     The atexit hook will persist ``_result`` before the process dies.
+    Preserves any extras previously recorded for ``step`` via ``_mark_step``
+    (e.g. per-POV failure lists) by merging rather than replacing the entry.
     """
     _result["status"] = "fail"
     _result["reason"] = reason
     _result["failed_step"] = step
-    _mark_step(step, "fail", reason=reason)
+    prior = _result["steps"].get(step, {})
+    merged = {**prior, "status": "fail", "reason": reason}
+    _result["steps"][step] = merged
     log(f"FAIL [{step}]: {reason}")
     sys.exit(1)
 
@@ -165,15 +169,47 @@ def main() -> int:
     harness_bin.chmod(0o755)
     _mark_step("download_original_build", "pass")
 
+    no_crash = []
     for pov_file in pov_files:
         pov_resp = RESPONSE_DIR / f"pov-before-{pov_file.stem}"
         rc = crs.run_pov(pov_file, harness, pov_resp)
         if rc == 0:
-            fail(
-                "run_povs_original",
-                f"POV {pov_file.name} did NOT crash on original build — expected a crash",
+            stderr_log = pov_resp / "stderr.log"
+            stdout_log = pov_resp / "stdout.log"
+            stderr_tail = _tail_text(stderr_log, INLINE_TAIL_BYTES)
+            archived_stderr = _archive_full_log(
+                stderr_log, f"run_povs_original.{pov_file.stem}.stderr.log"
             )
-        log(f"  {pov_file.name}: crashes (exit={rc})")
+            archived_stdout = _archive_full_log(
+                stdout_log, f"run_povs_original.{pov_file.stem}.stdout.log"
+            )
+            if archived_stderr:
+                log(f"  {pov_file.name} full stderr archived to {archived_stderr}")
+            log(f"  {pov_file.name}: DID NOT CRASH (exit={rc}) — expected a crash")
+            no_crash.append(
+                {
+                    "pov": pov_file.name,
+                    "exit": rc,
+                    "stderr_tail": stderr_tail,
+                    "stderr_full_path": archived_stderr,
+                    "stdout_full_path": archived_stdout,
+                }
+            )
+        else:
+            log(f"  {pov_file.name}: crashes (exit={rc})")
+    if no_crash:
+        _mark_step(
+            "run_povs_original",
+            "fail",
+            pov_count=len(pov_files),
+            no_crash=no_crash,
+        )
+        fail(
+            "run_povs_original",
+            f"Some POVs did NOT crash on original build "
+            f"({len(no_crash)}/{len(pov_files)}): "
+            f"{[e['pov'] for e in no_crash]}",
+        )
     log(f"PASS: All {len(pov_files)} POV(s) crash on original build")
     _mark_step("run_povs_original", "pass", pov_count=len(pov_files))
 

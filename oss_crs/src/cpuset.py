@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Cpuset parsing and mapping utilities.
 
 This module provides functions for parsing cpuset strings (e.g., "0-3,5,8-11")

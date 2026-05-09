@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Setup command for oss-crs cgroup-parent mode.
 
 This module implements the `oss-crs setup` command which configures

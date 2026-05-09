@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for CRSCompose incremental snapshot creation and validation.
 
 Tests for:

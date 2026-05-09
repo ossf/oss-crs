@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for early exit functionality."""
 
 import time

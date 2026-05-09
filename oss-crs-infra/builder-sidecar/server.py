@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FastAPI builder sidecar server.
 
 Host-side build orchestrator that accepts build requests, launches ephemeral Docker

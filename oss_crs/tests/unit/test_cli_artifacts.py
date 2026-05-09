@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for artifact ID resolution helpers."""
 
 from pathlib import Path

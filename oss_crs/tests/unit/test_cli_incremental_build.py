@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for --incremental-build CLI flag parsing on build-target and run subcommands."""
 
 import argparse

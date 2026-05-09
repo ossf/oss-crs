@@ -1,0 +1,6 @@
+name: crs-opencode
+type:
+  - bug-fixing
+source:
+  url: https://github.com/Team-Atlanta/crs-opencode.git
+  ref: main

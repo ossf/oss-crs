@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Cross-layer contract tests for download-source mount paths.
 
 Verifies that mount paths in templates, env values in env_policy, and

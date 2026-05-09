@@ -1,4 +1,5 @@
 import hashlib
+# SPDX-License-Identifier: MIT
 import json
 import os
 import re
@@ -298,7 +299,7 @@ class CRSCompose:
         Returns:
             True if all snapshots committed successfully, False otherwise (with cleanup).
         """
-        client = docker.from_env(timeout=1800)
+        client = docker.from_env(timeout=3600)
         committed_tags: list[str] = []
         target_env = target.get_target_env()
         oss_fuzz_env = {k: target_env[v] for k, v in OSS_FUZZ_TARGET_ENV.items()}

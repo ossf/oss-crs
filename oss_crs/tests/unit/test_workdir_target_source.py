@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for WorkDir.get_target_source_dir()."""
 
 from oss_crs.src.workdir import WorkDir

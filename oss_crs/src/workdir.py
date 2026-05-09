@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """WorkDir: Centralized path management for CRS Compose work directories.
 
 This module provides a WorkDir class that encapsulates all path construction

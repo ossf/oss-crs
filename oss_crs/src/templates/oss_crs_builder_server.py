@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 # pyright: reportMissingImports=false
 """HTTP builder server for incremental patch builds.
 

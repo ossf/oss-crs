@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Shared pytest fixtures for oss_crs tests."""
 
 import pytest

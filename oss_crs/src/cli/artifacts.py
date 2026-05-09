@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Artifacts command handling for oss-crs CLI."""
 
 import re

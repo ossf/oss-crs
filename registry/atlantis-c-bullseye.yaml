@@ -1,0 +1,6 @@
+name: atlantis-c-bullseye
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/atlantis-c-bullseye.git
+  ref: main

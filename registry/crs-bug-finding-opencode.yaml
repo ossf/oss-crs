@@ -1,0 +1,6 @@
+name: crs-bug-finding-opencode
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-opencode.git
+  ref: main

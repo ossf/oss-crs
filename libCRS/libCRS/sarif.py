@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """SARIF 2.1.0 parsing and validation utilities for bug-candidate reports."""
 
 import json

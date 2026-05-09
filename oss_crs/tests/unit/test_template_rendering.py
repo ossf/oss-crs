@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for mount infrastructure template rendering.
 
 Tests volume mount definitions in build-target and run-crs-compose templates.

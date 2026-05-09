@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for template rendering."""
 
 import pytest

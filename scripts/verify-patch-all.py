@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Run verify-patch-inc.sh against all CRSBench benchmarks.
 
 For each benchmark, picks the first harness+cpv that has a patch and POV,
