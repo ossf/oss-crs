@@ -1,0 +1,6 @@
+name: crs-roboduck-triage
+type:
+  - bug-finding-triage
+source:
+  url: https://github.com/Team-Atlanta/crs-roboduck-triage.git
+  ref: main
