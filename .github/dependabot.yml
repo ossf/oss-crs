@@ -1,0 +1,45 @@
+version: 2
+updates:
+  # GitHub Actions — pinned SHA digests in CI workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+  # Python (uv) — main project dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+  # Docker — pinned image digests (tracks oss-crs-infra/dependabot-pins.Dockerfile)
+  # The actual refs live in oss_crs/src/constants.py; sync manually on update.
+  # TODO: Explore Renovate for native regex-based tracking in Python files.
+  - package-ecosystem: "docker"
+    directory: "/oss-crs-infra"
+    schedule:
+      interval: "daily"
+
+  # Python (pip) — builder-sidecar container dependencies
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/builder-sidecar"
+    schedule:
+      interval: "daily"
+
+  # Python (pip) — runner-sidecar container dependencies
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/runner-sidecar"
+    schedule:
+      interval: "daily"
+
+  # Python (pip) — lifecycle container dependencies
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/lifecycle"
+    schedule:
+      interval: "daily"
+
+  # Python (pip) — litellm-key-gen container dependencies
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/litellm-key-gen"
+    schedule:
+      interval: "daily"
