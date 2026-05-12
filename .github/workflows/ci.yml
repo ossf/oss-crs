@@ -17,10 +17,14 @@ on:
 jobs:
   verify:
     name: Verify
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -29,11 +33,15 @@ jobs:
 
   integration-test:
     name: Integration tests
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [verify]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - name: sync
@@ -43,12 +51,16 @@ jobs:
 
   smoke-c:
     name: Smoke test (C)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [verify]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -135,7 +147,7 @@ jobs:
 
       - name: Upload smoke-c workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-c-workdir
           path: /tmp/smoke-c-workdir.tar.gz
@@ -144,6 +156,8 @@ jobs:
 
   smoke-c-patch:
     name: Smoke test (C patching)
+    permissions:
+      contents: read
     if: |
       github.actor != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -154,8 +168,10 @@ jobs:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
       EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -266,7 +282,7 @@ jobs:
 
       - name: Upload smoke-c-patch workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-c-patch-workdir
           path: /tmp/smoke-c-patch-workdir.tar.gz
@@ -275,6 +291,8 @@ jobs:
 
   smoke-c-bugfinding-codex:
     name: Smoke test (C agentic bug-finding)
+    permissions:
+      contents: read
     if: |
       github.actor != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -285,8 +303,10 @@ jobs:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
       EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -386,7 +406,7 @@ jobs:
 
       - name: Upload smoke-c-bugfinding-codex workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-c-bugfinding-codex-workdir
           path: /tmp/smoke-c-bugfinding-codex-workdir.tar.gz
@@ -395,12 +415,16 @@ jobs:
 
   smoke-java:
     name: Smoke test (Java)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [verify]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -487,7 +511,7 @@ jobs:
 
       - name: Upload smoke-java workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-java-workdir
           path: /tmp/smoke-java-workdir.tar.gz
