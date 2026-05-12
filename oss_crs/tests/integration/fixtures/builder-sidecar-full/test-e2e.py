@@ -156,9 +156,7 @@ def main() -> int:
         fail("No rebuild_id returned from cached build")
     cache_rid = int(cache_rid_file.read_text().strip())
     if cache_rid != alt_build_rid:
-        fail(
-            f"Cached build returned rebuild_id={cache_rid}, expected {alt_build_rid}"
-        )
+        fail(f"Cached build returned rebuild_id={cache_rid}, expected {alt_build_rid}")
     log(f"PASS: cached build returned requested rebuild_id={cache_rid}")
 
     # Verify staged artifacts are accessible via download
@@ -166,12 +164,8 @@ def main() -> int:
     crs.download_build_output("build", cache_build_dir, rebuild_id=alt_build_rid)
     cache_harness = cache_build_dir / harness_name
     if not cache_harness.exists():
-        fail(
-            f"Staged harness {harness_name} not found at rebuild_id={alt_build_rid}"
-        )
-    log(
-        f"PASS: staged build artifacts downloadable at rebuild_id={alt_build_rid}"
-    )
+        fail(f"Staged harness {harness_name} not found at rebuild_id={alt_build_rid}")
+    log(f"PASS: staged build artifacts downloadable at rebuild_id={alt_build_rid}")
 
     # --- Apply patch + test ---
     log("Running test.sh via Python API...")
@@ -193,9 +187,7 @@ def main() -> int:
         fail(f"No POV files found in {pov_dir}")
 
     for pov_file in pov_files:
-        log(
-            f"Running POV {pov_file.name} against unpatched build (no rebuild_id)..."
-        )
+        log(f"Running POV {pov_file.name} against unpatched build (no rebuild_id)...")
         unpatched_response = RESPONSE_DIR / "pov-unpatched"
         unpatched_rc = crs.run_pov(pov_file, harness_name, unpatched_response)
 
@@ -215,7 +207,9 @@ def main() -> int:
                 f"POV {pov_file.name}: crash on unpatched build not from sanitizer — "
                 f"stderr: {stderr_text.strip()[:300]}"
             )
-        log(f"PASS: POV {pov_file.name} triggers sanitizer crash on unpatched build with retcode {unpatched_rc}")
+        log(
+            f"PASS: POV {pov_file.name} triggers sanitizer crash on unpatched build with retcode {unpatched_rc}"
+        )
 
     # --- Run POV against patched build (with rebuild_id) ---
     for pov_file in pov_files:
