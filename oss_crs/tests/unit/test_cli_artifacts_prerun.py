@@ -220,10 +220,36 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
     meta_path.write_text(
         json.dumps(
             {
-                "llm_credits_used": 1.25,
-                "povs_found": 2,
-                "seeds_shared": 3,
-                "builds_requested": 4,
+                "totals": {
+                    "artifacts": {
+                        "povs": 2,
+                        "seeds": 4,
+                        "patches": 1,
+                        "bug_candidates": 2,
+                    },
+                    "llm": {"credits_used": 1.65},
+                    "sidecar": {
+                        "patch_builds": 4,
+                        "patch_tests": 2,
+                        "pov_runs": 8,
+                    },
+                },
+                "crs": {
+                    "crs-a": {
+                        "artifacts": {
+                            "povs": 2,
+                            "seeds": 3,
+                            "patches": 1,
+                            "bug_candidates": 0,
+                        },
+                        "llm": {"credits_used": 1.25},
+                        "sidecar": {
+                            "patch_builds": 4,
+                            "patch_tests": 2,
+                            "pov_runs": 7,
+                        },
+                    }
+                },
             }
         )
     )
@@ -237,7 +263,9 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
 
     out = capsys.readouterr().out
     assert '"meta"' in out
-    assert '"llm_credits_used": 1.25' in out
-    assert '"povs_found": 2' in out
-    assert '"seeds_shared": 3' in out
-    assert '"builds_requested": 4' in out
+    assert '"totals"' in out
+    assert '"credits_used": 1.65' in out
+    assert '"patch_builds": 4' in out
+    assert '"patch_tests": 2' in out
+    assert '"pov_runs": 8' in out
+    assert '"bug_candidates": 2' in out
