@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import json
 import logging
 import os
 import socket
@@ -17,6 +18,34 @@ logger = logging.getLogger(__name__)
 
 _FUZZ_PROJ_MOUNT = Path("/OSS_CRS_FUZZ_PROJ")
 _TARGET_SOURCE_MOUNT = Path("/OSS_CRS_TARGET_SOURCE")
+
+
+def _append_sidecar_metric(event: str, service: str, exit_code: int) -> None:
+    """Append one sidecar operation event to a JSONL metrics file."""
+    try:
+        log_dir = os.environ.get("OSS_CRS_LOG_DIR")
+        if not log_dir:
+            return
+
+        metrics_file = Path(
+            os.environ.get(
+                "OSS_CRS_SIDECAR_METRICS_FILE",
+                str(Path(log_dir) / "libcrs-sidecar-metrics.jsonl"),
+            )
+        )
+        metrics_file.parent.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "ts": int(time.time()),
+            "crs": os.environ.get("OSS_CRS_NAME", "unknown"),
+            "event": event,
+            "service": service,
+            "exit_code": int(exit_code),
+        }
+        with metrics_file.open("a") as f:
+            f.write(json.dumps(payload, sort_keys=True) + "\n")
+    except Exception:
+        return
 
 
 def _get_build_out_dir() -> Path:
@@ -283,6 +312,7 @@ class LocalCRSUtils(CRSUtils):
         if result is None:
             (response_dir / "retcode").write_text("1")
             (response_dir / "stderr.log").write_text("Builder unavailable or timed out")
+            _append_sidecar_metric("apply-patch-build", builder, 1)
             return 1
 
         inner = result.get("result") or {}
@@ -305,6 +335,7 @@ class LocalCRSUtils(CRSUtils):
             (response_dir / "rebuild_id").write_text(str(rid))
             self._last_rebuild_id = rid
 
+        _append_sidecar_metric("apply-patch-build", builder, int(exit_code))
         return exit_code
 
     def run_pov(
@@ -321,6 +352,7 @@ class LocalCRSUtils(CRSUtils):
             response_dir.mkdir(parents=True, exist_ok=True)
             (response_dir / "retcode").write_text("1")
             (response_dir / "stderr.log").write_text("Runner unavailable")
+            _append_sidecar_metric("run-pov", builder, 1)
             return 1
 
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
@@ -357,6 +389,7 @@ class LocalCRSUtils(CRSUtils):
             response_dir.mkdir(parents=True, exist_ok=True)
             (response_dir / "retcode").write_text("1")
             (response_dir / "stderr.log").write_text(str(e))
+            _append_sidecar_metric("run-pov", builder, 1)
             return 1
 
         response_dir.mkdir(parents=True, exist_ok=True)
@@ -369,6 +402,7 @@ class LocalCRSUtils(CRSUtils):
         if stderr:
             (response_dir / "stderr.log").write_text(stderr)
 
+        _append_sidecar_metric("run-pov", builder, int(exit_code))
         return exit_code
 
     def apply_patch_test(
@@ -398,6 +432,7 @@ class LocalCRSUtils(CRSUtils):
         if result is None:
             (response_dir / "retcode").write_text("1")
             (response_dir / "stderr.log").write_text("Builder unavailable or timed out")
+            _append_sidecar_metric("apply-patch-test", builder, 1)
             return 1
 
         inner = result.get("result") or {}
@@ -415,6 +450,7 @@ class LocalCRSUtils(CRSUtils):
 
         (response_dir / "retcode").write_text(str(exit_code))
 
+        _append_sidecar_metric("apply-patch-test", builder, int(exit_code))
         return exit_code
 
     def download_build_output(

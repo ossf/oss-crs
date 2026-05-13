@@ -39,12 +39,6 @@ import requests.exceptions
 
 
 class CRSCompose:
-    _LITELLM_COST_PATTERNS = (
-        re.compile(r'"response_cost"\s*:\s*([0-9]+(?:\.[0-9]+)?)'),
-        re.compile(r"response_cost\s*=\s*([0-9]+(?:\.[0-9]+)?)"),
-    )
-    _LIBCRS_BUILD_REQUEST_PATTERN = re.compile(r"apply-patch-build")
-
     @classmethod
     def from_yaml_file(
         cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False
@@ -1330,62 +1324,121 @@ class CRSCompose:
                 shutil.copy2(src, dst)
 
     @staticmethod
-    def _count_files(path: Path) -> int:
-        if not path.exists() or not path.is_dir():
-            return 0
-        return sum(1 for p in path.iterdir() if p.is_file())
+    def _read_json_file(path: Path) -> dict:
+        try:
+            raw = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
 
-    def _sum_llm_credits_from_service_logs(self, services_dir: Path) -> float:
-        if not services_dir.exists() or not services_dir.is_dir():
-            return 0.0
-        total = 0.0
-        for log_path in services_dir.glob("*.log"):
-            try:
-                content = log_path.read_text(errors="ignore")
-            except OSError:
-                continue
-            for pattern in self._LITELLM_COST_PATTERNS:
-                for match in pattern.finditer(content):
-                    try:
-                        total += float(match.group(1))
-                    except (TypeError, ValueError):
-                        continue
-        return round(total, 6)
+    def _read_litellm_spend_summary(self, run_id: str, sanitizer: str) -> dict:
+        path = self.work_dir.get_litellm_spend_report_file(
+            run_id, sanitizer, create_parent=False
+        )
+        raw = self._read_json_file(path)
+        totals_raw = raw.get("totals")
+        totals = totals_raw if isinstance(totals_raw, dict) else {}
+        crs_raw = raw.get("crs")
+        crs = crs_raw if isinstance(crs_raw, dict) else {}
+        return {
+            "totals": {"credits_used": float(totals.get("credits_used", 0.0) or 0.0)},
+            "crs": {
+                name: {"credits_used": float((entry or {}).get("credits_used", 0.0))}
+                for name, entry in crs.items()
+                if isinstance(name, str)
+            },
+        }
 
-    def _count_build_requests_from_service_logs(self, services_dir: Path) -> int:
-        if not services_dir.exists() or not services_dir.is_dir():
-            return 0
-        count = 0
-        for log_path in services_dir.glob("*.log"):
-            try:
-                content = log_path.read_text(errors="ignore")
-            except OSError:
-                continue
-            count += len(self._LIBCRS_BUILD_REQUEST_PATTERN.findall(content))
-        return count
+    def _read_sidecar_counts_for_crs(
+        self, crs_name: str, target: Target, run_id: str, sanitizer: str
+    ) -> dict[str, int]:
+        path = self.work_dir.get_sidecar_metrics_file(
+            crs_name, target, run_id, sanitizer
+        )
+        counts = {
+            "patch_builds": 0,
+            "patch_tests": 0,
+            "pov_runs": 0,
+        }
+        if not path.exists() or not path.is_file():
+            return counts
+
+        event_to_field = {
+            "apply-patch-build": "patch_builds",
+            "apply-patch-test": "patch_tests",
+            "run-pov": "pov_runs",
+        }
+        try:
+            for line in path.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event = row.get("event")
+                field = event_to_field.get(event)
+                if field:
+                    counts[field] += 1
+        except OSError:
+            return counts
+        return counts
 
     def _collect_run_meta(self, target: Target, run_id: str, sanitizer: str) -> dict:
-        povs_found = 0
-        seeds_shared = 0
-        for crs in self.crs_list:
-            submit_dir = self.work_dir.get_submit_dir(
-                crs.name, target, run_id, sanitizer, create=False
-            )
-            povs_found += self._count_files(submit_dir / "povs")
-            seeds_shared += self._count_files(submit_dir / "seeds")
+        llm_summary = self._read_litellm_spend_summary(run_id, sanitizer)
 
-        run_logs_dir = self.work_dir.get_run_logs_dir(
-            target, run_id, sanitizer, create=False
-        )
-        services_dir = run_logs_dir / "services"
+        totals = {
+            "artifacts": {
+                "povs": 0,
+                "seeds": 0,
+                "patches": 0,
+                "bug_candidates": 0,
+            },
+            "llm": {"credits_used": 0.0},
+            "sidecar": {
+                "patch_builds": 0,
+                "patch_tests": 0,
+                "pov_runs": 0,
+            },
+        }
+        crs_meta: dict[str, dict] = {}
+
+        for crs in self.crs_list:
+            artifacts = self.work_dir.get_submit_artifact_counts(
+                crs.name, target, run_id, sanitizer
+            )
+            sidecar = self._read_sidecar_counts_for_crs(
+                crs.name, target, run_id, sanitizer
+            )
+            llm = {
+                "credits_used": float(
+                    llm_summary.get("crs", {})
+                    .get(crs.name, {})
+                    .get("credits_used", 0.0)
+                )
+            }
+
+            crs_meta[crs.name] = {
+                "artifacts": artifacts,
+                "llm": llm,
+                "sidecar": sidecar,
+            }
+
+            for key in totals["artifacts"]:
+                totals["artifacts"][key] += artifacts.get(key, 0)
+            for key in totals["sidecar"]:
+                totals["sidecar"][key] += sidecar.get(key, 0)
+
+        llm_total = float(llm_summary.get("totals", {}).get("credits_used", 0.0))
+        if llm_total == 0.0:
+            llm_total = round(
+                sum(crs_meta[name]["llm"]["credits_used"] for name in crs_meta), 6
+            )
+        totals["llm"]["credits_used"] = llm_total
 
         return {
-            "llm_credits_used": self._sum_llm_credits_from_service_logs(services_dir),
-            "povs_found": povs_found,
-            "seeds_shared": seeds_shared,
-            "builds_requested": self._count_build_requests_from_service_logs(
-                services_dir
-            ),
+            "totals": totals,
+            "crs": crs_meta,
         }
 
     def _write_run_meta(self, target: Target, run_id: str, sanitizer: str) -> None:

@@ -313,6 +313,9 @@ def render_run_crs_compose_docker_compose(
         ),
         "litellm_image": LITELLM_IMAGE,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
+        "litellm_spend_report_path": str(
+            crs_compose.work_dir.get_litellm_spend_report_file(run_id, sanitizer)
+        ),
         "postgres_image": POSTGRES_IMAGE,
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,
