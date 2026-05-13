@@ -301,6 +301,14 @@ def render_run_crs_compose_docker_compose(
     )
 
     target_env = target.get_target_env()
+    if hasattr(crs_compose.work_dir, "get_litellm_spend_report_file"):
+        litellm_spend_report_path = str(
+            crs_compose.work_dir.get_litellm_spend_report_file(run_id, sanitizer)
+        )
+    else:
+        tmp_dir = tmp_docker_compose.dir if tmp_docker_compose.dir else Path("/tmp")
+        litellm_spend_report_path = str(tmp_dir / "litellm-spend-report.json")
+
     context = {
         "libCRS_path": str(LIBCRS_PATH),
         "crs_compose_name": crs_compose_name,
@@ -330,9 +338,7 @@ def render_run_crs_compose_docker_compose(
         ),
         "litellm_image": LITELLM_IMAGE,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
-        "litellm_spend_report_path": str(
-            crs_compose.work_dir.get_litellm_spend_report_file(run_id, sanitizer)
-        ),
+        "litellm_spend_report_path": litellm_spend_report_path,
         "postgres_image": POSTGRES_IMAGE,
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,
