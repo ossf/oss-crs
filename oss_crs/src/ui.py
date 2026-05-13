@@ -1315,8 +1315,6 @@ class MultiTaskProgress:
 
 def _count_files(dir_path: Path) -> int:
     """Count non-hidden files in a directory."""
-    if not dir_path.exists():
-        return 0
-    return len(
-        [f for f in dir_path.iterdir() if f.is_file() and not f.name.startswith(".")]
-    )
+    from .workdir import WorkDir
+
+    return WorkDir.count_data_files(dir_path)

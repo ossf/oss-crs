@@ -63,14 +63,41 @@ class RunLogs(BaseModel):
         )
 
 
+class MetaArtifactCounts(BaseModel):
+    povs: int = 0
+    seeds: int = 0
+    patches: int = 0
+    bug_candidates: int = 0
+
+
+class MetaLLMStats(BaseModel):
+    credits_used: float = 0.0
+
+
+class MetaSidecarStats(BaseModel):
+    patch_builds: int = 0
+    patch_tests: int = 0
+    pov_runs: int = 0
+
+
+class MetaCRSStats(BaseModel):
+    artifacts: MetaArtifactCounts = Field(default_factory=MetaArtifactCounts)
+    llm: MetaLLMStats = Field(default_factory=MetaLLMStats)
+    sidecar: MetaSidecarStats = Field(default_factory=MetaSidecarStats)
+
+
+class MetaTotals(BaseModel):
+    artifacts: MetaArtifactCounts = Field(default_factory=MetaArtifactCounts)
+    llm: MetaLLMStats = Field(default_factory=MetaLLMStats)
+    sidecar: MetaSidecarStats = Field(default_factory=MetaSidecarStats)
+
+
 class RunMeta(BaseModel):
     """Run-level statistics from run metadata."""
 
     path: Optional[str] = None
-    llm_credits_used: Optional[float] = None
-    povs_found: Optional[int] = None
-    seeds_shared: Optional[int] = None
-    builds_requested: Optional[int] = None
+    totals: MetaTotals = Field(default_factory=MetaTotals)
+    crs: dict[str, MetaCRSStats] = Field(default_factory=dict)
 
     @classmethod
     def from_work_dir(
@@ -89,10 +116,13 @@ class RunMeta(BaseModel):
             return out
         if not isinstance(raw, dict):
             return out
-        out.llm_credits_used = raw.get("llm_credits_used")
-        out.povs_found = raw.get("povs_found")
-        out.seeds_shared = raw.get("seeds_shared")
-        out.builds_requested = raw.get("builds_requested")
+        out.totals = MetaTotals.model_validate(raw.get("totals") or {})
+        crs_raw = raw.get("crs")
+        if isinstance(crs_raw, dict):
+            out.crs = {
+                str(name): MetaCRSStats.model_validate(stats or {})
+                for name, stats in crs_raw.items()
+            }
         return out
 
 

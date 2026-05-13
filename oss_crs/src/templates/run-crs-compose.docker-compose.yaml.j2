@@ -38,7 +38,7 @@ services:
 {%- if llm_context is defined and llm_context.mode == "internal" %}
     depends_on:
       oss-crs-litellm-key-gen:
-        condition: service_completed_successfully
+  condition: service_healthy
 {%- endif %}
 {%- if llm_context is defined and crs.name in llm_context.secret_files %}
     secrets:
@@ -149,12 +149,21 @@ services:
         condition: service_healthy
     environment:
       - LITELLM_API_URL={{ litellm_internal_url }}
+      - LITELLM_SPEND_REPORT_PATH=/litellm-spend-report.json
+      - LITELLM_SPEND_POLL_INTERVAL_SEC=5
     secrets:
       - litellm_master_key
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/litellm-key-gen.ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     networks:
       {{ crs_compose_name }}-network:
     volumes:
       - {{ llm_context.key_gen_request_path }}:/key_gen_request.yaml:ro
+      - {{ litellm_spend_report_path }}:/litellm-spend-report.json:rw
   ###########################################
 {% endif %}
   ###########################################
