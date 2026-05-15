@@ -58,6 +58,27 @@
   margin-top: 1.5rem;
 }
 
+.hero__ctas .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.button__brand-icon {
+  width: 1.05em;
+  height: 1.05em;
+  flex: 0 0 auto;
+}
+
+.button__brand-icon--huggingface {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05em;
+  line-height: 1;
+}
+
 .hero-stats {
   display: flex;
   flex-wrap: wrap;
@@ -307,4 +328,61 @@
   text-align: center;
   padding: 2.5rem 1rem;
   color: var(--ifm-color-emphasis-600);
+}
+
+/* ----- CRSBench page ----- */
+.crsbench-stats {
+  margin-top: 1.5rem;
+}
+
+.crsbench-stats .hero-stat {
+  background: var(--ifm-background-surface-color);
+  border-color: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.crsbench-stats .hero-stat__count {
+  color: var(--ifm-color-primary);
+}
+
+.crsbench-stats .hero-stat__label {
+  color: var(--ifm-color-emphasis-700);
+}
+
+.crsbench-figure {
+  margin: 2rem 0 0;
+  text-align: center;
+}
+
+.crsbench-figure img {
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] .crsbench-figure img {
+  background: #f7f8fa;
+}
+
+.crsbench-figure figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.88rem;
+  color: var(--ifm-color-emphasis-700);
+  text-align: center;
+  padding: 0 0.5rem;
+}
+
+.crsbench-figure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.crsbench-figure-grid .crsbench-figure {
+  margin: 0;
 }

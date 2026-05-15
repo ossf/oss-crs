@@ -61,6 +61,7 @@ const config = {
         items: [
           { to: '/#quick-start', label: 'Quick Start', position: 'left' },
           { to: '/registry', label: 'Registry', position: 'left' },
+          { to: '/crsbench', label: 'CRSBench', position: 'left' },
           {
             type: 'docSidebar',
             sidebarId: 'docs',
@@ -83,6 +84,7 @@ const config = {
               { label: 'Docs index', to: '/docs/' },
               { label: 'Quick Start', to: '/#quick-start' },
               { label: 'CRS Registry', to: '/registry' },
+              { label: 'CRSBench', to: '/crsbench' },
             ],
           },
           {
