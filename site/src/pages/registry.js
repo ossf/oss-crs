@@ -3,7 +3,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 
-const REGISTRY_GITHUB_BASE = 'https://github.com/Team-Atlanta/oss-crs/tree/main/';
+const REGISTRY_GITHUB_BASE = 'https://github.com/ossf/oss-crs/tree/main/';
 
 function typeClass(type) {
   return `registry-tag registry-tag--${String(type).replace(/[^a-z0-9-]/gi, '-')}`;

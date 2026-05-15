@@ -7,10 +7,11 @@ const config = {
   tagline: 'Cyber Reasoning Systems for Open Source Software',
   favicon: 'img/favicon.svg',
 
-  url: 'https://team-atlanta.github.io',
-  baseUrl: '/oss-crs/',
+  url: 'https://oss-crs.openssf.org',
+  baseUrl: '/',
+  trailingSlash: false,
 
-  organizationName: 'Team-Atlanta',
+  organizationName: 'ossf',
   projectName: 'oss-crs',
 
   onBrokenLinks: 'warn',
@@ -36,7 +37,7 @@ const config = {
           sidebarPath: require.resolve('./sidebars.js'),
           include: ['**/*.md', '**/*.mdx'],
           exclude: ['**/node_modules/**'],
-          editUrl: 'https://github.com/Team-Atlanta/oss-crs/edit/main/docs/',
+          editUrl: 'https://github.com/ossf/oss-crs/edit/main/docs/',
         },
         blog: false,
         theme: {
@@ -67,7 +68,7 @@ const config = {
             label: 'Docs',
           },
           {
-            href: 'https://github.com/Team-Atlanta/oss-crs',
+            href: 'https://github.com/ossf/oss-crs',
             label: 'GitHub',
             position: 'right',
           },
@@ -95,7 +96,7 @@ const config = {
           {
             title: 'More',
             items: [
-              { label: 'GitHub', href: 'https://github.com/Team-Atlanta/oss-crs' },
+              { label: 'GitHub', href: 'https://github.com/ossf/oss-crs' },
               { label: 'OSS-Fuzz', href: 'https://github.com/google/oss-fuzz' },
             ],
           },

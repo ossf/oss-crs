@@ -11,7 +11,7 @@ on:
       - "libCRS/**"
       - "uv.lock"
       - "pyproject.toml"
-      - ".github/workflows/**"
+      - ".github/workflows/ci.yml"
       - "!**/*.md"
 
 jobs:
