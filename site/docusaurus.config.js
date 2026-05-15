@@ -101,7 +101,7 @@ const config = {
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} OSS-CRS contributors. Built with Docusaurus.`,
+        copyright: `Copyright © ${new Date().getFullYear()} OSS-CRS a Series of LF Projects, LLC. For web site terms of use, trademark policy and other project policies please see https://lfprojects.org/. Built with Docusaurus.`,
       },
       prism: {
         theme: themes.github,
