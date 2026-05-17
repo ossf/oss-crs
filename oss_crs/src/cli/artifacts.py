@@ -16,28 +16,21 @@ def collect_run_ids_for_target(
     """Collect all run-ids for a target from SUBMIT_DIR (run artifacts)."""
     seen = set()
 
-    runs_dir = crs_compose.work_dir.get_runs_dir(sanitizer)
-    if not runs_dir.exists():
-        return []
-
     # Temporarily set harness for path resolution
     original_harness = target.target_harness
     if harness:
         target.target_harness = harness
 
-    for run_id_dir in runs_dir.iterdir():
-        if not run_id_dir.is_dir():
-            continue
-        run_id = run_id_dir.name
+    for entry in crs_compose.work_dir.iter_runs(sanitizer=sanitizer):
         for crs in crs_compose.crs_list:
             submit_path = crs_compose.work_dir.get_submit_dir(
-                crs.name, target, run_id, sanitizer, create=False
+                crs.name, target, entry.run_id, sanitizer, create=False
             )
             # For harness=None, check parent dir (without harness component)
             if not harness:
                 submit_path = submit_path.parent
             if submit_path.exists():
-                seen.add(run_id)
+                seen.add(entry.run_id)
                 break
 
     target.target_harness = original_harness

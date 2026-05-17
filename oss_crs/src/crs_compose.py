@@ -117,29 +117,22 @@ class CRSCompose:
         latest_build_id = None
         latest_score = float("-inf")
 
-        builds_dir = self.work_dir.get_builds_dir(sanitizer)
-        if not builds_dir.exists():
-            return None
-
-        for build_id_dir in builds_dir.iterdir():
-            if not build_id_dir.is_dir():
-                continue
-            build_id = build_id_dir.name
+        for entry in self.work_dir.iter_builds(sanitizer=sanitizer):
             # Check if any CRS has build output for this target
             for crs in self.crs_list:
                 build_out_dir = self.work_dir.get_build_output_dir(
-                    crs.name, target, build_id, sanitizer, create=False
+                    crs.name, target, entry.build_id, sanitizer, create=False
                 )
                 if build_out_dir.exists():
                     # Prefer embedded unix timestamp; fall back to directory mtime.
-                    match = re.search(r"\d{10}", build_id)
+                    match = re.search(r"\d{10}", entry.build_id)
                     if match:
                         score = float(int(match.group()))
                     else:
-                        score = build_id_dir.stat().st_mtime
+                        score = entry.path.stat().st_mtime
                     if score > latest_score:
                         latest_score = score
-                        latest_build_id = build_id
+                        latest_build_id = entry.build_id
                     break  # Found at least one CRS with this build, no need to check others
         return latest_build_id
 
