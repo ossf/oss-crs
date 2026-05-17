@@ -1145,10 +1145,12 @@ class CRSCompose:
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
-                    return ret.success
-                return False
+                    if ret.success:
+                        return 0
+                    return 124  # timed out or early-exited
+                return 1
 
-        return False
+        return 1
 
     def __capture_compose_logs(
         self,

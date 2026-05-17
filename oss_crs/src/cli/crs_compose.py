@@ -9,6 +9,7 @@ from ..crs_compose import CRSCompose
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from .artifacts import handle_artifacts
+from .clean import add_clean_command, handle_clean
 from .setup import add_setup_command, handle_setup
 
 
@@ -335,6 +336,7 @@ def cli() -> bool:
     add_artifacts_command(subparsers)
     add_check_command(subparsers)
     add_gen_compose_command(subparsers)
+    add_clean_command(subparsers, add_common_arguments, add_target_arguments)
     add_setup_command(subparsers)
 
     argv = sys.argv[1:]
@@ -369,6 +371,10 @@ def cli() -> bool:
         except Exception as e:
             print(f"Error: Failed to process template: {e}", file=sys.stderr)
             return False
+
+    # Handle clean early - it manages its own CRSCompose initialization
+    if args.command == "clean":
+        return handle_clean(args)
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command == "artifacts"
@@ -413,7 +419,7 @@ def cli() -> bool:
         bug_candidate_dir = (
             args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
         )
-        if not crs_compose.run(
+        run_rc = crs_compose.run(
             target,
             run_id=args.run_id,
             build_id=args.build_id,
@@ -426,8 +432,9 @@ def cli() -> bool:
             bug_candidate_dir=bug_candidate_dir,
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
-        ):
-            return False
+        )
+        if run_rc != 0:
+            return run_rc
     elif args.command == "artifacts":
         target = init_target_from_args(args)
         return handle_artifacts(args, crs_compose, target)
@@ -437,7 +444,10 @@ def cli() -> bool:
 
 
 def main() -> int:
-    return 0 if cli() else 1
+    rc = cli()
+    if isinstance(rc, bool):
+        return 0 if rc else 1
+    return rc
 
 
 if __name__ == "__main__":
