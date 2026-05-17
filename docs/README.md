@@ -42,6 +42,7 @@ Every CRS campaign follows three phases managed by `oss-crs`:
 1. **Prepare** — Pull CRS source repositories and build Docker images (`oss-crs prepare`)
 2. **Build Target** — Compile the target project and run each CRS's target build pipeline (`oss-crs build-target`). Pass `--incremental-build` to create Docker snapshots for faster rebuilds.
 3. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`oss-crs run`). Pass `--incremental-build` to use snapshot images for ephemeral rebuild containers.
+4. **Clean** — Remove Docker images and workdir artifacts from previous phases (`oss-crs clean`). Target a specific phase with `clean prepare`, `clean build-target`, or `clean run`, or clean everything at once. Add `--artifacts` to also remove workdir build/run directories.
 
 ### CRS Isolation
 

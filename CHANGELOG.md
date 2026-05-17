@@ -7,6 +7,7 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `oss-crs clean` command — removes Docker images and workdir artifacts from previous prepare, build-target, and run phases. Supports phase-specific subcommands (`clean prepare`, `clean build-target`, `clean run`) or cleaning everything at once. Use `--artifacts` to also delete workdir directories, and `-y` to skip the confirmation prompt.
 - Website under `site/`
 - `bug-finding-triage` and `seed-filter` CRS types — post-processor CRS that read from the main exchange dir and write triaged/filtered results to a separate processed exchange dir, which non-processor CRS mount as `FETCH_DIR`
 - `oss-crs-processed-exchange` sidecar — automatically injected when the compose includes a triage or seed-filter CRS; collects post-processor submit dirs into `PROCESSED_EXCHANGE_DIR`
