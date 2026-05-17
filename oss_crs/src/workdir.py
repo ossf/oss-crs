@@ -91,9 +91,7 @@ class WorkDir:
         """List sanitizer directories present in the workdir."""
         if not self.path.exists():
             return []
-        return sorted(
-            d.name for d in self.path.iterdir() if d.is_dir()
-        )
+        return sorted(d.name for d in self.path.iterdir() if d.is_dir())
 
     def iter_builds(self, sanitizer: str | None = None) -> list[BuildEntry]:
         """Enumerate all builds, optionally filtered by sanitizer."""
@@ -105,9 +103,13 @@ class WorkDir:
                 continue
             for d in builds_dir.iterdir():
                 if d.is_dir():
-                    entries.append(BuildEntry(
-                        build_id=d.name, sanitizer=san, path=d,
-                    ))
+                    entries.append(
+                        BuildEntry(
+                            build_id=d.name,
+                            sanitizer=san,
+                            path=d,
+                        )
+                    )
         return entries
 
     def iter_runs(self, sanitizer: str | None = None) -> list[RunEntry]:
@@ -126,10 +128,14 @@ class WorkDir:
                         if build_id_file.exists()
                         else None
                     )
-                    entries.append(RunEntry(
-                        run_id=d.name, sanitizer=san, path=d,
-                        build_id=build_id,
-                    ))
+                    entries.append(
+                        RunEntry(
+                            run_id=d.name,
+                            sanitizer=san,
+                            path=d,
+                            build_id=build_id,
+                        )
+                    )
         return entries
 
     # -------------------------------------------------------------------------

@@ -321,7 +321,7 @@ def _sigterm_handler(signum, frame):
     raise KeyboardInterrupt("SIGTERM received")
 
 
-def cli() -> bool:
+def cli() -> bool | int:
     signal.signal(signal.SIGTERM, _sigterm_handler)
     load_dotenv()
     parser = argparse.ArgumentParser(

@@ -16,6 +16,7 @@ from ..utils import confirm, get_console, green, red, yellow, rm_with_docker
 # Plan dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CleanPlan:
     """Accumulates items to be cleaned, grouped by category."""
@@ -26,6 +27,7 @@ class CleanPlan:
     target_images: list[str] = field(default_factory=list)
     run_images: list[str] = field(default_factory=list)
     artifact_dirs: list[Path] = field(default_factory=list)
+
     @property
     def all_images(self) -> list[str]:
         return (
@@ -44,6 +46,7 @@ class CleanPlan:
 # ---------------------------------------------------------------------------
 # Discovery helpers
 # ---------------------------------------------------------------------------
+
 
 def discover_prepare_images(crs_compose) -> list[str]:
     """Discover images produced by prepare-phase bake for all CRSs."""
@@ -66,7 +69,9 @@ def discover_prepare_images(crs_compose) -> list[str]:
     return existing
 
 
-def discover_build_target_images(crs_compose, target=None) -> tuple[list[str], list[str], list[str]]:
+def discover_build_target_images(
+    crs_compose, target=None
+) -> tuple[list[str], list[str], list[str]]:
     """Discover builder, snapshot, and target-base images scoped to this compose config.
 
     Uses CRS names from the compose config and build-ids from the workdir to
@@ -94,7 +99,7 @@ def discover_build_target_images(crs_compose, target=None) -> tuple[list[str], l
             for crs_name in crs_names:
                 prefix = f"{crs_name}-"
                 if tag_suffix.startswith(prefix):
-                    remainder = tag_suffix[len(prefix):]
+                    remainder = tag_suffix[len(prefix) :]
                     # remainder is "{build_name}-{build_id}"
                     for bid in build_ids:
                         if remainder.endswith(f"-{bid}"):
@@ -156,7 +161,10 @@ def discover_run_images(crs_compose) -> list[str]:
     for img in client.images.list():
         for tag in img.tags:
             for rid in run_ids:
-                if tag.startswith(f"crs_compose_{rid}") or tag == f"{rid}-oss-crs-litellm-key-gen:latest":
+                if (
+                    tag.startswith(f"crs_compose_{rid}")
+                    or tag == f"{rid}-oss-crs-litellm-key-gen:latest"
+                ):
                     tags.append(tag)
                     break
     return _dedupe(tags)
@@ -181,9 +189,11 @@ def discover_artifact_dirs(work_dir, phase: str) -> list[Path]:
 # Display
 # ---------------------------------------------------------------------------
 
+
 def _dir_size(path: Path) -> str:
     """Human-readable total size of a directory tree."""
     import subprocess
+
     total = 0
     try:
         for f in path.rglob("*"):
@@ -192,9 +202,19 @@ def _dir_size(path: Path) -> str:
     except PermissionError:
         # Fall back to docker to read root-owned files
         result = subprocess.run(
-            ["docker", "run", "--rm", "-v", f"{path}:/data:ro",
-             "alpine", "du", "-sb", "/data"],
-            capture_output=True, text=True,
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{path}:/data:ro",
+                "alpine",
+                "du",
+                "-sb",
+                "/data",
+            ],
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0:
             try:
@@ -229,7 +249,9 @@ def display_clean_plan(plan: CleanPlan) -> None:
     _print_section("Run images", plan.run_images)
 
     if plan.artifact_dirs:
-        console.print(f"\n  [bold]Artifact directories[/bold] ({len(plan.artifact_dirs)}):")
+        console.print(
+            f"\n  [bold]Artifact directories[/bold] ({len(plan.artifact_dirs)}):"
+        )
         for d in plan.artifact_dirs:
             console.print(f"    - {d}  ({_dir_size(d)})")
     console.print()
@@ -238,6 +260,7 @@ def display_clean_plan(plan: CleanPlan) -> None:
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
+
 
 def execute_clean_plan(plan: CleanPlan) -> bool:
     """Remove all images and directories in the plan. Returns True on full success."""
@@ -278,13 +301,16 @@ def execute_clean_plan(plan: CleanPlan) -> bool:
     console.print()
     console.print(f"Removed {removed} item(s).")
     if failed:
-        console.print(f"{red(f'Failed to remove {len(failed)} item(s):')} {', '.join(failed)}")
+        console.print(
+            f"{red(f'Failed to remove {len(failed)} item(s):')} {', '.join(failed)}"
+        )
     return not failed
 
 
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
 
 def build_clean_plan(
     crs_compose,
@@ -300,9 +326,7 @@ def build_clean_plan(
         plan.prepare_images = discover_prepare_images(crs_compose)
 
     if phase in ("build-target", "all"):
-        builders, snapshots, targets = discover_build_target_images(
-            crs_compose, target
-        )
+        builders, snapshots, targets = discover_build_target_images(crs_compose, target)
         plan.builder_images = builders
         plan.snapshot_images = snapshots
         plan.target_images = targets
@@ -311,9 +335,7 @@ def build_clean_plan(
         plan.run_images = discover_run_images(crs_compose)
 
     if include_artifacts:
-        plan.artifact_dirs = discover_artifact_dirs(
-            crs_compose.work_dir, phase
-        )
+        plan.artifact_dirs = discover_artifact_dirs(crs_compose.work_dir, phase)
 
     return plan
 
@@ -321,6 +343,7 @@ def build_clean_plan(
 def handle_clean(args) -> bool:
     """Entry point for the clean command."""
     import sys
+
     console = get_console()
 
     if not args.compose_file:
@@ -342,14 +365,14 @@ def handle_clean(args) -> bool:
         from ..target import Target
 
         target_repo_path = (
-            args.target_repo_path
-            if hasattr(args, "target_repo_path")
-            else None
+            args.target_repo_path if hasattr(args, "target_repo_path") else None
         )
         target = Target(args.work_dir, args.target_proj_path, target_repo_path, None)
 
     subcommand = args.clean_subcommand if hasattr(args, "clean_subcommand") else None
-    include_artifacts = args.artifacts if hasattr(args, "artifacts") and args.artifacts else False
+    include_artifacts = (
+        args.artifacts if hasattr(args, "artifacts") and args.artifacts else False
+    )
 
     plan = build_clean_plan(crs_compose, subcommand, target, include_artifacts)
 
@@ -371,17 +394,22 @@ def handle_clean(args) -> bool:
 # CLI registration
 # ---------------------------------------------------------------------------
 
-def add_clean_command(subparsers, add_common_arguments_fn, _add_target_arguments_fn=None) -> None:
+
+def add_clean_command(
+    subparsers, add_common_arguments_fn, _add_target_arguments_fn=None
+) -> None:
     """Register the clean command and its subcommands.
 
     The *add_common_arguments_fn* callable is passed from crs_compose.py to
     reuse the shared ``--compose-file`` / ``--work-dir`` definitions on
     subcommand parsers.
     """
+
     # Shared args added to every clean parser
     def _add_clean_flags(parser):
         parser.add_argument(
-            "-y", "--yes",
+            "-y",
+            "--yes",
             action="store_true",
             help="Skip confirmation prompt",
         )
@@ -419,11 +447,14 @@ def add_clean_command(subparsers, add_common_arguments_fn, _add_target_arguments
     # `oss-crs clean build-target --compose-file ...` works (argparse
     # parses parent args before seeing the subcommand name).
     clean.add_argument(
-        "--compose-file", type=Path, required=False,
+        "--compose-file",
+        type=Path,
+        required=False,
         help="Path to the CRS Compose file",
     )
     clean.add_argument(
-        "--work-dir", type=Path,
+        "--work-dir",
+        type=Path,
         default=(Path(__file__) / "../../../../.oss-crs-workdir").resolve(),
         help="Working directory for CRS Compose operations",
     )
@@ -431,9 +462,7 @@ def add_clean_command(subparsers, add_common_arguments_fn, _add_target_arguments
     clean_subs = clean.add_subparsers(dest="clean_subcommand")
 
     # --- prepare ---
-    prep = clean_subs.add_parser(
-        "prepare", help="Clean prepare-phase (bake) images"
-    )
+    prep = clean_subs.add_parser("prepare", help="Clean prepare-phase (bake) images")
     _add_clean_flags(prep)
     add_common_arguments_fn(prep)
 

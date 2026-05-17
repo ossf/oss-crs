@@ -758,13 +758,13 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         resolved_options = self._resolve_target_build_options(
             target,
             sanitizer=sanitizer,
         )
         if resolved_options is None:
-            return False
+            return 1
         sanitizer, _, _ = resolved_options
 
         # Normalize IDs at library boundary
@@ -783,32 +783,32 @@ class CRSCompose:
 
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
-            return False
+            return 1
         if bug_candidate is not None and bug_candidate_dir is not None:
             print(
                 "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
             )
-            return False
+            return 1
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
-            return False
+            return 1
         if bug_candidate is not None and not bug_candidate.is_file():
             print(
                 "Error: --bug-candidate must be a file. "
                 "Use --bug-candidate-dir for directories."
             )
-            return False
+            return 1
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
             print(
                 f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
             )
-            return False
+            return 1
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
-            return False
+            return 1
         if seed_dir is not None and not seed_dir.is_dir():
             print(f"Error: Seed directory does not exist: {seed_dir}")
-            return False
+            return 1
         if not self.__validate_before_run(
             target,
             diff=diff,
@@ -818,7 +818,7 @@ class CRSCompose:
             bug_candidate=bug_candidate,
             bug_candidate_dir=bug_candidate_dir,
         ):
-            return False
+            return 1
         target.init_repo()
 
         # Check if we need to build
@@ -839,7 +839,7 @@ class CRSCompose:
                 bug_candidate_dir=bug_candidate_dir,
                 diff=diff,
             ):
-                return False
+                return 1
 
         # Collect POV files from --pov and --pov-dir
         pov_files: list[Path] = []
@@ -856,7 +856,7 @@ class CRSCompose:
             snapshot_error = self._check_snapshots_exist(build_id)
             if snapshot_error:
                 print(f"Error: {snapshot_error}")
-                return False
+                return 1
 
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
@@ -995,7 +995,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
                 target,
@@ -1012,7 +1012,7 @@ class CRSCompose:
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
-            return False
+            return 1
 
     def __run_local(
         self,
@@ -1027,7 +1027,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
         cgroup_parents: Optional[dict[str, str]] = None
