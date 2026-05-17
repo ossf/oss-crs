@@ -20,10 +20,30 @@ logic for the CRS Compose work directory structure:
                     └── LOG_DIR/<harness>/
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from .target import Target
 from .utils import normalize_run_id
+
+
+@dataclass
+class BuildEntry:
+    """A discovered build within the workdir."""
+
+    build_id: str
+    sanitizer: str
+    path: Path
+
+
+@dataclass
+class RunEntry:
+    """A discovered run within the workdir."""
+
+    run_id: str
+    sanitizer: str
+    path: Path
+    build_id: str | None = None
 
 
 class WorkDir:
@@ -62,6 +82,59 @@ class WorkDir:
     def get_run_dir(self, run_id: str, sanitizer: str) -> Path:
         """Get directory for a specific run."""
         return self.get_runs_dir(sanitizer) / run_id
+
+    # -------------------------------------------------------------------------
+    # Enumeration helpers
+    # -------------------------------------------------------------------------
+
+    def iter_sanitizers(self) -> list[str]:
+        """List sanitizer directories present in the workdir."""
+        if not self.path.exists():
+            return []
+        return sorted(
+            d.name for d in self.path.iterdir() if d.is_dir()
+        )
+
+    def iter_builds(self, sanitizer: str | None = None) -> list[BuildEntry]:
+        """Enumerate all builds, optionally filtered by sanitizer."""
+        sanitizers = [sanitizer] if sanitizer else self.iter_sanitizers()
+        entries: list[BuildEntry] = []
+        for san in sanitizers:
+            builds_dir = self.get_builds_dir(san)
+            if not builds_dir.exists():
+                continue
+            for d in builds_dir.iterdir():
+                if d.is_dir():
+                    entries.append(BuildEntry(
+                        build_id=d.name, sanitizer=san, path=d,
+                    ))
+        return entries
+
+    def iter_runs(self, sanitizer: str | None = None) -> list[RunEntry]:
+        """Enumerate all runs, optionally filtered by sanitizer."""
+        sanitizers = [sanitizer] if sanitizer else self.iter_sanitizers()
+        entries: list[RunEntry] = []
+        for san in sanitizers:
+            runs_dir = self.get_runs_dir(san)
+            if not runs_dir.exists():
+                continue
+            for d in runs_dir.iterdir():
+                if d.is_dir():
+                    build_id_file = d / "BUILD_ID"
+                    build_id = (
+                        build_id_file.read_text().strip()
+                        if build_id_file.exists()
+                        else None
+                    )
+                    entries.append(RunEntry(
+                        run_id=d.name, sanitizer=san, path=d,
+                        build_id=build_id,
+                    ))
+        return entries
+
+    # -------------------------------------------------------------------------
+    # ID resolution helpers
+    # -------------------------------------------------------------------------
 
     @staticmethod
     def _resolve_existing_id(raw_id: str, ids_dir: Path) -> str | None:

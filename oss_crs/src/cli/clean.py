@@ -66,23 +66,6 @@ def discover_prepare_images(crs_compose) -> list[str]:
     return existing
 
 
-def _enumerate_ids(base_dir: Path, subdir: str) -> list[str]:
-    """List build-ids or run-ids from ``{sanitizer}/{subdir}/{id}/`` dirs."""
-    ids: set[str] = set()
-    if not base_dir.exists():
-        return []
-    for sanitizer_dir in base_dir.iterdir():
-        if not sanitizer_dir.is_dir():
-            continue
-        container = sanitizer_dir / subdir
-        if not container.is_dir():
-            continue
-        for entry in container.iterdir():
-            if entry.is_dir():
-                ids.add(entry.name)
-    return sorted(ids)
-
-
 def discover_build_target_images(crs_compose, target=None) -> tuple[list[str], list[str], list[str]]:
     """Discover builder, snapshot, and target-base images scoped to this compose config.
 
@@ -97,7 +80,7 @@ def discover_build_target_images(crs_compose, target=None) -> tuple[list[str], l
     target_tags: list[str] = []
 
     crs_names = {crs.name for crs in crs_compose.crs_list}
-    build_ids = _enumerate_ids(crs_compose.work_dir.path, "builds")
+    build_ids = {b.build_id for b in crs_compose.work_dir.iter_builds()}
 
     # Preserved builders: oss-crs-builder:{crs_name}-{build_name}-{build_id}
     # Filter by matching crs_name prefix AND build_id suffix
@@ -164,7 +147,7 @@ def discover_run_images(crs_compose) -> list[str]:
     Enumerates run-ids from the workdir and matches compose project images
     with the pattern ``crs_compose_{run_id}*``.
     """
-    run_ids = _enumerate_ids(crs_compose.work_dir.path, "runs")
+    run_ids = {r.run_id for r in crs_compose.work_dir.iter_runs()}
     if not run_ids:
         return []
 
@@ -179,27 +162,18 @@ def discover_run_images(crs_compose) -> list[str]:
     return _dedupe(tags)
 
 
-def discover_artifact_dirs(work_dir_path: Path, phase: str) -> list[Path]:
+def discover_artifact_dirs(work_dir, phase: str) -> list[Path]:
     """Find builds/ and/or runs/ directories under each sanitizer dir.
 
     Args:
-        work_dir_path: The WorkDir.path (already includes crs_compose/{hash}/).
+        work_dir: A WorkDir instance.
         phase: One of "prepare", "build-target", "run", or "all".
     """
     dirs: list[Path] = []
-    if not work_dir_path.exists():
-        return dirs
-    for sanitizer_dir in sorted(work_dir_path.iterdir()):
-        if not sanitizer_dir.is_dir():
-            continue
-        if phase in ("build-target", "all"):
-            builds = sanitizer_dir / "builds"
-            if builds.exists():
-                dirs.append(builds)
-        if phase in ("run", "all"):
-            runs = sanitizer_dir / "runs"
-            if runs.exists():
-                dirs.append(runs)
+    if phase in ("build-target", "all"):
+        dirs.extend(b.path for b in work_dir.iter_builds())
+    if phase in ("run", "all"):
+        dirs.extend(r.path for r in work_dir.iter_runs())
     return dirs
 
 
@@ -338,7 +312,7 @@ def build_clean_plan(
 
     if include_artifacts:
         plan.artifact_dirs = discover_artifact_dirs(
-            crs_compose.work_dir.path, phase
+            crs_compose.work_dir, phase
         )
 
     return plan
