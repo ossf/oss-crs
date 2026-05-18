@@ -304,6 +304,16 @@ def add_gen_compose_command(subparsers):
         "(e.g., --litellm-external AIXCC_LITELLM_HOSTNAME LITELLM_KEY)",
     )
     gen_compose.add_argument(
+        "--litellm-proxy",
+        nargs="+",
+        metavar="ARG",
+        default=None,
+        help="Override litellm config env vars to route through a proxy. "
+        "Format: KEY_ENV PROVIDERS [BASE_URL_ENV]. "
+        "PROVIDERS is a comma-separated list (e.g., openai,anthropic,gemini). "
+        "Example: --litellm-proxy MY_KEY openai,anthropic MY_BASE",
+    )
+    gen_compose.add_argument(
         "--compose-output",
         type=Path,
         required=True,
@@ -423,11 +433,86 @@ def _handle_gen_compose(args) -> bool:
             }
         }
 
+    # 5b. LiteLLM proxy override (rewrites env vars in litellm config)
+    if args.litellm_proxy:
+        from ..llm import override_litellm_proxy, validate_providers, LITELLM_PROVIDERS
+
+        proxy_args = args.litellm_proxy
+        if len(proxy_args) < 2 or len(proxy_args) > 3:
+            raise ValueError(
+                "--litellm-proxy requires 2 or 3 arguments: KEY_ENV PROVIDERS [BASE_URL_ENV]"
+            )
+        proxy_key_env = proxy_args[0]
+        providers_str = proxy_args[1]
+        proxy_base_url_env = proxy_args[2] if len(proxy_args) == 3 else None
+
+        providers = [p.strip() for p in providers_str.split(",")]
+        validate_providers(providers)
+
+        # Resolve the litellm config path from the compose data
+        litellm_config_path = _resolve_litellm_config_path(data, example_dir)
+        if litellm_config_path is None:
+            raise ValueError(
+                "--litellm-proxy requires a litellm config. "
+                "The example has no llm_config with internal mode config_path."
+            )
+
+        with open(litellm_config_path) as f:
+            litellm_config = yaml.safe_load(f) or {}
+
+        litellm_config = override_litellm_proxy(
+            litellm_config,
+            key_env=proxy_key_env,
+            base_url_env=proxy_base_url_env,
+            providers=providers,
+        )
+
+        with open(litellm_config_path, "w") as f:
+            yaml.dump(litellm_config, f, default_flow_style=False, sort_keys=False)
+
+        print(f"Updated litellm config: {litellm_config_path}")
+
     # 6. Validate through CRSComposeConfig and write output
     config = CRSComposeConfig.from_dict(data)
     config.to_yaml_file(args.compose_output)
     print(f"Generated compose file: {args.compose_output}")
     return True
+
+
+def _resolve_litellm_config_path(
+    data: dict, example_dir: Path
+) -> "Path | None":
+    """Resolve the litellm config file path from compose data.
+
+    Looks at llm_config.litellm.internal.config_path. If it's a relative path,
+    resolves it relative to the repo root (parent of example_dir's parent).
+    Falls back to the default bundled config if no config_path is specified.
+    """
+    from ..llm import DEFAULT_LITELLM_CONFIG_PATH
+
+    llm_config = data.get("llm_config")
+    if llm_config is None:
+        return None
+
+    litellm = llm_config.get("litellm", {})
+    if litellm.get("mode") != "internal":
+        return None
+
+    internal = litellm.get("internal", {})
+    config_path = internal.get("config_path") if internal else None
+
+    if config_path is None:
+        return DEFAULT_LITELLM_CONFIG_PATH
+
+    path = Path(config_path)
+    if not path.is_absolute():
+        # config_path in examples is relative to repo root (e.g. ./example/foo/litellm-config.yaml)
+        repo_root = example_dir.parents[0].parent if "example" in example_dir.parts else example_dir
+        # Walk up from example_dir to find repo root (directory containing "example/")
+        repo_root = Path(__file__).resolve().parents[3]
+        path = (repo_root / config_path).resolve()
+
+    return path
 
 
 def _warn_deprecated_cli_aliases(argv: list[str]) -> None:

@@ -1,19 +1,9 @@
 model_list:
-  #########################################
-  # OPENAI API
-  #########################################
-  - model_name: oai-gpt-4o
-    litellm_params:
-      model: openai/gpt-4o
-      api_base: os.environ/LITELLM_API_URL
-      api_key: os.environ/LITELLM_API_KEY
-
-  #########################################
-  # ANTHROPIC API
-  #########################################
-  # NOTE: sonnet 3.5 is not available anymore
-  - model_name: claude-3.5-sonnet
-    litellm_params:
-      model: anthropic/claude-sonnet-4-5-20250929
-      api_base: os.environ/LITELLM_API_URL
-      api_key: os.environ/LITELLM_API_KEY
+- model_name: oai-gpt-4o
+  litellm_params:
+    model: openai/gpt-4o
+    api_key: os.environ/OPENAI_API_KEY
+- model_name: claude-3.5-sonnet
+  litellm_params:
+    model: anthropic/claude-sonnet-4-5-20250929
+    api_key: os.environ/ANTHROPIC_API_KEY

@@ -20,6 +20,80 @@ DEFAULT_LITELLM_CONFIG_PATH = (
     Path(__file__).resolve().parents[1] / "defaults" / "litellm" / "default-models.yaml"
 )
 
+# Canonical provider registry: maps provider name to the model prefix used in
+# litellm_params.model (e.g. "openai/gpt-4o") and the default env var for the
+# API key.  Used by override_litellm_proxy() and the gen-compose CLI.
+LITELLM_PROVIDERS: dict[str, dict[str, str]] = {
+    "openai": {"prefix": "openai/", "default_key_env": "OPENAI_API_KEY"},
+    "anthropic": {"prefix": "anthropic/", "default_key_env": "ANTHROPIC_API_KEY"},
+    "gemini": {"prefix": "gemini/", "default_key_env": "GEMINI_API_KEY"},
+    "xai": {"prefix": "xai/", "default_key_env": "XAI_API_KEY"},
+}
+
+
+def _provider_for_model(model_value: str) -> Optional[str]:
+    """Return the provider name for a litellm_params.model value, or None."""
+    for name, info in LITELLM_PROVIDERS.items():
+        if model_value.startswith(info["prefix"]):
+            return name
+    return None
+
+
+def _provider_for_key_env(key_env: str) -> Optional[str]:
+    """Return the provider name that uses *key_env* as its default key, or None."""
+    for name, info in LITELLM_PROVIDERS.items():
+        if info["default_key_env"] == key_env:
+            return name
+    return None
+
+
+def validate_providers(providers: list[str]) -> None:
+    """Raise ValueError if any provider name is not in LITELLM_PROVIDERS."""
+    unknown = sorted(set(providers) - set(LITELLM_PROVIDERS))
+    if unknown:
+        valid = ", ".join(sorted(LITELLM_PROVIDERS))
+        raise ValueError(
+            f"Unknown LLM provider(s): {', '.join(unknown)}. "
+            f"Valid providers: {valid}"
+        )
+
+
+def override_litellm_proxy(
+    config: dict,
+    key_env: str,
+    base_url_env: Optional[str] = None,
+    providers: Optional[list[str]] = None,
+) -> dict:
+    """Rewrite a litellm config dict to route selected providers through a proxy.
+
+    For every model entry whose provider matches *providers* (default: all),
+    replace the ``api_key`` with ``os.environ/<key_env>`` and, when
+    *base_url_env* is given, set ``api_base`` to ``os.environ/<base_url_env>``.
+
+    Returns a **new** dict; the original is not mutated.
+    """
+    import copy
+
+    if providers is not None:
+        validate_providers(providers)
+        target_providers = set(providers)
+    else:
+        target_providers = set(LITELLM_PROVIDERS)
+
+    config = copy.deepcopy(config)
+    for entry in config.get("model_list", []):
+        params = entry.get("litellm_params", {})
+        model = params.get("model", "")
+        provider = _provider_for_model(model)
+        if provider is None or provider not in target_providers:
+            continue
+        params["api_key"] = f"os.environ/{key_env}"
+        if base_url_env is not None:
+            params["api_base"] = f"os.environ/{base_url_env}"
+        else:
+            params.pop("api_base", None)
+    return config
+
 
 class LLM:
     def __init__(self, llm_config: Optional[LLMConfig]):
