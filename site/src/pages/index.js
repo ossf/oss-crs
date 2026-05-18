@@ -171,7 +171,7 @@ function FeatureCards() {
 
 function QuickStart() {
   return (
-    <section className="section section--alt">
+    <section id="quick-start" className="section section--alt">
       <div className="container">
         <h2>Overview</h2>
         <p>
@@ -180,7 +180,7 @@ function QuickStart() {
           OSS-CRS provides a unified CLI and compose file interface for orchestrating bug-finding fuzzers, LLM-powered bug-fixing agents, triage systems, and seed generators,
           letting you mix and match components from the registry or bring your own, all against the same target project.
         </p>
-        <h2 id="quick-start">Quick Start</h2>
+        <h2>Quick Start</h2>
         <p>
           OSS-CRS works with projects that follow the{' '}
           <a href="https://github.com/google/oss-fuzz" target="_blank" rel="noopener noreferrer">
@@ -285,7 +285,7 @@ export default function Home() {
       description="OSS-CRS orchestrates autonomous bug-finding, bug-fixing, triage, and ensemble Cyber Reasoning Systems against OSS-Fuzz-style targets."
     >
       <Hero />
-      <FeatureCards />
+      {/* <FeatureCards /> */}
       <QuickStart />
       <NextSteps />
       <OpenSSFAttribution />

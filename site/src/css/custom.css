@@ -2,6 +2,10 @@
  * OSS-CRS theme — based on Docusaurus classic theme, tuned for a security/CRS feel.
  */
 
+html {
+  scroll-padding-top: calc(var(--ifm-navbar-height) + 1rem);
+}
+
 :root {
   --ifm-color-primary: #1f6feb;
   --ifm-color-primary-dark: #1a5fd1;
