@@ -98,35 +98,59 @@ uv run oss-crs run \
 
 > **Note:** LLM-powered CRSs require an LLM API key. Refer to [docs/config/llm.md](docs/config/llm.md) for configuration details.
 
-### 5. Use the Builder CRS for Incremental Builds
+### 5. Run Claude Code CRSs with OAuth
 
-For CRSs that generate source patches (bug-fixing), the **Builder CRS** provides fast incremental builds. Instead of rebuilding the target from scratch for each patch, the builder creates a snapshot of the compiled project and applies patches on top of it.
+**crs-bug-finding-claude-code** (bug-finding) and **crs-claude-code** (bug-fixing/patching) can authenticate directly with Anthropic via Claude Code's OAuth flow — no LiteLLM proxy or API key required.
 
-First, fetch the required oss-fuzz scripts (one-time setup):
+**Authenticate once on the host:**
 
 ```bash
-bash scripts/setup-third-party.sh
+claude setup-token
 ```
 
-Then add the builder as a separate CRS entry in your compose file alongside your patcher CRS:
+**Export the token** (or add to a `.env` file in your working directory):
 
-```yaml
-oss-crs-builder:
-  source:
-    local_path: /path/to/oss-crs/builder
-  cpuset: "2-3"
-  memory: "8G"
-
-my-patcher-crs:
-  source:
-    local_path: /path/to/my-patcher-crs
-  cpuset: "4-7"
-  memory: "16G"
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=<your-oauth-token>
+# OR in .env:
+# CLAUDE_CODE_OAUTH_TOKEN=<your-oauth-token>
 ```
 
-The framework automatically creates a snapshot image, starts the builder service, and connects it with your patcher CRS. Any CRS that uses `libCRS.apply_patch_build()` will communicate with the builder via HTTP.
+**Run the bug-finding CRS:**
 
-See [`builder/README.md`](builder/README.md) for full details on the builder's API and configuration.
+```bash
+uv run oss-crs prepare \
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml
+
+uv run oss-crs build-target \
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2
+
+uv run oss-crs run \
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
+  --target-harness xml
+```
+
+**Run the bug-fixing (patching) CRS:**
+
+```bash
+uv run oss-crs prepare \
+  --compose-file ./example/crs-claude-code/compose.yaml
+
+uv run oss-crs build-target \
+  --compose-file ./example/crs-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
+  --incremental-build
+
+uv run oss-crs run \
+  --compose-file ./example/crs-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
+  --target-harness xml \
+  --incremental-build
+```
+
+> **Note:** The `CLAUDE_CODE_OAUTH_TOKEN` in the compose file uses `${CLAUDE_CODE_OAUTH_TOKEN}`, so the value is read from your shell environment or `.env` file at runtime.
 
 ## Build Your Own CRS
 
@@ -143,7 +167,6 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 - [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
 - [CRS Configuration](docs/config/crs.md): CRS config reference
 - [CRS-Compose Configuration](docs/config/crs-compose.md): Compose file reference
-- [Builder CRS](builder/README.md): Incremental build service for patch-testing CRSs
 - [LLM Configuration](docs/config/llm.md): LLM provider setup
 - [Changelog](CHANGELOG.md): Breaking changes, deprecations, and migration notes
 - [Plan](PLAN.md): Upcoming features and planned improvements
