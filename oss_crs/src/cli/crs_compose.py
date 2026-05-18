@@ -283,7 +283,7 @@ def add_archive_command(subparsers):
     archive.add_argument(
         "--target-harness",
         type=str,
-        required=False,
+        required=True,
         default=None,
         help="Target harness name",
     )
