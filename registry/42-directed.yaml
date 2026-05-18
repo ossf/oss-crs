@@ -1,4 +1,5 @@
 name: 42-directed
+description: "Team 42-b3yond-6ug AFL++ Directed Fuzzer"
 type:
   - bug-finding
 source:

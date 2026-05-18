@@ -1,4 +1,5 @@
 name: crs-libfuzzer
+description: "LibFuzzer LLVM Fuzzer"
 type:
   - bug-finding
 source:

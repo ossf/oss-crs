@@ -41,19 +41,18 @@ function HeroStats() {
   if (total === 0) return null;
   return (
     <div className="hero-stats" aria-label="Registry statistics">
-      <Link to="/registry" className="hero-stat hero-stat--primary">
+      <div className="hero-stat hero-stat--primary">
         <span className="hero-stat__count">{total}</span>
         <span className="hero-stat__label">Registered CRSs</span>
-      </Link>
+      </div>
       {breakdown.map(({ type, label, count }) => (
-        <Link
-          to="/registry"
+        <div
           key={type}
           className={`hero-stat hero-stat--${type.replace(/[^a-z0-9-]/gi, '-')}`}
         >
           <span className="hero-stat__count">{count}</span>
           <span className="hero-stat__label">{label}</span>
-        </Link>
+        </div>
       ))}
     </div>
   );
@@ -132,8 +131,7 @@ function Hero() {
       <div className="container text--center">
         <h1 className="hero__title">OSS-CRS</h1>
         <p className="hero__subtitle">
-          Orchestrate autonomous Cyber Reasoning Systems for OSS-Fuzz-style targets — bug-finding,
-          bug-fixing, triage, and ensembles, all behind one CLI.
+          Cyber Reasoning Systems for Bug-Finding and Patching<br />in Open Source Software
         </p>
         <div className="hero__ctas">
           <Link className="button button--primary button--lg" to="/#quick-start">
@@ -175,6 +173,13 @@ function QuickStart() {
   return (
     <section className="section section--alt">
       <div className="container">
+        <h2>Overview</h2>
+        <p>
+          OSS-CRS is an open framework for running Cyber Reasoning Systems against OSS-Fuzz-style targets.
+          A CRS is an agentic system that combines LLM reasoning with traditional security techniques to autonomously find and patch bugs in software.
+          OSS-CRS provides a unified CLI and compose file interface for orchestrating bug-finding fuzzers, LLM-powered bug-fixing agents, triage systems, and seed generators,
+          letting you mix and match components from the registry or bring your own, all against the same target project.
+        </p>
         <h2 id="quick-start">Quick Start</h2>
         <p>
           OSS-CRS works with projects that follow the{' '}

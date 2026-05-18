@@ -1,4 +1,5 @@
 name: crs-atlantis-ensemble
+description: "Team Atlanta Atlantis Seed Filter Ensemble"
 type:
   - seed-filter
 source:

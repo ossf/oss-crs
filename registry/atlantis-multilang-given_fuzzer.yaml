@@ -1,4 +1,5 @@
 name: atlantis-multilang-given_fuzzer
+description: "Team Atlanta UniAFL Fuzzer"
 type:
   - bug-finding
 source:

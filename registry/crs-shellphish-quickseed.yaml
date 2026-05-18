@@ -1,4 +1,5 @@
 name: crs-shellphish-quickseed
+description: "Team Shellphish Quick Seed Generation"
 type:
   - bug-finding
 source:

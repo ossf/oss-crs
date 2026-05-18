@@ -1,4 +1,5 @@
 name: atlantis-c-bullseye
+description: "Team Atlanta AFL++ Directed Fuzzer"
 type:
   - bug-finding
 source:

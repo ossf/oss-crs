@@ -22,6 +22,10 @@ function orgRepo(url) {
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
 }
 
+function displayName(name) {
+  return String(name).replace(/[-_]+/g, ' ').toUpperCase();
+}
+
 function SourceLine({ source }) {
   const href = gitBranchUrl(source);
   if (!href || !source?.url) return null;
@@ -38,7 +42,10 @@ function RegistryCard({ entry, typeLabels }) {
   const types = Array.isArray(entry.type) ? entry.type : entry.type ? [entry.type] : [];
   return (
     <article className="registry-card">
-      <h4>{entry.name}</h4>
+      <h4>{displayName(entry.name)}</h4>
+      {entry.description ? (
+        <p className="registry-card__description">{entry.description}</p>
+      ) : null}
       <div className="registry-card__types">
         {types.length === 0 ? (
           <span className="registry-tag">untyped</span>
@@ -97,6 +104,7 @@ export default function RegistryPage() {
       if (!q) return true;
       const haystack = [
         entry.name,
+        entry.description,
         entry.manifestPath,
         entry.source?.url,
         entry.source?.local_path,

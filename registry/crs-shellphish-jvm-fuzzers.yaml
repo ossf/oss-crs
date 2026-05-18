@@ -1,4 +1,5 @@
 name: crs-shellphish-jvm-fuzzers
+description: "Team Shellphish JVM Fuzzers"
 type:
   - bug-finding
 source:

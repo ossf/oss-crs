@@ -1,4 +1,5 @@
 name: crs-atlantis-triage
+description: "Team Atlanta Bug Triage"
 type:
   - bug-finding-triage
 source:

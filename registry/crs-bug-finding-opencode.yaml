@@ -1,4 +1,5 @@
 name: crs-bug-finding-opencode
+description: "OpenCode Bug Finding Agent"
 type:
   - bug-finding
 source:

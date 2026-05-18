@@ -286,6 +286,12 @@
   word-break: break-word;
 }
 
+.registry-card__description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
 .registry-card__types {
   display: flex;
   flex-wrap: wrap;

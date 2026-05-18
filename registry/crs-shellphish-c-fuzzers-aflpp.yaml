@@ -1,4 +1,5 @@
 name: crs-shellphish-c-fuzzers-aflpp
+description: "Team Shellphish C AFL++ Fuzzers"
 type:
   - bug-finding
 source:

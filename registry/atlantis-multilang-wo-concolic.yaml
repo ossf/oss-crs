@@ -1,4 +1,5 @@
 name: atlantis-multilang-wo-concolic
+description: "Team Atlanta Atlantis-Multilang"
 type:
   - bug-finding
 source:

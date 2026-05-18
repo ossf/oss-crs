@@ -1,4 +1,5 @@
 name: crs-roboduck-triage
+description: "Team Theori Bug Triage"
 type:
   - bug-finding-triage
 source:

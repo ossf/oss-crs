@@ -1,4 +1,5 @@
 name: roboduck
+description: "Team Theori Seed and PoV Generation Agent"
 type:
   - bug-finding
 source:

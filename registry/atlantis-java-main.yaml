@@ -1,4 +1,5 @@
 name: atlantis-java-main
+description: "Team Atlanta Sinkpoint Fuzzing with Jazzer"
 type:
   - bug-finding
 source:

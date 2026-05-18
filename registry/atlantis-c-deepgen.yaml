@@ -1,4 +1,5 @@
 name: atlantis-c-deepgen
+description: "Team Atlanta LibAFL Fuzzer with Seed Generation"
 type:
   - bug-finding
 source:

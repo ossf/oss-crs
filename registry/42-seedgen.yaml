@@ -1,4 +1,5 @@
 name: 42-seedgen
+description: "Team 42-b3yond-6ug Seed Generation Agent"
 type:
   - bug-finding
 source:

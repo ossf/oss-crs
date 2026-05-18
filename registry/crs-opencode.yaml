@@ -1,4 +1,5 @@
 name: crs-opencode
+description: "OpenCode Bug Fixing Agent"
 type:
   - bug-fixing
 source:

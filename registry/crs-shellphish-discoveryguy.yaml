@@ -1,4 +1,5 @@
 name: crs-shellphish-discoveryguy
+description: "Team Shellphish Discovery Fuzzer"
 type:
   - bug-finding
 source:

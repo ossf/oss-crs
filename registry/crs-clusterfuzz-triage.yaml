@@ -1,4 +1,5 @@
 name: crs-clusterfuzz-triage
+description: "Google ClusterFuzz Bug Triage"
 type:
   - bug-finding-triage
 source:
