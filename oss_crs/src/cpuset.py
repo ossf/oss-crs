@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 """Cpuset parsing and mapping utilities.
 
-This module provides functions for parsing cpuset strings (e.g., "0-3,5,8-11")
-and mapping virtual CPU slots to real CPU pools.
+This module provides functions for parsing cpuset strings (e.g., "0-3,5,8-11"),
+mapping virtual CPU slots to real CPU pools, and scaling CPU allocations
+proportionally across a real CPU pool.
 """
 
 import re
@@ -169,3 +170,132 @@ def create_cpu_mapping(
     sorted_real = sorted(real_cpus)
 
     return {v: sorted_real[i] for i, v in enumerate(sorted_virtual)}
+
+
+def scale_cpusets(
+    allocations: dict[str, int],
+    pool: str,
+) -> dict[str, str]:
+    """Scale CPU allocations proportionally to fit a real CPU pool.
+
+    Each entry gets floor(original/total * pool_size) CPUs. Remainder CPUs
+    are distributed to non-infra entries largest-allocation-first (ties broken
+    by name). Every entry is guaranteed at least 1 CPU.
+
+    Args:
+        allocations: Mapping of entry name -> number of CPUs in template.
+            Must include "oss_crs_infra" key.
+        pool: Real CPU pool string (e.g., "20-31" or "1-4,10-13").
+
+    Returns:
+        Mapping of entry name -> cpuset string assigned from the pool.
+
+    Raises:
+        ValueError: If pool is too small (fewer CPUs than entries).
+    """
+    pool_cpus = sorted(parse_cpuset(pool))
+    pool_size = len(pool_cpus)
+    entry_names = list(allocations.keys())
+
+    if pool_size < len(entry_names):
+        raise ValueError(
+            f"CPU pool has {pool_size} CPUs but there are {len(entry_names)} "
+            f"entries — need at least 1 CPU per entry"
+        )
+
+    total_original = sum(allocations.values())
+
+    # Floor-proportional allocation, minimum 1 per entry
+    scaled: dict[str, int] = {}
+    for name in entry_names:
+        scaled[name] = max(1, int(allocations[name] / total_original * pool_size))
+
+    # If we over-allocated (due to min-1 guarantees), shrink largest entries
+    while sum(scaled.values()) > pool_size:
+        # Shrink largest non-minimum entry
+        shrinkable = [n for n in entry_names if scaled[n] > 1]
+        if not shrinkable:
+            break
+        shrinkable.sort(key=lambda n: (-scaled[n], n))
+        scaled[shrinkable[0]] -= 1
+
+    # Distribute remainder to CRS entries (non-infra), largest-first
+    remainder = pool_size - sum(scaled.values())
+    if remainder > 0:
+        crs_names = [n for n in entry_names if n != "oss_crs_infra"]
+        if not crs_names:
+            crs_names = entry_names
+        # Sort by descending original allocation, then by name for stability
+        crs_names.sort(key=lambda n: (-allocations[n], n))
+        for i in range(remainder):
+            scaled[crs_names[i % len(crs_names)]] += 1
+
+    # Assign contiguous slices from the pool
+    result: dict[str, str] = {}
+    offset = 0
+    for name in entry_names:
+        count = scaled[name]
+        assigned = set(pool_cpus[offset : offset + count])
+        result[name] = cpuset_to_str(assigned)
+        offset += count
+
+    return result
+
+
+def default_cpu_allocation(
+    crs_names: list[str],
+    pool: str,
+) -> dict[str, str]:
+    """Allocate CPUs from a pool using default ratios.
+
+    Infrastructure gets min(4, max(1, pool_size // 4)). The remaining CPUs
+    are split evenly among CRS entries, with remainder distributed to the
+    first entries in the list.
+
+    Args:
+        crs_names: Names of the CRS entries (not including oss_crs_infra).
+        pool: Real CPU pool string.
+
+    Returns:
+        Mapping of entry name -> cpuset string (includes "oss_crs_infra").
+
+    Raises:
+        ValueError: If pool is too small.
+    """
+    pool_cpus = sorted(parse_cpuset(pool))
+    pool_size = len(pool_cpus)
+    total_entries = 1 + len(crs_names)  # infra + CRSes
+
+    if pool_size < total_entries:
+        raise ValueError(
+            f"CPU pool has {pool_size} CPUs but there are {total_entries} "
+            f"entries — need at least 1 CPU per entry"
+        )
+
+    infra_count = min(4, max(1, pool_size // 4))
+    remaining = pool_size - infra_count
+
+    # Ensure at least 1 CPU per CRS
+    if remaining < len(crs_names):
+        # Steal from infra to guarantee 1 per CRS
+        deficit = len(crs_names) - remaining
+        infra_count -= deficit
+        remaining = len(crs_names)
+
+    per_crs = remaining // len(crs_names) if crs_names else 0
+    crs_remainder = remaining - per_crs * len(crs_names) if crs_names else 0
+
+    result: dict[str, str] = {}
+    offset = 0
+
+    result["oss_crs_infra"] = cpuset_to_str(
+        set(pool_cpus[offset : offset + infra_count])
+    )
+    offset += infra_count
+
+    for i, name in enumerate(crs_names):
+        count = per_crs + (1 if i < crs_remainder else 0)
+        result[name] = cpuset_to_str(set(pool_cpus[offset : offset + count]))
+        offset += count
+
+    return result

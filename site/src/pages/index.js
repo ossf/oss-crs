@@ -86,7 +86,14 @@ const FEATURES = [
   },
 ];
 
-const PREPARE_TARGET = `git clone https://github.com/google/oss-fuzz.git ~/oss-fuzz`;
+const PREPARE_TARGET = `git clone --depth=1 --filter=blob:none --no-checkout https://github.com/google/oss-fuzz.git
+cd oss-fuzz
+git sparse-checkout init --cone
+git sparse-checkout set projects
+git checkout
+cd ..`;
+
+const SETUP_CMD = `uv run oss-crs setup`;
 
 const RUN_LIBFUZZER = `# Prepare the CRS
 uv run oss-crs prepare \\
@@ -95,28 +102,28 @@ uv run oss-crs prepare \\
 # Build the target project
 uv run oss-crs build-target \\
   --compose-file ./example/crs-libfuzzer/compose.yaml \\
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2
 
 # Run the CRS against the "xml" harness
 uv run oss-crs run \\
   --compose-file ./example/crs-libfuzzer/compose.yaml \\
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \\
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \\
   --target-harness xml`;
 
-const RUN_LLM = `export OPENAI_API_KEY=<OPENAI_API_KEY>
-export GEMINI_API_KEY=<GEMINI_API_KEY>
-export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+const RUN_LLM = `# export OPENAI_API_KEY=<your-openai-key>
+# export GEMINI_API_KEY=<your-gemini-key>
+# export ANTHROPIC_API_KEY=<your-anthropic-key>
 
 uv run oss-crs prepare \\
   --compose-file ./example/atlantis-multilang-wo-concolic/compose.yaml
 
 uv run oss-crs build-target \\
   --compose-file ./example/atlantis-multilang-wo-concolic/compose.yaml \\
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2
 
 uv run oss-crs run \\
   --compose-file ./example/atlantis-multilang-wo-concolic/compose.yaml \\
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \\
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \\
   --target-harness xml`;
 
 function Hero() {
@@ -179,17 +186,24 @@ function QuickStart() {
           installed.
         </p>
 
-        <h3>1. Prepare a target project</h3>
+        <h3>1. Clone OSS-Fuzz for project environments</h3>
         <CodeBlock language="bash">{PREPARE_TARGET}</CodeBlock>
 
-        <h3>2. Run a baseline CRS</h3>
+        <h3>2. Set up your machine (optional)</h3>
+        <p>
+          Configures LLM provider credentials and system resource isolation.
+          Both steps are interactive and can be skipped.
+        </p>
+        <CodeBlock language="bash">{SETUP_CMD}</CodeBlock>
+
+        <h3>3. Run a baseline CRS</h3>
         <p>
           <code>crs-libfuzzer</code> is a lightweight CRS that runs libFuzzer on the target. It needs no
           LLM credentials and is a good baseline.
         </p>
         <CodeBlock language="bash">{RUN_LIBFUZZER}</CodeBlock>
 
-        <h3>3. Run an LLM-backed CRS</h3>
+        <h3>4. Run an LLM-backed CRS</h3>
         <p>
           For LLM-backed CRSs, export provider keys (or put them in <code>.env</code>) and use one of the
           multi-language Atlantis examples.
@@ -199,12 +213,6 @@ function QuickStart() {
           See <Link to="/docs/config/llm">LLM configuration</Link> for full provider details.
         </p>
 
-        <h3>4. Compose an ensemble</h3>
-        <p>
-          Define multiple CRSs in one compose file to run them in parallel against the same target. Each CRS keeps
-          its own CPU, memory, and LLM budget. See the{' '}
-          <Link to="/docs/config/crs-compose">compose reference</Link> for the full schema.
-        </p>
       </div>
     </section>
   );
@@ -254,7 +262,7 @@ function NextSteps() {
             behind the OSS-CRS lifecycle.
           </li>
           <li>
-            <Link to="/docs/setup">Host setup</Link> — enable cgroup-parent mode for flexible per-CRS resource sharing.
+            <Link to="/docs/setup">Host setup</Link> — configure LLM proxy routing and cgroup resource isolation.
           </li>
           <li>
             <Link to="/docs/design/architecture">Architecture notes</Link> — main components and lifecycle.
@@ -274,8 +282,8 @@ export default function Home() {
       <Hero />
       <FeatureCards />
       <QuickStart />
-      <OpenSSFAttribution />
       <NextSteps />
+      <OpenSSFAttribution />
     </Layout>
   );
 }

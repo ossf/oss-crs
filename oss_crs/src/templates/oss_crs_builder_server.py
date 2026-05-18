@@ -218,20 +218,11 @@ def get_job_status(job_id: str):
 
 def _handle_build(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     """Apply patch and compile via oss_crs_handler.sh."""
-    try:
-        result = subprocess.run(
-            ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "build_exit_code": 1,
-            "build_log": "Build timed out",
-            "build_stdout": exc.stdout or "",
-            "build_stderr": exc.stderr or "",
-        }
+    result = subprocess.run(
+        ["/usr/local/bin/oss_crs_handler.sh", str(req_dir), str(resp_dir)],
+        capture_output=True,
+        text=True,
+    )
 
     response = {}
     for name, key, parse in [
@@ -269,8 +260,6 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     harness_name = (req_dir / "harness_name").read_text().strip()
     build_id = (req_dir / "build_id").read_text().strip()
     pov_path = req_dir / "pov.bin"
-    pov_timeout = int(os.environ.get("POV_TIMEOUT", "30"))
-
     build_out = BUILDS_DIR / build_id / "out"
     if not (build_out / harness_name).exists():
         return {
@@ -285,33 +274,23 @@ def _handle_run_pov(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     # FUZZER_ARGS is not inherited from Docker ENV.  Use oss-fuzz defaults.
     env.setdefault("FUZZER_ARGS", "-rss_limit_mb=2560 -timeout=25")
 
-    try:
-        result = subprocess.run(
-            ["/usr/local/bin/reproduce", harness_name],
-            capture_output=True,
-            text=True,
-            timeout=pov_timeout,
-            env=env,
-            cwd=str(build_out),
-        )
-        return {
-            "pov_exit_code": result.returncode,
-            "pov_stderr": result.stderr,
-            "pov_stdout": result.stdout,
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "pov_exit_code": 124,
-            "pov_stdout": "",
-            "pov_stderr": "POV execution timed out",
-        }
+    result = subprocess.run(
+        ["/usr/local/bin/reproduce", harness_name],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(build_out),
+    )
+    return {
+        "pov_exit_code": result.returncode,
+        "pov_stderr": result.stderr,
+        "pov_stdout": result.stdout,
+    }
 
 
 def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     """Run the project's bundled test.sh against a specific build's artifacts."""
     build_id = (req_dir / "build_id").read_text().strip()
-    test_timeout = int(os.environ.get("TEST_TIMEOUT", "120"))
-
     test_path = OSS_CRS_PROJ_PATH / "test.sh"
     if not test_path.exists():
         return {
@@ -324,26 +303,18 @@ def _handle_run_test(job_id: str, req_dir: Path, resp_dir: Path) -> dict:
     env = os.environ.copy()
     env["OUT"] = str(build_out)
 
-    try:
-        result = subprocess.run(
-            ["bash", str(test_path)],
-            capture_output=True,
-            text=True,
-            timeout=test_timeout,
-            env=env,
-            cwd=str(build_out),
-        )
-        return {
-            "test_exit_code": result.returncode,
-            "test_stdout": result.stdout,
-            "test_stderr": result.stderr,
-        }
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "test_exit_code": 124,
-            "test_stdout": exc.stdout or "",
-            "test_stderr": "Test execution timed out",
-        }
+    result = subprocess.run(
+        ["bash", str(test_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(build_out),
+    )
+    return {
+        "test_exit_code": result.returncode,
+        "test_stdout": result.stdout,
+        "test_stderr": result.stderr,
+    }
 
 
 _HANDLERS = {

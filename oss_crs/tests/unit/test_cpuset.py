@@ -10,6 +10,8 @@ from oss_crs.src.cpuset import (
     cpuset_to_str,
     map_cpuset,
     create_cpu_mapping,
+    scale_cpusets,
+    default_cpu_allocation,
 )
 
 
@@ -106,3 +108,129 @@ class TestCpuMapping:
         """Extra CPUs in pool should be silently unused."""
         mapping = create_cpu_mapping(["0-3"], "0-100")
         assert len(mapping) == 4  # Only maps what's needed
+
+
+class TestScaleCpusets:
+    """Tests for proportional CPU scaling."""
+
+    def test_even_scaling(self):
+        """Equal allocations scaled evenly."""
+        allocations = {"oss_crs_infra": 4, "crs-libfuzzer": 4}
+        result = scale_cpusets(allocations, "0-15")
+
+        assert len(parse_cpuset(result["oss_crs_infra"])) == 8
+        assert len(parse_cpuset(result["crs-libfuzzer"])) == 8
+        # No overlap
+        infra = parse_cpuset(result["oss_crs_infra"])
+        crs = parse_cpuset(result["crs-libfuzzer"])
+        assert infra.isdisjoint(crs)
+
+    def test_proportional_scaling(self):
+        """Unequal allocations maintain ratios."""
+        # 2:6 ratio = 1:3 -> pool of 16: 4 and 12
+        allocations = {"oss_crs_infra": 2, "crs-libfuzzer": 6}
+        result = scale_cpusets(allocations, "0-15")
+
+        infra_count = len(parse_cpuset(result["oss_crs_infra"]))
+        crs_count = len(parse_cpuset(result["crs-libfuzzer"]))
+        assert infra_count + crs_count == 16
+        assert infra_count == 4
+        assert crs_count == 12
+
+    def test_remainder_goes_to_crs(self):
+        """Remainder CPUs distributed to CRS, not infra."""
+        # Equal ratio, pool of 9: floor(4.5)=4 each, 1 remainder -> CRS
+        allocations = {"oss_crs_infra": 4, "crs-libfuzzer": 4}
+        result = scale_cpusets(allocations, "0-8")
+
+        assert len(parse_cpuset(result["oss_crs_infra"])) == 4
+        assert len(parse_cpuset(result["crs-libfuzzer"])) == 5
+
+    def test_remainder_largest_crs_first(self):
+        """Remainder goes to largest CRS entries first."""
+        allocations = {
+            "oss_crs_infra": 4,
+            "crs-libfuzzer": 8,
+            "crs-codex": 4,
+        }
+        # Total 16, pool 17: each scaled floor, 1 remainder -> crs-libfuzzer (largest)
+        result = scale_cpusets(allocations, "0-16")
+
+        infra = len(parse_cpuset(result["oss_crs_infra"]))
+        libfuzzer = len(parse_cpuset(result["crs-libfuzzer"]))
+        codex = len(parse_cpuset(result["crs-codex"]))
+        assert infra + libfuzzer + codex == 17
+        assert libfuzzer > codex  # libfuzzer gets the remainder
+
+    def test_minimum_1_cpu_per_entry(self):
+        """Every entry gets at least 1 CPU."""
+        allocations = {"oss_crs_infra": 1, "crs-a": 1, "crs-b": 1}
+        result = scale_cpusets(allocations, "0-2")
+
+        for name in allocations:
+            assert len(parse_cpuset(result[name])) >= 1
+
+    def test_pool_too_small(self):
+        """Error when pool has fewer CPUs than entries."""
+        allocations = {"oss_crs_infra": 4, "crs-a": 4, "crs-b": 4}
+        with pytest.raises(ValueError, match="2 CPUs"):
+            scale_cpusets(allocations, "0-1")
+
+    def test_non_contiguous_pool(self):
+        """Works with non-contiguous CPU pools."""
+        allocations = {"oss_crs_infra": 4, "crs-libfuzzer": 4}
+        result = scale_cpusets(allocations, "1-4,10-13")
+
+        infra = parse_cpuset(result["oss_crs_infra"])
+        crs = parse_cpuset(result["crs-libfuzzer"])
+        assert len(infra) == 4
+        assert len(crs) == 4
+        assert infra.isdisjoint(crs)
+        assert infra | crs == {1, 2, 3, 4, 10, 11, 12, 13}
+
+    def test_scale_down(self):
+        """Scale to a smaller pool than original."""
+        allocations = {"oss_crs_infra": 8, "crs-libfuzzer": 8}
+        result = scale_cpusets(allocations, "0-7")
+
+        assert len(parse_cpuset(result["oss_crs_infra"])) == 4
+        assert len(parse_cpuset(result["crs-libfuzzer"])) == 4
+
+
+class TestDefaultCpuAllocation:
+    """Tests for default_cpu_allocation."""
+
+    def test_basic_allocation(self):
+        """Infra gets ~25%, rest to CRS."""
+        result = default_cpu_allocation(["crs-libfuzzer"], "0-15")
+
+        infra_count = len(parse_cpuset(result["oss_crs_infra"]))
+        crs_count = len(parse_cpuset(result["crs-libfuzzer"]))
+        assert infra_count == 4  # min(4, 16//4=4)
+        assert crs_count == 12
+
+    def test_small_pool(self):
+        """Small pool: infra gets 1, rest to CRS."""
+        result = default_cpu_allocation(["crs-libfuzzer"], "0-3")
+
+        infra_count = len(parse_cpuset(result["oss_crs_infra"]))
+        crs_count = len(parse_cpuset(result["crs-libfuzzer"]))
+        assert infra_count == 1  # min(4, max(1, 4//4=1)) = 1
+        assert crs_count == 3
+
+    def test_multiple_crs_even_split(self):
+        """Multiple CRSes get even split."""
+        result = default_cpu_allocation(["crs-a", "crs-b"], "0-11")
+
+        infra = len(parse_cpuset(result["oss_crs_infra"]))
+        crs_a = len(parse_cpuset(result["crs-a"]))
+        crs_b = len(parse_cpuset(result["crs-b"]))
+        assert infra == 3  # min(4, 12//4=3)
+        assert crs_a + crs_b == 9
+        # Should be roughly equal
+        assert abs(crs_a - crs_b) <= 1
+
+    def test_pool_too_small(self):
+        """Error when pool can't fit all entries."""
+        with pytest.raises(ValueError):
+            default_cpu_allocation(["crs-a", "crs-b"], "0")

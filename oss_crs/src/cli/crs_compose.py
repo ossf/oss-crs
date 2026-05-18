@@ -272,19 +272,46 @@ def add_check_command(subparsers):
 
 def add_gen_compose_command(subparsers):
     gen_compose = subparsers.add_parser(
-        "gen-compose", help="Generate a compose file with mapped CPU sets"
+        "gen-compose",
+        help="Generate a compose file from an example with optional resource overrides",
     )
     gen_compose.add_argument(
-        "--compose-template",
-        type=Path,
+        "--example",
+        type=str,
         required=True,
-        help="Path to the template CRS Compose file",
+        help="Example name (resolves to example/<name>/compose.yaml)",
     )
     gen_compose.add_argument(
         "--cpus",
         type=str,
-        required=True,
-        help="Real CPU pool to map virtual cpusets to (e.g., '20-31' or '1-3,5,8-11')",
+        default=None,
+        help="CPU pool to allocate (e.g., '0-15' or '1-4,10-13'). "
+        "Scales existing template allocations proportionally.",
+    )
+    gen_compose.add_argument(
+        "--memory",
+        type=str,
+        default=None,
+        help="Total memory to distribute (e.g., '64G'). "
+        "Scales existing template allocations proportionally.",
+    )
+    gen_compose.add_argument(
+        "--litellm-external",
+        nargs=2,
+        metavar=("URL_ENV", "KEY_ENV"),
+        default=None,
+        help="Set litellm to external mode with env var names for URL and API key "
+        "(e.g., --litellm-external AIXCC_LITELLM_HOSTNAME LITELLM_KEY)",
+    )
+    gen_compose.add_argument(
+        "--litellm-proxy",
+        nargs="+",
+        metavar="ARG",
+        default=None,
+        help="Override litellm config env vars to route through a proxy. "
+        "Format: KEY_ENV PROVIDERS [BASE_URL_ENV]. "
+        "PROVIDERS is a comma-separated list (e.g., openai,anthropic,gemini). "
+        "Example: --litellm-proxy MY_KEY openai,anthropic MY_BASE",
     )
     gen_compose.add_argument(
         "--compose-output",
@@ -302,6 +329,182 @@ def init_target_from_args(args) -> Target:
         args.target_repo_path,
         target_harness,
     )
+
+
+def _handle_gen_compose(args) -> bool:
+    """Handle the gen-compose command."""
+    import yaml
+    from ..cpuset import parse_cpuset, scale_cpusets, default_cpu_allocation
+    from ..memory import parse_memory, scale_memory, default_memory_allocation
+
+    # 1. Resolve template from example name
+    example_dir = Path(__file__).resolve().parents[3] / "example" / args.example
+    template_path = example_dir / "compose.yaml"
+    if not template_path.exists():
+        available = sorted(
+            d.name
+            for d in (Path(__file__).resolve().parents[3] / "example").iterdir()
+            if d.is_dir() and (d / "compose.yaml").exists()
+        )
+        raise ValueError(
+            f"Example '{args.example}' not found at {template_path}\n"
+            f"Available examples: {', '.join(available)}"
+        )
+
+    # 2. Load as raw dict
+    with open(template_path) as f:
+        data = yaml.safe_load(f)
+
+    reserved_keys = {"run_env", "docker_registry", "oss_crs_infra", "llm_config"}
+    crs_names = [k for k in data if k not in reserved_keys]
+    infra = data.get("oss_crs_infra", {})
+
+    # 3. CPU handling
+    has_cpusets = "cpuset" in infra or any(
+        "cpuset" in data.get(n, {}) for n in crs_names
+    )
+
+    if args.cpus:
+        parse_cpuset(args.cpus)  # validate format
+        if has_cpusets:
+            # Scale existing allocations proportionally
+            allocations = {}
+            allocations["oss_crs_infra"] = len(parse_cpuset(infra.get("cpuset", "0")))
+            for name in crs_names:
+                entry = data.get(name, {})
+                allocations[name] = len(parse_cpuset(entry.get("cpuset", "0")))
+            scaled = scale_cpusets(allocations, args.cpus)
+        else:
+            # No cpusets in template — use default allocation
+            scaled = default_cpu_allocation(crs_names, args.cpus)
+
+        # Apply scaled cpusets to data
+        infra["cpuset"] = scaled["oss_crs_infra"]
+        data["oss_crs_infra"] = infra
+        for name in crs_names:
+            if name in scaled:
+                if not isinstance(data.get(name), dict):
+                    data[name] = {}
+                data[name]["cpuset"] = scaled[name]
+    elif not has_cpusets:
+        raise ValueError(
+            "Template has no cpuset allocations and --cpus was not provided. "
+            "Use --cpus to specify a CPU pool."
+        )
+
+    # 4. Memory handling
+    has_memory = "memory" in infra or any(
+        "memory" in data.get(n, {}) for n in crs_names
+    )
+
+    if args.memory:
+        parse_memory(args.memory)  # validate format
+        if has_memory:
+            mem_allocations = {}
+            mem_allocations["oss_crs_infra"] = infra.get("memory", "1G")
+            for name in crs_names:
+                entry = data.get(name, {})
+                mem_allocations[name] = entry.get("memory", "1G")
+            scaled_mem = scale_memory(mem_allocations, args.memory)
+        else:
+            scaled_mem = default_memory_allocation(crs_names, args.memory)
+
+        infra["memory"] = scaled_mem["oss_crs_infra"]
+        data["oss_crs_infra"] = infra
+        for name in crs_names:
+            if name in scaled_mem:
+                if not isinstance(data.get(name), dict):
+                    data[name] = {}
+                data[name]["memory"] = scaled_mem[name]
+
+    # 5. LiteLLM external override
+    if args.litellm_external:
+        url_env, key_env = args.litellm_external
+        data["llm_config"] = {
+            "litellm": {
+                "mode": "external",
+                "model_check": False,
+                "external": {
+                    "url_env": url_env,
+                    "key_env": key_env,
+                },
+            }
+        }
+
+    # 5b. LiteLLM proxy override (rewrites env vars in litellm config)
+    if args.litellm_proxy:
+        from ..llm import apply_litellm_proxy_to_file, validate_providers
+
+        proxy_args = args.litellm_proxy
+        if len(proxy_args) < 2 or len(proxy_args) > 3:
+            raise ValueError(
+                "--litellm-proxy requires 2 or 3 arguments: KEY_ENV PROVIDERS [BASE_URL_ENV]"
+            )
+        proxy_key_env = proxy_args[0]
+        providers_str = proxy_args[1]
+        proxy_base_url_env = proxy_args[2] if len(proxy_args) == 3 else None
+
+        providers = [p.strip() for p in providers_str.split(",")]
+        validate_providers(providers)
+
+        # Resolve the litellm config path from the compose data
+        litellm_config_path = _resolve_litellm_config_path(data, example_dir)
+        if litellm_config_path is None:
+            raise ValueError(
+                "--litellm-proxy requires a litellm config. "
+                "The example has no llm_config with internal mode config_path."
+            )
+
+        if apply_litellm_proxy_to_file(
+            litellm_config_path, proxy_key_env, proxy_base_url_env, providers
+        ):
+            print(f"Updated litellm config: {litellm_config_path}")
+        else:
+            print(f"No changes needed: {litellm_config_path}")
+
+    # 6. Validate through CRSComposeConfig and write output
+    config = CRSComposeConfig.from_dict(data)
+    config.to_yaml_file(args.compose_output)
+    print(f"Generated compose file: {args.compose_output}")
+    return True
+
+
+def _resolve_litellm_config_path(data: dict, example_dir: Path) -> "Path | None":
+    """Resolve the litellm config file path from compose data.
+
+    Looks at llm_config.litellm.internal.config_path. If it's a relative path,
+    resolves it relative to the repo root (parent of example_dir's parent).
+    Falls back to the default bundled config if no config_path is specified.
+    """
+    from ..llm import DEFAULT_LITELLM_CONFIG_PATH
+
+    llm_config = data.get("llm_config")
+    if llm_config is None:
+        return None
+
+    litellm = llm_config.get("litellm", {})
+    if litellm.get("mode") != "internal":
+        return None
+
+    internal = litellm.get("internal", {})
+    config_path = internal.get("config_path") if internal else None
+
+    if config_path is None:
+        return DEFAULT_LITELLM_CONFIG_PATH
+
+    path = Path(config_path)
+    if not path.is_absolute():
+        # config_path in examples is relative to repo root (e.g. ./example/foo/litellm-config.yaml)
+        repo_root = (
+            example_dir.parents[0].parent
+            if "example" in example_dir.parts
+            else example_dir
+        )
+        # Walk up from example_dir to find repo root (directory containing "example/")
+        repo_root = Path(__file__).resolve().parents[3]
+        path = (repo_root / config_path).resolve()
+
+    return path
 
 
 def _warn_deprecated_cli_aliases(argv: list[str]) -> None:
@@ -355,21 +558,13 @@ def cli() -> bool | int:
 
     # Handle gen-compose early - it doesn't need CRSCompose initialization
     if args.command == "gen-compose":
-        template_path = args.compose_template
-        if not template_path.exists():
-            print(f"Error: Template file not found: {template_path}", file=sys.stderr)
-            return False
         try:
-            config = CRSComposeConfig.from_yaml_file(template_path)
-            config.map_cpus(args.cpus)
-            config.to_yaml_file(args.compose_output)
-            print(f"Generated compose file: {args.compose_output}")
-            return True
+            return _handle_gen_compose(args)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return False
         except Exception as e:
-            print(f"Error: Failed to process template: {e}", file=sys.stderr)
+            print(f"Error: Failed to generate compose: {e}", file=sys.stderr)
             return False
 
     # Handle clean early - it manages its own CRSCompose initialization

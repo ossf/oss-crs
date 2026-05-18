@@ -20,6 +20,119 @@ DEFAULT_LITELLM_CONFIG_PATH = (
     Path(__file__).resolve().parents[1] / "defaults" / "litellm" / "default-models.yaml"
 )
 
+# Canonical provider registry: maps provider name to the model prefix used in
+# litellm_params.model (e.g. "openai/gpt-4o") and the default env var for the
+# API key.  Used by override_litellm_proxy() and the gen-compose CLI.
+LITELLM_PROVIDERS: dict[str, dict[str, str]] = {
+    "openai": {"prefix": "openai/", "default_key_env": "OPENAI_API_KEY"},
+    "anthropic": {"prefix": "anthropic/", "default_key_env": "ANTHROPIC_API_KEY"},
+    "gemini": {"prefix": "gemini/", "default_key_env": "GEMINI_API_KEY"},
+    "xai": {"prefix": "xai/", "default_key_env": "XAI_API_KEY"},
+}
+
+
+def _provider_for_model(model_value: str) -> Optional[str]:
+    """Return the provider name for a litellm_params.model value, or None."""
+    for name, info in LITELLM_PROVIDERS.items():
+        if model_value.startswith(info["prefix"]):
+            return name
+    return None
+
+
+def _provider_for_key_env(key_env: str) -> Optional[str]:
+    """Return the provider name that uses *key_env* as its default key, or None."""
+    for name, info in LITELLM_PROVIDERS.items():
+        if info["default_key_env"] == key_env:
+            return name
+    return None
+
+
+def validate_providers(providers: list[str]) -> None:
+    """Raise ValueError if any provider name is not in LITELLM_PROVIDERS."""
+    unknown = sorted(set(providers) - set(LITELLM_PROVIDERS))
+    if unknown:
+        valid = ", ".join(sorted(LITELLM_PROVIDERS))
+        raise ValueError(
+            f"Unknown LLM provider(s): {', '.join(unknown)}. Valid providers: {valid}"
+        )
+
+
+# Set of all known default provider key env vars for quick membership tests.
+_DEFAULT_KEY_ENVS = {info["default_key_env"] for info in LITELLM_PROVIDERS.values()}
+
+
+def _is_default_provider_key(api_key_value: str) -> bool:
+    """Return True if *api_key_value* references a known default provider key."""
+    if not api_key_value.startswith("os.environ/"):
+        return False
+    env_name = api_key_value.split("os.environ/", 1)[1]
+    return env_name in _DEFAULT_KEY_ENVS
+
+
+def override_litellm_proxy(
+    config: dict,
+    key_env: str,
+    base_url_env: Optional[str] = None,
+    providers: Optional[list[str]] = None,
+) -> dict:
+    """Rewrite a litellm config dict to route selected providers through a proxy.
+
+    For every model entry whose provider matches *providers* (default: all)
+    **and** whose ``api_key`` currently references a known default provider key,
+    replace the ``api_key`` with ``os.environ/<key_env>`` and, when
+    *base_url_env* is given, set ``api_base`` to ``os.environ/<base_url_env>``.
+
+    Entries with custom/non-standard keys (e.g. ``VLLM_KEY``) are never touched.
+
+    Returns a **new** dict; the original is not mutated.
+    """
+    import copy
+
+    if providers is not None:
+        validate_providers(providers)
+        target_providers = set(providers)
+    else:
+        target_providers = set(LITELLM_PROVIDERS)
+
+    config = copy.deepcopy(config)
+    for entry in config.get("model_list", []):
+        params = entry.get("litellm_params", {})
+        model = params.get("model", "")
+        provider = _provider_for_model(model)
+        if provider is None or provider not in target_providers:
+            continue
+        # Only override entries that use a known default provider key.
+        if not _is_default_provider_key(params.get("api_key", "")):
+            continue
+        params["api_key"] = f"os.environ/{key_env}"
+        if base_url_env is not None:
+            params["api_base"] = f"os.environ/{base_url_env}"
+        else:
+            params.pop("api_base", None)
+    return config
+
+
+def apply_litellm_proxy_to_file(
+    path: Path,
+    key_env: str,
+    base_url_env: Optional[str] = None,
+    providers: Optional[list[str]] = None,
+) -> bool:
+    """Apply proxy overrides to a litellm config file in-place.
+
+    Returns True if the file was modified, False if no changes were needed.
+    """
+    with open(path) as f:
+        original = yaml.safe_load(f) or {}
+
+    updated = override_litellm_proxy(original, key_env, base_url_env, providers)
+    if updated == original:
+        return False
+
+    with open(path, "w") as f:
+        yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
+    return True
+
 
 class LLM:
     def __init__(self, llm_config: Optional[LLMConfig]):

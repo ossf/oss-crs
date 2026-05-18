@@ -1,13 +1,18 @@
 # SPDX-License-Identifier: MIT
-"""Setup command for oss-crs cgroup-parent mode.
+"""Setup command for oss-crs.
 
 This module implements the `oss-crs setup` command which configures
-the host system for cgroup-parent based resource management.
+the host system for cgroup-parent based resource management and
+optionally configures LLM proxy routing for a compose file.
 """
 
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
+
+import questionary
+import yaml
 from rich.panel import Panel
 
 from ..utils import get_console, configure_logging, confirm, green, red, yellow
@@ -22,6 +27,18 @@ from ..cgroup import (
     get_user_cgroup_base,
     get_user_service_cgroup,
 )
+from ..llm import LITELLM_PROVIDERS, apply_litellm_proxy_to_file, override_litellm_proxy
+
+
+def _litellm_config_would_change(
+    path: Path, key_env: str, base_url_env: str | None, providers: list[str]
+) -> bool:
+    """Return True if applying the proxy override would modify *path*."""
+    with open(path) as f:
+        original = yaml.safe_load(f) or {}
+    return (
+        override_litellm_proxy(original, key_env, base_url_env, providers) != original
+    )
 
 
 # =============================================================================
@@ -178,7 +195,7 @@ REQUIREMENTS: list[tuple[str, Callable[[], CheckResult], str]] = [
 
 
 class SetupRunner:
-    """Runs the interactive setup process for cgroup-parent mode."""
+    """Runs the interactive setup process."""
 
     def __init__(self, yes: bool = False):
         configure_logging(quiet=yes)
@@ -288,13 +305,25 @@ class SetupRunner:
         self.console.print(
             Panel(
                 "[bold]oss-crs setup[/bold]\n\n"
-                "This command configures your system for cgroup-parent mode,\n"
-                "which enables fine-grained CPU and memory resource control\n"
-                "for CRS containers without Docker-in-Docker.",
-                title="Cgroup-Parent Setup",
+                "Configure your system for OSS-CRS:\n"
+                "  1. LLM provider proxy routing (optional)\n"
+                "  2. Cgroup resource management (CPU/memory isolation)",
+                title="OSS-CRS Setup",
                 border_style="blue",
             )
         )
+
+        # --- Phase 1: LLM proxy configuration ---
+        if not check_only:
+            self._run_llm_proxy_setup()
+            self.console.print("")
+
+        # --- Phase 2: Cgroup setup ---
+        return self._run_cgroup_setup(check_only)
+
+    def _run_cgroup_setup(self, check_only: bool = False) -> bool:
+        """Run cgroup checks and interactive fixes."""
+        self.console.print("[bold]Phase 2: Cgroup resource management[/bold]")
 
         # Run initial checks
         self.run_checks()
@@ -306,9 +335,7 @@ class SetupRunner:
             return False
 
         if self.all_ok():
-            self.console.print(
-                f"\n{green('All checks passed!', bold=True)} Your system is ready for cgroup-parent mode."
-            )
+            self.console.print(f"\n{green('Cgroup setup OK!', bold=True)}")
             return True
 
         if check_only:
@@ -348,25 +375,143 @@ class SetupRunner:
                     return False
 
         # Final verification
-        self.console.print("\n[bold]Verifying setup...[/bold]")
+        self.console.print("\n[bold]Verifying cgroup setup...[/bold]")
         self.run_checks()
 
         if self.all_ok():
-            self.console.print(
-                f"\n{green('Setup complete!', bold=True)} Your system is ready for cgroup-parent mode."
-            )
-            self.console.print(
-                "\nCgroup-parent mode will be used automatically when available."
-            )
+            self.console.print(f"\n{green('Cgroup setup complete!', bold=True)}")
         else:
             self.console.print(
-                f"\n{yellow('Setup incomplete.')} Some checks are still failing."
+                f"\n{yellow('Cgroup setup incomplete.')} Some checks are still failing."
             )
             self.console.print(
                 "Please address the issues above and run [bold]oss-crs setup[/bold] again."
             )
 
         return self.all_ok()
+
+    # -----------------------------------------------------------------
+    # LLM proxy configuration
+    # -----------------------------------------------------------------
+
+    def _find_example_litellm_configs(self) -> list[Path]:
+        """Find all example litellm config files."""
+        example_dir = Path(__file__).resolve().parents[3] / "example"
+        return sorted(example_dir.glob("*/litellm-config.yaml"))
+
+    def _run_llm_proxy_setup(self) -> None:
+        """Interactively configure LLM proxy routing for all example configs."""
+        self.console.print("[bold]Phase 1: LLM proxy configuration[/bold]")
+        self.console.print(
+            "\nBy default, examples use standard provider API keys "
+            "([bold]OPENAI_API_KEY[/bold], [bold]ANTHROPIC_API_KEY[/bold], "
+            "[bold]GEMINI_API_KEY[/bold]).\n"
+            "If you access LLM providers through a proxy (e.g. an external "
+            "LiteLLM instance), you can override the env vars here."
+        )
+
+        want_proxy = confirm(
+            "Do you want to configure a proxy for LLM providers?",
+            default=False,
+            auto_confirm=False,
+        )
+        if not want_proxy:
+            self.console.print(green("Skipped") + " — using default provider API keys.")
+            return
+
+        configs = self._find_example_litellm_configs()
+        if not configs:
+            self.console.print(yellow("No example litellm configs found. Skipping."))
+            return
+
+        # Ask which providers to route through the proxy
+        provider_choices = [
+            questionary.Choice(
+                title=f"{name} (default key: {info['default_key_env']})",
+                value=name,
+                checked=True,
+            )
+            for name, info in sorted(LITELLM_PROVIDERS.items())
+        ]
+        selected = questionary.checkbox(
+            "Which providers should go through the proxy?",
+            choices=provider_choices,
+        ).ask()
+
+        if not selected:
+            self.console.print(yellow("No providers selected. Skipping."))
+            return
+
+        # Ask for proxy key env var
+        key_env = questionary.text(
+            "Proxy API key env var name:",
+            default="EXTERNAL_LITELLM_API_KEY",
+        ).ask()
+        if not key_env:
+            self.console.print(yellow("Aborted."))
+            return
+
+        # Ask for proxy base URL env var
+        want_base = confirm(
+            "Does your proxy require a custom base URL?",
+            default=True,
+            auto_confirm=False,
+        )
+        base_url_env = None
+        if want_base:
+            base_url_env = questionary.text(
+                "Proxy base URL env var name:",
+                default="EXTERNAL_LITELLM_API_BASE",
+            ).ask()
+            if not base_url_env:
+                self.console.print(yellow("Aborted."))
+                return
+
+        # Pre-filter to configs that would actually change
+        affected = [
+            c
+            for c in configs
+            if _litellm_config_would_change(c, key_env, base_url_env, selected)
+        ]
+
+        if not affected:
+            self.console.print(
+                yellow(
+                    "No example configs use the selected provider keys. Nothing to do."
+                )
+            )
+            return
+
+        # Show summary and confirm
+        self.console.print("\n[bold]Proxy configuration summary:[/bold]")
+        self.console.print(f"  Providers: {', '.join(selected)}")
+        self.console.print(f"  API key env: [bold]{key_env}[/bold]")
+        if base_url_env:
+            self.console.print(f"  Base URL env: [bold]{base_url_env}[/bold]")
+        self.console.print(
+            f"  Config files: [bold]{len(affected)}[/bold] example litellm configs"
+        )
+        for c in affected:
+            self.console.print(f"    [dim]{c.relative_to(c.parents[2])}[/dim]")
+
+        proceed = confirm("\nApply this configuration?", auto_confirm=self.yes)
+        if not proceed:
+            self.console.print(yellow("Skipped."))
+            return
+
+        # Apply the override to affected configs
+        for config_path in affected:
+            apply_litellm_proxy_to_file(config_path, key_env, base_url_env, selected)
+
+        self.console.print(
+            green(f"Updated {len(affected)} litellm configs!", bold=True)
+        )
+        self.console.print(
+            f"\nMake sure these env vars are set before running:\n"
+            f"  export {key_env}=<your-proxy-key>"
+        )
+        if base_url_env:
+            self.console.print(f"  export {base_url_env}=<your-proxy-url>")
 
 
 # =============================================================================
@@ -377,7 +522,7 @@ class SetupRunner:
 def add_setup_command(subparsers) -> None:
     """Add the setup command to the CLI parser."""
     setup = subparsers.add_parser(
-        "setup", help="Configure system for cgroup-parent resource management"
+        "setup", help="Configure system and LLM provider settings"
     )
     setup.add_argument(
         "--check",

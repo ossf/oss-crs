@@ -831,6 +831,8 @@ class CRSCompose:
             # Generate new build_id if we don't have one
             if not build_id:
                 build_id = generate_run_id()
+            # Normalize so run() and build_target() use the same directory
+            build_id = normalize_run_id(build_id)
             if not self.build_target(
                 target,
                 build_id,

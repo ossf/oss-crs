@@ -202,6 +202,15 @@ jobs:
       - name: Create CI litellm config (codex)
         run: |
           cp example/crs-codex/litellm-config.yaml /tmp/ci-config/litellm-codex.yaml
+          uv run python -c "
+          from oss_crs.src.llm import apply_litellm_proxy_to_file
+          from pathlib import Path
+          apply_litellm_proxy_to_file(
+              Path('/tmp/ci-config/litellm-codex.yaml'),
+              key_env='EXTERNAL_LITELLM_API_KEY',
+              base_url_env='EXTERNAL_LITELLM_API_BASE',
+          )
+          "
 
       - name: Setup mock-c repo as git
         run: |
@@ -337,6 +346,15 @@ jobs:
       - name: Create CI litellm config (bugfinding codex)
         run: |
           cp example/crs-bug-finding-codex/litellm-config.yaml /tmp/ci-config/litellm-bugfinding-codex.yaml
+          uv run python -c "
+          from oss_crs.src.llm import apply_litellm_proxy_to_file
+          from pathlib import Path
+          apply_litellm_proxy_to_file(
+              Path('/tmp/ci-config/litellm-bugfinding-codex.yaml'),
+              key_env='EXTERNAL_LITELLM_API_KEY',
+              base_url_env='EXTERNAL_LITELLM_API_BASE',
+          )
+          "
 
       - name: Setup mock-c repo as git
         run: |

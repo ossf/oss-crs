@@ -201,8 +201,8 @@ class LocalCRSUtils(CRSUtils):
         builder: str,
         files: dict | None = None,
         data: dict | None = None,
-        timeout: int = 1200,
-        poll_interval: int = 5,
+        timeout: int = 3600,
+        poll_interval: int = 1,
     ) -> dict | None:
         """Submit a job to the builder sidecar and poll until done.
 
@@ -395,10 +395,7 @@ class LocalCRSUtils(CRSUtils):
                 "cpuset": cpuset,
                 "mem_limit": mem_limit,
             }
-            test_timeout = int(os.environ.get("OSS_CRS_TEST_TIMEOUT", "1200"))
-            result = self._submit_and_poll(
-                "/test", builder, files, data, timeout=test_timeout
-            )
+            result = self._submit_and_poll("/test", builder, files, data)
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:

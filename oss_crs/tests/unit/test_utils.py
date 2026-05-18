@@ -17,16 +17,30 @@ class TestNormalizeRunId:
     """
 
     def test_hash_prevents_collisions(self):
-        """Different inputs that normalize similarly should have different hashes."""
-        # These all normalize to similar base strings but should differ
+        """Inputs that normalize to different base strings should have different hashes."""
+        # These normalize to genuinely different base strings
         result1 = normalize_run_id("test-run")
         result2 = normalize_run_id("test_run")
-        result3 = normalize_run_id("test run")
-        result4 = normalize_run_id("TEST-RUN")
+        result3 = normalize_run_id("alpha-beta")
 
-        # All should be unique due to hash suffix
-        results = {result1, result2, result3, result4}
-        assert len(results) == 4, "Hash suffix should prevent collisions"
+        results = {result1, result2, result3}
+        assert len(results) == 3, "Hash suffix should prevent collisions"
+
+        # Inputs that normalize to the SAME base string should produce the same output
+        # (case, spaces, and special chars are stripped/lowered before hashing)
+        assert normalize_run_id("test-run") == normalize_run_id("TEST-RUN")
+        assert normalize_run_id("test-run") == normalize_run_id("test run")
+
+    def test_idempotent(self):
+        """Calling normalize_run_id on an already-normalized ID returns the same value."""
+        inputs = ["my-build-123", "test_run", "1778522723j6"]
+        for input_id in inputs:
+            once = normalize_run_id(input_id)
+            twice = normalize_run_id(once)
+            assert once == twice, (
+                f"normalize_run_id is not idempotent for '{input_id}': "
+                f"'{once}' != '{twice}'"
+            )
 
     def test_deterministic(self):
         """Same input should always produce same output."""

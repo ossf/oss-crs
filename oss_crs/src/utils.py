@@ -87,14 +87,28 @@ def generate_run_id() -> str:
 
 
 def normalize_run_id(run_id: str) -> str:
-    """Normalize run_id to filesystem-safe string, appending hash to avoid collisions."""
+    """Normalize run_id to filesystem-safe string, appending hash to avoid collisions.
+
+    Idempotent: calling normalize_run_id on an already-normalized ID returns the
+    same value. This is achieved by hashing only the *base* portion (before the
+    last ``-<6hex>`` suffix) when the suffix already matches.
+    """
     normalized = run_id.strip().lower()
     normalized = re.sub(r"[^a-z0-9_-]+", "-", normalized)
     normalized = re.sub(r"-{2,}", "-", normalized).strip("-_")
     if not normalized:
         raise ValueError("run_id must contain at least one alphanumeric character")
-    # Append short hash of original string to avoid collisions
-    original_hash = hashlib.sha256(run_id.encode()).hexdigest()[:6]
+
+    # Check if already normalized: strip trailing -<6hex>, hash the base, compare
+    match = re.match(r"^(.+)-([0-9a-f]{6})$", normalized)
+    if match:
+        base, suffix = match.group(1), match.group(2)
+        expected_hash = hashlib.sha256(base.encode()).hexdigest()[:6]
+        if suffix == expected_hash:
+            return normalized  # already normalized
+
+    # Append short hash of normalized string to avoid collisions
+    original_hash = hashlib.sha256(normalized.encode()).hexdigest()[:6]
     return f"{normalized}-{original_hash}"
 
 
