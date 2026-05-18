@@ -601,8 +601,9 @@ def cli() -> bool | int:
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
     args, unknown_args = parser.parse_known_args(argv)
-    # Only the artifacts command is designed to be called with extra args
-    # (e.g. forwarding all run args). Other commands treat unknowns as errors.
+    # The artifacts and archive commands are designed to be called with
+    # extra args (e.g. forwarding all run args). Other commands treat
+    # unknowns as errors.
     if unknown_args and args.command not in ("artifacts", "archive"):
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
 
