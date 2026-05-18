@@ -70,7 +70,7 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
                 _add_dir(collected, submit_dir / subdir, subdir)
 
     if args.include_all:
-        # Also include exchange dir, logs, shared dirs, and build output
+        # Also include exchange dir, logs, and shared dirs
         if harness:
             exchange_dir = work_dir.get_exchange_dir(
                 target, run_id, sanitizer, create=False
