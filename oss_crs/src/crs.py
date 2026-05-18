@@ -12,7 +12,7 @@ from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
-from .utils import TmpDockerCompose, log_dim, preserved_builder_image_name
+from .utils import TmpDockerCompose, log_dim, log_warning, preserved_builder_image_name
 from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
@@ -156,10 +156,15 @@ class CRS:
             cwd=self.crs_path,
         )
         if result.returncode != 0:
+            log_warning(
+                f"{self.name}: could not discover prepare-phase image tags "
+                f"(bake --print exited {result.returncode})"
+            )
             return []
         try:
             plan = json.loads(result.stdout)
         except json.JSONDecodeError:
+            log_warning(f"{self.name}: could not parse bake --print output as JSON")
             return []
         tags: list[str] = []
         for target_name, target_conf in plan.get("target", {}).items():

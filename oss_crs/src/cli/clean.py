@@ -9,7 +9,15 @@ import docker
 import docker.errors
 
 from ..constants import PRESERVED_BUILDER_REPO
-from ..utils import confirm, get_console, green, red, yellow, rm_with_docker
+from ..utils import (
+    confirm,
+    get_console,
+    green,
+    log_warning,
+    red,
+    yellow,
+    rm_with_docker,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +62,8 @@ def discover_prepare_images(crs_compose) -> list[str]:
     for crs in crs_compose.crs_list:
         try:
             candidate_tags.extend(crs.get_bake_image_tags())
-        except Exception:
-            pass  # best-effort; CRS repo may not be available
+        except Exception as exc:
+            log_warning(f"Could not discover prepare images for {crs.name}: {exc}")
 
     # Only include images that actually exist locally
     client = docker.from_env()
