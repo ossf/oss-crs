@@ -5,8 +5,6 @@ import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from oss_crs.src.cli.archive import handle_archive
 from oss_crs.src.cli.artifacts import resolve_run_context
 
@@ -25,27 +23,43 @@ class _FakeWorkDir:
         return raw
 
     def get_submit_dir(
-        self, crs_name: str, _target, run_id: str, sanitizer: str, *, create: bool = False
+        self,
+        crs_name: str,
+        _target,
+        run_id: str,
+        sanitizer: str,
+        *,
+        create: bool = False,
     ) -> Path:
         p = self._tmp / sanitizer / "runs" / run_id / "crs" / crs_name / "SUBMIT_DIR"
         if create:
             p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def get_exchange_dir(self, _target, run_id: str, sanitizer: str, *, create: bool = False) -> Path:
+    def get_exchange_dir(
+        self, _target, run_id: str, sanitizer: str, *, create: bool = False
+    ) -> Path:
         p = self._tmp / sanitizer / "runs" / run_id / "EXCHANGE_DIR"
         if create:
             p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def get_run_logs_dir(self, _target, run_id: str, sanitizer: str, *, create: bool = False) -> Path:
+    def get_run_logs_dir(
+        self, _target, run_id: str, sanitizer: str, *, create: bool = False
+    ) -> Path:
         p = self._tmp / sanitizer / "runs" / run_id / "logs"
         if create:
             p.mkdir(parents=True, exist_ok=True)
         return p
 
     def get_shared_dir(
-        self, crs_name: str, _target, run_id: str, sanitizer: str, *, create: bool = False
+        self,
+        crs_name: str,
+        _target,
+        run_id: str,
+        sanitizer: str,
+        *,
+        create: bool = False,
     ) -> Path:
         p = self._tmp / sanitizer / "runs" / run_id / "crs" / crs_name / "SHARED_DIR"
         if create:
@@ -53,7 +67,13 @@ class _FakeWorkDir:
         return p
 
     def get_log_dir(
-        self, crs_name: str, _target, run_id: str, sanitizer: str, *, create: bool = False
+        self,
+        crs_name: str,
+        _target,
+        run_id: str,
+        sanitizer: str,
+        *,
+        create: bool = False,
     ) -> Path:
         p = self._tmp / sanitizer / "runs" / run_id / "crs" / crs_name / "LOG_DIR"
         if create:
@@ -206,8 +226,12 @@ def test_archive_multiple_crs_no_triage(tmp_path: Path) -> None:
     compose = _make_compose(tmp_path, [crs_a, crs_b])
     work_dir = compose.work_dir
 
-    _write_file(work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-a")
-    _write_file(work_dir.get_submit_dir("crs-b", None, run_id, "address") / "povs" / "crash-b")
+    _write_file(
+        work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-a"
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-b", None, run_id, "address") / "povs" / "crash-b"
+    )
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
@@ -233,9 +257,21 @@ def test_archive_triage_povs_from_triage_not_finder(tmp_path: Path) -> None:
     work_dir = compose.work_dir
 
     # Both produce POVs — only triage's should end up in the archive
-    _write_file(work_dir.get_submit_dir("crs-finder", None, run_id, "address") / "povs" / "raw-pov")
-    _write_file(work_dir.get_submit_dir("crs-triage", None, run_id, "address") / "povs" / "triaged-pov")
-    _write_file(work_dir.get_submit_dir("crs-finder", None, run_id, "address") / "seeds" / "seed-001")
+    _write_file(
+        work_dir.get_submit_dir("crs-finder", None, run_id, "address")
+        / "povs"
+        / "raw-pov"
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-triage", None, run_id, "address")
+        / "povs"
+        / "triaged-pov"
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-finder", None, run_id, "address")
+        / "seeds"
+        / "seed-001"
+    )
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
@@ -255,9 +291,21 @@ def test_archive_triage_non_pov_artifacts_from_non_triage(tmp_path: Path) -> Non
     compose = _make_compose(tmp_path, [finder, triage])
     work_dir = compose.work_dir
 
-    _write_file(work_dir.get_submit_dir("crs-triage", None, run_id, "address") / "povs" / "triaged-pov")
-    _write_file(work_dir.get_submit_dir("crs-finder", None, run_id, "address") / "patches" / "patch-001.diff")
-    _write_file(work_dir.get_submit_dir("crs-finder", None, run_id, "address") / "bug-candidates" / "bug-001")
+    _write_file(
+        work_dir.get_submit_dir("crs-triage", None, run_id, "address")
+        / "povs"
+        / "triaged-pov"
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-finder", None, run_id, "address")
+        / "patches"
+        / "patch-001.diff"
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-finder", None, run_id, "address")
+        / "bug-candidates"
+        / "bug-001"
+    )
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
@@ -279,7 +327,9 @@ def test_archive_all_includes_exchange_and_logs(tmp_path: Path) -> None:
     compose = _make_compose(tmp_path, [_make_crs("crs-a")])
     work_dir = compose.work_dir
 
-    _write_file(work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-001")
+    _write_file(
+        work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-001"
+    )
     _write_file(work_dir.get_exchange_dir(None, run_id, "address") / "extra.bin")
     _write_file(work_dir.get_run_logs_dir(None, run_id, "address") / "compose.log")
 
@@ -299,7 +349,9 @@ def test_archive_default_excludes_exchange_and_logs(tmp_path: Path) -> None:
     compose = _make_compose(tmp_path, [_make_crs("crs-a")])
     work_dir = compose.work_dir
 
-    _write_file(work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-001")
+    _write_file(
+        work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash-001"
+    )
     _write_file(work_dir.get_exchange_dir(None, run_id, "address") / "extra.bin")
 
     out = tmp_path / "results.tar.gz"
@@ -323,8 +375,14 @@ def test_archive_deduplicates_colliding_arcnames(tmp_path: Path) -> None:
     work_dir = compose.work_dir
 
     # Both CRSs produce a file with the same name
-    _write_file(work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash", "a")
-    _write_file(work_dir.get_submit_dir("crs-b", None, run_id, "address") / "povs" / "crash", "b")
+    _write_file(
+        work_dir.get_submit_dir("crs-a", None, run_id, "address") / "povs" / "crash",
+        "a",
+    )
+    _write_file(
+        work_dir.get_submit_dir("crs-b", None, run_id, "address") / "povs" / "crash",
+        "b",
+    )
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
