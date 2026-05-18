@@ -7,6 +7,9 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `oss-crs gen-compose --litellm-proxy KEY_ENV PROVIDERS [BASE_URL_ENV]` — override litellm config env vars to route selected providers through a proxy. Only rewrites entries that use known default provider keys; custom keys (e.g. `VLLM_KEY`) are never touched.
+- `oss-crs setup` now includes an interactive LLM proxy configuration phase — asks which providers to route through a proxy, the key/base-URL env var names, and applies the override to all example litellm configs that use default provider keys.
+- `LITELLM_PROVIDERS` constant in `llm.py` — canonical registry mapping provider names to model prefixes and default API key env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`).
 - `oss-crs clean` command — removes Docker images and workdir artifacts from previous prepare, build-target, and run phases. Supports phase-specific subcommands (`clean prepare`, `clean build-target`, `clean run`) or cleaning everything at once. Use `--artifacts` to also delete workdir directories, and `-y` to skip the confirmation prompt.
 - Website under `site/`
 - `bug-finding-triage` and `seed-filter` CRS types — post-processor CRS that read from the main exchange dir and write triaged/filtered results to a separate processed exchange dir, which non-processor CRS mount as `FETCH_DIR`
@@ -28,6 +31,8 @@ stricter subset of Keep a Changelog).
 - `libCRS download-source target-source <dest>`: copies clean target source
 
 ### Changed
+- Example litellm configs now use standard provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) by default instead of `EXTERNAL_LITELLM_API_KEY`/`EXTERNAL_LITELLM_API_BASE`. Use `oss-crs setup` or `gen-compose --litellm-proxy` to configure proxy routing.
+- `oss-crs setup` is now a general setup command (LLM configuration + cgroup setup) instead of cgroup-only.
 - Builder sidecar redesigned: framework-injected ephemeral containers replace CRS-declared long-running builders. Rebuilds launch a fresh container per patch from the preserved builder image.
 - `libCRS apply-patch-build`: `--builder` no longer required (framework injects `BUILDER_MODULE`), `--builder-name` auto-detected. Response fields renamed: `retcode`, `rebuild_id`, `stdout.log`/`stderr.log`.
 - `libCRS run-pov`: `--build-id` renamed to `--rebuild-id`, `--builder` no longer required.
