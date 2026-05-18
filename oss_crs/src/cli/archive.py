@@ -31,10 +31,17 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
         """Recursively add files from src_dir under arcname_prefix."""
         if not src_dir.exists():
             return
+
+        resolved_src_dir = src_dir.resolve()
         for f in src_dir.rglob("*"):
-            if f.is_file():
-                rel = f.relative_to(src_dir)
-                collected.append((f, f"{arcname_prefix}/{rel}"))
+            if f.is_symlink() or not f.is_file():
+                continue
+            try:
+                f.resolve().relative_to(resolved_src_dir)
+            except ValueError:
+                continue
+            rel = f.relative_to(src_dir)
+            collected.append((f, f"{arcname_prefix}/{rel}"))
 
     collected: list[tuple[Path, str]] = []
 
