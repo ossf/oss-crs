@@ -6,7 +6,8 @@ import CodeBlock from '@theme/CodeBlock';
 const CRSBENCH_REPO = 'https://github.com/sslab-gatech/CRSBench';
 const CRSBENCH_DATASET = 'https://huggingface.co/datasets/sslab-gatech/crsbench-dataset';
 
-const QUICK_START = `git clone https://github.com/sslab-gatech/CRSBench.git && cd CRSBench
+const QUICK_START = `git clone --recurse-submodules https://github.com/sslab-gatech/CRSBench.git
+cd CRSBench
 uv sync
 ./scripts/setup-third-party.sh
 
