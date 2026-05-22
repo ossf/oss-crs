@@ -330,6 +330,7 @@ def render_run_crs_compose_docker_compose(
                 crs_additional_env=resource.additional_env,
                 harness=target_env.get("harness"),
                 include_fetch_dir=bool(fetch_dir),
+                include_harness_out_dir=crs.config.is_harness_gen,
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,
                 scope=f"{crs.name}:run:{module_name}",

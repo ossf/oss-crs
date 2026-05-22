@@ -78,6 +78,16 @@ class CRSUtils(ABC):
         pass
 
     @abstractmethod
+    def submit_harness_proj(self, name: str, local_dir: Path) -> None:
+        """Submit a generated OSS-Fuzz-style project directory under <name>.
+
+        Used by harness-gen CRSs: rsyncs local_dir to
+        OSS_CRS_HARNESS_OUT_DIR/<name>/ so the orchestrator can echo the
+        host path back to the user as a new --fuzz-proj-path.
+        """
+        pass
+
+    @abstractmethod
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
         """Register a directory for automatic submission to oss-crs-infra."""
         pass

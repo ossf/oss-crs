@@ -58,6 +58,9 @@ services:
 {%- endif %}
       - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
       - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
+{%- if crs.config.is_harness_gen %}
+      - {{ work_dir.get_harness_out_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_HARNESS_OUT_DIR:rw
+{%- endif %}
 {%- if bug_fix_ensemble and not crs.config.is_bug_fixing_ensemble %}
     attach: false
 {%- endif %}

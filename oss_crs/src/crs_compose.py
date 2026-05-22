@@ -867,7 +867,7 @@ class CRSCompose:
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
 
-        return self.__run(
+        result = self.__run(
             target,
             run_id=run_id,
             build_id=build_id,
@@ -880,6 +880,33 @@ class CRSCompose:
             early_exit=early_exit,
             incremental_build=incremental_build,
         )
+        self._echo_harness_proj_outputs(target, run_id, sanitizer)
+        return result
+
+    def _echo_harness_proj_outputs(
+        self, target: Target, run_id: str, sanitizer: str
+    ) -> None:
+        """List submitted harness-projects (from harness-gen CRSs) and print
+        their host paths so the user can pass them as --fuzz-proj-path."""
+        printed_header = False
+        for crs in self.crs_list:
+            if not crs.config.is_harness_gen:
+                continue
+            out_dir = self.work_dir.get_harness_out_dir(
+                crs.name, target, run_id, sanitizer, create=False
+            )
+            if not out_dir.exists():
+                continue
+            entries = sorted(
+                p for p in out_dir.iterdir() if p.is_dir()
+            )
+            if not entries:
+                continue
+            if not printed_header:
+                log_success("harness-gen output:")
+                printed_header = True
+            for sub in entries:
+                print(f"  {crs.name}/{sub.name}: {sub}")
 
     def _validate_required_inputs(
         self,

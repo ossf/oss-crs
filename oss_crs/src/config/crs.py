@@ -160,6 +160,7 @@ class CRSType(Enum):
     BUG_FIXING = "bug-fixing"
     BUILDER = "builder"
     BUG_FIXING_ENSEMBLE = "bug-fixing-ensemble"
+    HARNESS_GEN = "harness-gen"
 
 
 VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
@@ -194,6 +195,10 @@ class CRSConfig(BaseModel):
     @property
     def is_bug_fixing_ensemble(self) -> bool:
         return CRSType.BUG_FIXING_ENSEMBLE in self.type
+
+    @property
+    def is_harness_gen(self) -> bool:
+        return CRSType.HARNESS_GEN in self.type
 
     @field_validator("version")
     @classmethod
