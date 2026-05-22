@@ -87,6 +87,30 @@ grep -c "__llvm_profile" "$COV_REBUILD_DIR/$HARNESS_NAME" > /dev/null 2>&1 \
     || fail "Rebuilt $HARNESS_NAME missing __llvm_profile symbols"
 log "PASS: rebuilt $HARNESS_NAME contains __llvm_profile symbols"
 
+# --- Cache-hit with different rebuild_id (build) ---
+# Re-submit the same patch with an explicit rebuild_id that differs from the
+# cached one.  The sidecar should return quickly (cache hit), stage the cached
+# artifacts at the new rebuild_id, and report the requested id.
+ALT_BUILD_RID=$((REBUILD_ID + 100))
+log "Re-submitting same patch with rebuild_id=$ALT_BUILD_RID (cached=$REBUILD_ID)..."
+rm -rf "$RESPONSE_DIR/cache-build"
+mkdir -p "$RESPONSE_DIR/cache-build"
+libCRS apply-patch-build "$PATCH" "$RESPONSE_DIR/cache-build" --builder-name default-build --rebuild-id "$ALT_BUILD_RID" 2>&1
+CACHE_BUILD_RC=$?
+[ "$CACHE_BUILD_RC" -eq 0 ] || fail "Cached build (alt rebuild_id) failed with exit code $CACHE_BUILD_RC"
+
+[ -f "$RESPONSE_DIR/cache-build/rebuild_id" ] || fail "No rebuild_id returned from cached build"
+CACHE_RID=$(cat "$RESPONSE_DIR/cache-build/rebuild_id")
+[ "$CACHE_RID" -eq "$ALT_BUILD_RID" ] || fail "Cached build returned rebuild_id=$CACHE_RID, expected $ALT_BUILD_RID"
+log "PASS: cached build returned requested rebuild_id=$CACHE_RID"
+
+# Verify staged artifacts are downloadable at the new rebuild_id
+CACHE_BUILD_DIR="/tmp/cache-build-artifacts"
+rm -rf "$CACHE_BUILD_DIR"
+libCRS download-build-output "build" "$CACHE_BUILD_DIR" --rebuild-id "$ALT_BUILD_RID"
+[ -f "$CACHE_BUILD_DIR/$HARNESS_NAME" ] || fail "Staged harness $HARNESS_NAME not found at rebuild_id=$ALT_BUILD_RID"
+log "PASS: staged build artifacts downloadable at rebuild_id=$ALT_BUILD_RID"
+
 # --- Apply patch + test ---
 log "Running test.sh via libCRS..."
 rm -rf "$RESPONSE_DIR/test"
@@ -95,7 +119,9 @@ TEST_RC=$?
 [ "$TEST_RC" -eq 0 ] || fail "Tests returned exit code $TEST_RC"
 log "Test exit code: $TEST_RC"
 
-# --- Run POV ---
+# --- Run POV against unpatched base build (no rebuild_id) ---
+# Without --rebuild-id the runner uses the original unpatched build, so the
+# POV must trigger a sanitizer crash (non-zero exit code).
 POV_DIR="$FETCH_DIR/povs"
 [ -d "$POV_DIR" ] || fail "POV directory $POV_DIR does not exist"
 
@@ -103,6 +129,30 @@ POV_COUNT=0
 for POV_FILE in "$POV_DIR"/*; do
     [ -f "$POV_FILE" ] || continue
     POV_COUNT=$((POV_COUNT + 1))
+    log "Running POV $(basename "$POV_FILE") against unpatched build (no rebuild_id)..."
+    rm -rf "$RESPONSE_DIR/pov-unpatched"
+    set +e
+    libCRS run-pov "$POV_FILE" "$RESPONSE_DIR/pov-unpatched" --harness "$HARNESS_NAME"
+    UNPATCHED_RC=$?
+    set -e
+
+    log "Unpatched POV exit code: $UNPATCHED_RC"
+    UNPATCHED_STDERR=""
+    if [ -f "$RESPONSE_DIR/pov-unpatched/stderr.log" ]; then
+        UNPATCHED_STDERR=$(cat "$RESPONSE_DIR/pov-unpatched/stderr.log")
+        log "  stderr: $(echo "$UNPATCHED_STDERR" | head -c 200)"
+    fi
+
+    [ "$UNPATCHED_RC" -ne 0 ] || fail "POV $(basename "$POV_FILE"): expected crash on unpatched build but got exit code 0"
+    echo "$UNPATCHED_STDERR" | grep -q "Sanitizer" \
+        || fail "POV $(basename "$POV_FILE"): crash on unpatched build not from sanitizer — stderr: $(echo "$UNPATCHED_STDERR" | head -c 300)"
+    log "PASS: POV $(basename "$POV_FILE") triggers sanitizer crash on unpatched build"
+done
+[ "$POV_COUNT" -gt 0 ] || fail "No POV files found in $POV_DIR"
+
+# --- Run POV against patched build (with rebuild_id) ---
+for POV_FILE in "$POV_DIR"/*; do
+    [ -f "$POV_FILE" ] || continue
     log "Running POV $(basename "$POV_FILE") (harness=$HARNESS_NAME, rebuild_id=$REBUILD_ID)..."
     rm -rf "$RESPONSE_DIR/pov"
     set +e
@@ -119,7 +169,6 @@ for POV_FILE in "$POV_DIR"/*; do
         log "POV $(basename "$POV_FILE"): no crash — ground-truth patch fixed the vulnerability"
     fi
 done
-[ "$POV_COUNT" -gt 0 ] || fail "No POV files found in $POV_DIR"
 
 log "SUCCESS: all checks passed"
 exit 0

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FastAPI builder sidecar server.
 
 Host-side build orchestrator that accepts build requests, launches ephemeral Docker
@@ -24,6 +25,7 @@ Environment variables:
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import copy
 import hashlib
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -35,6 +37,7 @@ from docker_ops import (
     next_rebuild_id,
     run_ephemeral_build,
     run_ephemeral_test,
+    stage_cached_rebuild,
 )
 import docker
 
@@ -74,6 +77,33 @@ def _make_job_id(patch_content: bytes, builder_name: str = "") -> str:
     return hasher.hexdigest()[:12]
 
 
+def _cached_response_for_rebuild_id(
+    cached: dict, crs_name: str, requested_rid: "int | None"
+) -> dict:
+    """Return a cache-hit response honoring a caller-supplied ``rebuild_id``.
+
+    When the caller passes an explicit ``rebuild_id`` that differs from the
+    cached one, hardlink-stage the cached rebuild tree into the requested
+    slot and return a *copy* of the cached entry with ``rebuild_id`` rewritten
+    to the requested value. The cached entry itself is left untouched so
+    subsequent callers still see the canonical (original) rebuild_id.
+
+    When the caller passes no ``rebuild_id`` (or it already matches), the
+    cached entry is returned as-is.
+    """
+    result = cached.get("result") or {}
+    cached_rid = result.get("rebuild_id")
+    if requested_rid is None or cached_rid is None or requested_rid == cached_rid:
+        return cached
+
+    rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
+    stage_cached_rebuild(rebuild_out_dir, crs_name, cached_rid, requested_rid)
+
+    response = copy.deepcopy(cached)
+    response["result"]["rebuild_id"] = requested_rid
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -104,7 +134,7 @@ async def submit_build(
         if existing["status"] == "done":
             result = existing.get("result")
             if result is not None and result.get("exit_code") == 0:
-                return existing
+                return _cached_response_for_rebuild_id(existing, crs_name, rebuild_id)
 
     # Resolve rebuild_id if not provided
     if rebuild_id is None:
@@ -160,7 +190,7 @@ async def run_test(
         if existing["status"] == "done":
             result = existing.get("result")
             if result is not None and result.get("exit_code") == 0:
-                return existing
+                return _cached_response_for_rebuild_id(existing, crs_name, rebuild_id)
 
     if rebuild_id is None:
         rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FastAPI runner sidecar server.
 
 Long-running service for POV (Proof of Vulnerability) reproduction using the

@@ -21,17 +21,32 @@
 | Git | latest |
 | [uv](https://github.com/astral-sh/uv) | latest |
 
-### 1. Prepare a Target Project (OSS-Fuzz Format)
+### 1. Set Up Your Environment (Optional)
+
+```bash
+uv run oss-crs setup
+```
+
+Setup is optional and walks you through two configuration steps:
+- **LLM proxy routing** — if you access LLM providers through a proxy (e.g. an external LiteLLM instance), setup will override the API key and base URL env vars across all example configs. Skip this if you use provider keys directly (e.g. `export ANTHROPIC_API_KEY=sk-...`).
+- **Cgroup resource management** — enables fine-grained per-CRS CPU and memory isolation. This requires root privileges and modifies system cgroup settings, so review each step before applying.
+
+### 2. Prepare a Target Project (OSS-Fuzz Format)
 
 OSS-CRS works with any project that follows the [OSS-Fuzz](https://github.com/google/oss-fuzz) project structure. Clone the OSS-Fuzz repository to get started:
 
 ```bash
-git clone git@github.com:google/oss-fuzz.git ~/oss-fuzz
+git clone --depth=1 --filter=blob:none --no-checkout https://github.com/google/oss-fuzz.git
+cd oss-fuzz
+git sparse-checkout init --cone
+git sparse-checkout set projects
+git checkout
+cd ..
 ```
 
 > **Tip:** You can also prepare your own target repository as long as it is compatible with the OSS-Fuzz project format.
 
-### 2. Run a Simple Bug-Finding CRS
+### 3. Run a Simple Bug-Finding CRS
 
 The example below uses **crs-libfuzzer**, a lightweight CRS that runs libFuzzer on the target.
 See [`./example/crs-libfuzzer/compose.yaml`](example/crs-libfuzzer/compose.yaml) for the full configuration.
@@ -44,16 +59,16 @@ uv run oss-crs prepare \
 # Build the target project
 uv run oss-crs build-target \
   --compose-file ./example/crs-libfuzzer/compose.yaml \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2
 
 # Run the CRS against a specific harness (e.g., "xml")
 uv run oss-crs run \
   --compose-file ./example/crs-libfuzzer/compose.yaml \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
-### 3. Run an LLM-Powered CRS
+### 4. Run an LLM-Powered CRS
 
 For a more advanced CRS that leverages LLMs, you can use **atlantis-multilang**. This CRS supports multiple languages and uses an LLM to generate and refine fuzz harnesses.
 See [`./example/multilang/multilang-compose.yaml`](example/multilang/multilang-compose.yaml) for the full configuration.
@@ -68,78 +83,74 @@ uv run oss-crs prepare \
 # Build the target
 uv run oss-crs build-target \
   --compose-file ./example/multilang/multilang-compose.yaml \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 
 
 # Run the CRS
-export OPENAI_API_KEY=<OPENAI_API_KEY>
-export GEMINI_API_KEY=<GEMINI_API_KEY>
-export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
+# export OPENAI_API_KEY=<your-openai-key>
+# export GEMINI_API_KEY=<your-gemini-key>
+# export ANTHROPIC_API_KEY=<your-anthropic-key>
 # Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
   --compose-file ./example/multilang/multilang-compose.yaml \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
 > **Note:** LLM-powered CRSs require an LLM API key. Refer to [docs/config/llm.md](docs/config/llm.md) for configuration details.
 
-### 4. Use the Builder CRS for Incremental Builds
+### 5. Run Claude Code CRSs with OAuth
 
-For CRSs that generate source patches (bug-fixing), the **Builder CRS** provides fast incremental builds. Instead of rebuilding the target from scratch for each patch, the builder creates a snapshot of the compiled project and applies patches on top of it.
+**crs-bug-finding-claude-code** (bug-finding) and **crs-claude-code** (bug-fixing/patching) can authenticate directly with Anthropic via Claude Code's OAuth flow — no LiteLLM proxy or API key required.
 
-First, fetch the required oss-fuzz scripts (one-time setup):
-
-```bash
-bash scripts/setup-third-party.sh
-```
-
-Then add the builder as a separate CRS entry in your compose file alongside your patcher CRS:
-
-```yaml
-oss-crs-builder:
-  source:
-    local_path: /path/to/oss-crs/builder
-  cpuset: "2-3"
-  memory: "8G"
-
-my-patcher-crs:
-  source:
-    local_path: /path/to/my-patcher-crs
-  cpuset: "4-7"
-  memory: "16G"
-```
-
-The framework automatically creates a snapshot image, starts the builder service, and connects it with your patcher CRS. Any CRS that uses `libCRS.apply_patch_build()` will communicate with the builder via HTTP.
-
-See [`builder/README.md`](builder/README.md) for full details on the builder's API and configuration.
-
-### 5. Run an Ensemble of Multiple CRSs
-
-Combine multiple CRSs in a single campaign to get the best of each approach. Simply define them in an ensemble compose file
- For example, [`./example/ensemble/ensemble-compose.yaml`](example/ensemble/ensemble-compose.yaml) launches both **crs-libfuzzer** and **multilang** simultaneously. Check the compose file for detailed configuration.
+**Authenticate once on the host:**
 
 ```bash
-# Prepare 
+claude setup-token
+```
+
+**Export the token** (or add to a `.env` file in your working directory):
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=<your-oauth-token>
+# OR in .env:
+# CLAUDE_CODE_OAUTH_TOKEN=<your-oauth-token>
+```
+
+**Run the bug-finding CRS:**
+
+```bash
 uv run oss-crs prepare \
-  --compose-file ./example/ensemble/ensemble-compose.yaml 
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml
 
-# Build the target
 uv run oss-crs build-target \
-  --compose-file ./example/ensemble/ensemble-compose.yaml  \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2
 
-# Run the CRS
-export OPENAI_API_KEY=<OPENAI_API_KEY>
-export GEMINI_API_KEY=<GEMINI_API_KEY>
-export ANTHROPIC_API_KEY=<ANTHROPIC_API_KEY>
-# Or put the same variables in .env and skip the export lines.
 uv run oss-crs run \
-  --compose-file ./example/ensemble/ensemble-compose.yaml  \
-  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --compose-file ./example/crs-bug-finding-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
   --target-harness xml
 ```
 
-Each CRS runs independently with its own resource allocation, and results are aggregated automatically.
+**Run the bug-fixing (patching) CRS:**
+
+```bash
+uv run oss-crs prepare \
+  --compose-file ./example/crs-claude-code/compose.yaml
+
+uv run oss-crs build-target \
+  --compose-file ./example/crs-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
+  --incremental-build
+
+uv run oss-crs run \
+  --compose-file ./example/crs-claude-code/compose.yaml \
+  --fuzz-proj-path ./oss-fuzz/projects/libxml2 \
+  --target-harness xml \
+  --incremental-build
+```
+
+> **Note:** The `CLAUDE_CODE_OAUTH_TOKEN` in the compose file uses `${CLAUDE_CODE_OAUTH_TOKEN}`, so the value is read from your shell environment or `.env` file at runtime.
 
 ## Build Your Own CRS
 
@@ -156,7 +167,6 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 - [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
 - [CRS Configuration](docs/config/crs.md): CRS config reference
 - [CRS-Compose Configuration](docs/config/crs-compose.md): Compose file reference
-- [Builder CRS](builder/README.md): Incremental build service for patch-testing CRSs
 - [LLM Configuration](docs/config/llm.md): LLM provider setup
 - [Changelog](CHANGELOG.md): Breaking changes, deprecations, and migration notes
 - [Plan](PLAN.md): Upcoming features and planned improvements

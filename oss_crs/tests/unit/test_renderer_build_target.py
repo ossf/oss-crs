@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for ``render_build_target_docker_compose``.
 
 Focus: the ``crs.builder_dockerfile`` value rendered into the build-target

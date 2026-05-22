@@ -7,6 +7,17 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
+- `--latest` flag for `oss-crs artifacts` and `oss-crs archive` — automatically selects the most recent run instead of prompting interactively.
+- `oss-crs gen-compose --litellm-proxy KEY_ENV PROVIDERS [BASE_URL_ENV]` — override litellm config env vars to route selected providers through a proxy. Only rewrites entries that use known default provider keys; custom keys (e.g. `VLLM_KEY`) are never touched.
+- `oss-crs setup` now includes an interactive LLM proxy configuration phase — asks which providers to route through a proxy, the key/base-URL env var names, and applies the override to all example litellm configs that use default provider keys.
+- `LITELLM_PROVIDERS` constant in `llm.py` — canonical registry mapping provider names to model prefixes and default API key env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`).
+- `oss-crs clean` command — removes Docker images and workdir artifacts from previous prepare, build-target, and run phases. Supports phase-specific subcommands (`clean prepare`, `clean build-target`, `clean run`) or cleaning everything at once. Use `--artifacts` to also delete workdir directories, and `-y` to skip the confirmation prompt.
+- Website under `site/`
+- `bug-finding-triage` and `seed-filter` CRS types — post-processor CRS that read from the main exchange dir and write triaged/filtered results to a separate processed exchange dir, which non-processor CRS mount as `FETCH_DIR`
+- `oss-crs-processed-exchange` sidecar — automatically injected when the compose includes a triage or seed-filter CRS; collects post-processor submit dirs into `PROCESSED_EXCHANGE_DIR`
+- crs-atlantis-triage, crs-clusterfuzz-triage, and crs-roboduck-triage to registry/ and example/ (bug-finding-triage)
+- crs-atlantis-ensemble to registry/ and example/ (seed-filter)
 - `--incremental-build` flag for `oss-crs build-target` and `oss-crs run` — creates Docker snapshots of compiled builder images for faster rebuilds across runs
 - Framework-injected builder and runner sidecars during run phase — CRS developers no longer declare them in `crs.yaml`
 - `libCRS apply-patch-test` command — applies a patch and runs the project's `test.sh` in a fresh ephemeral container
@@ -22,6 +33,10 @@ stricter subset of Keep a Changelog).
 - `libCRS download-source target-source <dest>`: copies clean target source
 
 ### Changed
+- Post-run results are now printed outside the Rich UI box so long artifact directory paths are never truncated by panel border wrapping. Directories are only shown when the artifact count is non-zero.
+- `oss-crs artifacts` and `oss-crs archive` now ignore unrecognized CLI arguments, allowing run command args to be forwarded directly.
+- Example litellm configs now use standard provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) by default instead of `EXTERNAL_LITELLM_API_KEY`/`EXTERNAL_LITELLM_API_BASE`. Use `oss-crs setup` or `gen-compose --litellm-proxy` to configure proxy routing.
+- `oss-crs setup` is now a general setup command (LLM configuration + cgroup setup) instead of cgroup-only.
 - Builder sidecar redesigned: framework-injected ephemeral containers replace CRS-declared long-running builders. Rebuilds launch a fresh container per patch from the preserved builder image.
 - `libCRS apply-patch-build`: `--builder` no longer required (framework injects `BUILDER_MODULE`), `--builder-name` auto-detected. Response fields renamed: `retcode`, `rebuild_id`, `stdout.log`/`stderr.log`.
 - `libCRS run-pov`: `--build-id` renamed to `--rebuild-id`, `--builder` no longer required.
@@ -52,6 +67,7 @@ stricter subset of Keep a Changelog).
   future minor release.
 
 ### Removed
+- `builder` CRS type — replaced by framework-injected builder sidecars
 - `crs.yaml`: `snapshot` field from `target_build_phase`, `run_snapshot` field from `crs_run_phase` — snapshot behavior is now operator-controlled via `--incremental-build`
 - `libCRS run-test` — replaced by `libCRS apply-patch-test`
 - `OSS_CRS_SNAPSHOT_IMAGE` environment variable

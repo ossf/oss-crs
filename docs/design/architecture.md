@@ -190,7 +190,7 @@ oss-crs-infra provides centralized services that all CRSs share. It runs in its 
 The LLM subsystem uses [LiteLLM](https://github.com/BerriAI/litellm) as a proxy:
 
 - **Unified API**: CRSs send requests to a single endpoint (`$OSS_CRS_LLM_API_URL`), abstracting all model providers (OpenAI, Anthropic, Google, etc.)
-- **Per-CRS API Keys**: Each CRS receives a unique `$OSS_CRS_LLM_API_KEY` at launch
+- **Per-CRS API Keys**: Each CRS receives a unique API key via a Docker secret file at `$OSS_CRS_LLM_API_KEY_FILE`
 - **Budget Enforcement**: Dollar-denominated limits per CRS, tracked in PostgreSQL
 - **Model Routing**: Logical model names are mapped to provider-specific models via LiteLLM config
 
@@ -198,7 +198,7 @@ LLM setup flow during `oss-crs run`:
 
 1. CRS Compose generates per-CRS API keys
 2. The `litellm-key-gen` service registers keys and budgets in LiteLLM
-3. CRS containers receive their API key via `OSS_CRS_LLM_API_KEY` and endpoint via `OSS_CRS_LLM_API_URL`
+3. CRS containers receive their API key as a Docker secret via `OSS_CRS_LLM_API_KEY_FILE` and endpoint via `OSS_CRS_LLM_API_URL`
 4. All LLM requests are proxied through LiteLLM, which enforces budgets and logs usage
 
 `required_llms` is only used for model-availability validation; internal per-CRS key generation does not depend on `required_llms` being set.
@@ -206,7 +206,7 @@ LLM setup flow during `oss-crs run`:
 LiteLLM integration modes:
 
 - **Internal mode**: OSS-CRS starts LiteLLM/PostgreSQL/key-gen sidecars and injects per-CRS API keys.
-- **External mode**: OSS-CRS injects externally provided `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY`, and does not start internal LiteLLM sidecars.
+- **External mode**: OSS-CRS injects externally provided `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY_FILE`, and does not start internal LiteLLM sidecars.
 - **Disabled mode** (`llm_config: null`): OSS-CRS performs no LiteLLM validation or sidecar setup.
 
 ### Pinned Infrastructure Images

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Integration tests for ephemeral container sidecar lifecycle.
 
 These tests require a running Docker daemon and are marked with pytest.mark.integration.

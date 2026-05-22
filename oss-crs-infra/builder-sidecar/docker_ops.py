@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Docker SDK container lifecycle module for the builder sidecar.
 
 Provides public functions:
@@ -150,6 +151,38 @@ def next_rebuild_id(rebuild_out_dir: Path, crs_name: str) -> int:
         if d.is_dir() and (m := id_re.match(d.name))
     ]
     return max(existing, default=0) + 1
+
+
+def stage_cached_rebuild(
+    rebuild_out_dir: Path, crs_name: str, src_rid: int, dst_rid: int
+) -> None:
+    """Materialize a cached rebuild tree into a caller-requested rebuild_id slot.
+
+    Files are hardlinked so the cached directory and the staged copy share
+    underlying inodes (near-zero disk cost), but remain independent: removing
+    one directory does not affect the other. Staging goes through a sibling
+    ``.{dst_rid}.staging`` directory and is committed via an atomic rename so
+    concurrent readers never observe a partial tree.
+
+    Raises RuntimeError if the source rebuild directory does not exist.
+    """
+    src_dir = rebuild_output_dir(rebuild_out_dir, crs_name, src_rid)
+    dst_dir = rebuild_output_dir(rebuild_out_dir, crs_name, dst_rid)
+    if not src_dir.is_dir():
+        raise RuntimeError(f"Cached rebuild artifacts missing: {src_dir}")
+
+    staging = dst_dir.parent / f".{dst_rid}.staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+
+    def _hardlink(src: str, dst: str, *, follow_symlinks: bool = True) -> None:
+        os.link(src, dst, follow_symlinks=follow_symlinks)
+
+    shutil.copytree(src_dir, staging, copy_function=_hardlink)
+
+    if dst_dir.exists():
+        shutil.rmtree(dst_dir)
+    staging.rename(dst_dir)
 
 
 def _run_ephemeral(

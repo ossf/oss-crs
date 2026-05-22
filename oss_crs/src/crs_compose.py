@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 import shutil
 import subprocess
 import re
@@ -116,29 +117,22 @@ class CRSCompose:
         latest_build_id = None
         latest_score = float("-inf")
 
-        builds_dir = self.work_dir.get_builds_dir(sanitizer)
-        if not builds_dir.exists():
-            return None
-
-        for build_id_dir in builds_dir.iterdir():
-            if not build_id_dir.is_dir():
-                continue
-            build_id = build_id_dir.name
+        for entry in self.work_dir.iter_builds(sanitizer=sanitizer):
             # Check if any CRS has build output for this target
             for crs in self.crs_list:
                 build_out_dir = self.work_dir.get_build_output_dir(
-                    crs.name, target, build_id, sanitizer, create=False
+                    crs.name, target, entry.build_id, sanitizer, create=False
                 )
                 if build_out_dir.exists():
                     # Prefer embedded unix timestamp; fall back to directory mtime.
-                    match = re.search(r"\d{10}", build_id)
+                    match = re.search(r"\d{10}", entry.build_id)
                     if match:
                         score = float(int(match.group()))
                     else:
-                        score = build_id_dir.stat().st_mtime
+                        score = entry.path.stat().st_mtime
                     if score > latest_score:
                         latest_score = score
-                        latest_build_id = build_id
+                        latest_build_id = entry.build_id
                     break  # Found at least one CRS with this build, no need to check others
         return latest_build_id
 
@@ -764,13 +758,13 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         resolved_options = self._resolve_target_build_options(
             target,
             sanitizer=sanitizer,
         )
         if resolved_options is None:
-            return False
+            return 1
         sanitizer, _, _ = resolved_options
 
         # Normalize IDs at library boundary
@@ -789,32 +783,32 @@ class CRSCompose:
 
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
-            return False
+            return 1
         if bug_candidate is not None and bug_candidate_dir is not None:
             print(
                 "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
             )
-            return False
+            return 1
         if bug_candidate is not None and not bug_candidate.exists():
             print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
-            return False
+            return 1
         if bug_candidate is not None and not bug_candidate.is_file():
             print(
                 "Error: --bug-candidate must be a file. "
                 "Use --bug-candidate-dir for directories."
             )
-            return False
+            return 1
         if bug_candidate_dir is not None and not bug_candidate_dir.exists():
             print(
                 f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
             )
-            return False
+            return 1
         if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
             print("Error: --bug-candidate-dir must be a directory.")
-            return False
+            return 1
         if seed_dir is not None and not seed_dir.is_dir():
             print(f"Error: Seed directory does not exist: {seed_dir}")
-            return False
+            return 1
         if not self.__validate_before_run(
             target,
             diff=diff,
@@ -824,7 +818,7 @@ class CRSCompose:
             bug_candidate=bug_candidate,
             bug_candidate_dir=bug_candidate_dir,
         ):
-            return False
+            return 1
         target.init_repo()
 
         # Check if we need to build
@@ -837,6 +831,8 @@ class CRSCompose:
             # Generate new build_id if we don't have one
             if not build_id:
                 build_id = generate_run_id()
+            # Normalize so run() and build_target() use the same directory
+            build_id = normalize_run_id(build_id)
             if not self.build_target(
                 target,
                 build_id,
@@ -845,7 +841,7 @@ class CRSCompose:
                 bug_candidate_dir=bug_candidate_dir,
                 diff=diff,
             ):
-                return False
+                return 1
 
         # Collect POV files from --pov and --pov-dir
         pov_files: list[Path] = []
@@ -862,7 +858,7 @@ class CRSCompose:
             snapshot_error = self._check_snapshots_exist(build_id)
             if snapshot_error:
                 print(f"Error: {snapshot_error}")
-                return False
+                return 1
 
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
@@ -1028,7 +1024,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
                 target,
@@ -1045,7 +1041,7 @@ class CRSCompose:
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
-            return False
+            return 1
 
     def __run_local(
         self,
@@ -1060,7 +1056,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
-    ) -> bool:
+    ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
         cgroup_parents: Optional[dict[str, str]] = None
@@ -1088,6 +1084,8 @@ class CRSCompose:
                     crs.name, target, run_id, sanitizer, create=False
                 )
                 for crs in self.crs_list
+                if not crs.config.is_triage
+                and not crs.config.is_seed_filter  # post-processors run until timeout
             ]
             # Also watch exchange dir when multiple CRSs (shared artifact location)
             if len(self.crs_list) > 1:
@@ -1169,10 +1167,12 @@ class CRSCompose:
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
-                    return ret.success
-                return False
+                    if ret.success:
+                        return 0
+                    return 124  # timed out or early-exited
+                return 1
 
-        return False
+        return 1
 
     def __capture_compose_logs(
         self,

@@ -1,4 +1,5 @@
 name: builder-sidecar-lite
+description: "Lightweight Builder Sidecar Test Fixture"
 type:
   - bug-fixing
 source:

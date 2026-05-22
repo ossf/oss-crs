@@ -1,4 +1,5 @@
 name: fuzzing-brain
+description: "Team FuzzingBrain PoV Generation Agent"
 type:
   - bug-finding
 source:

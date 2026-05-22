@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Cgroup v2 management for resource control.
 
 This module provides functions to create and manage cgroup v2 hierarchies

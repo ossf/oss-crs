@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Integration test: builder-sidecar-full (coverage builds + rebuilds + test + POV).
 
 Exercises the full incremental-build pipeline with mock-c:

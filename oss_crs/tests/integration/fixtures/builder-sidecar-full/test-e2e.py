@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """E2E sidecar test using the libCRS Python API.
 
 Mirrors test-e2e.sh but exercises the Python interface directly.
@@ -133,6 +134,39 @@ def main() -> int:
         fail(f"Rebuilt {harness_name} missing __llvm_profile symbols")
     log(f"PASS: rebuilt {harness_name} contains __llvm_profile symbols")
 
+    # --- Cache-hit with different rebuild_id (build) ---
+    # Re-submit the same patch with an explicit rebuild_id that differs from the
+    # cached one.  The sidecar should return quickly (cache hit), stage the
+    # cached artifacts at the new rebuild_id, and report the requested id.
+    alt_build_rid = rebuild_id + 100
+    log(
+        f"Re-submitting same patch with rebuild_id={alt_build_rid} (cached={rebuild_id})..."
+    )
+    cache_build_response = RESPONSE_DIR / "cache-build"
+    cache_build_rc = crs.apply_patch_build(
+        PATCH,
+        cache_build_response,
+        builder_name="default-build",
+        rebuild_id=alt_build_rid,
+    )
+    if cache_build_rc != 0:
+        fail(f"Cached build (alt rebuild_id) failed with exit code {cache_build_rc}")
+    cache_rid_file = cache_build_response / "rebuild_id"
+    if not cache_rid_file.exists():
+        fail("No rebuild_id returned from cached build")
+    cache_rid = int(cache_rid_file.read_text().strip())
+    if cache_rid != alt_build_rid:
+        fail(f"Cached build returned rebuild_id={cache_rid}, expected {alt_build_rid}")
+    log(f"PASS: cached build returned requested rebuild_id={cache_rid}")
+
+    # Verify staged artifacts are accessible via download
+    cache_build_dir = Path("/tmp/cache-build-artifacts-py")
+    crs.download_build_output("build", cache_build_dir, rebuild_id=alt_build_rid)
+    cache_harness = cache_build_dir / harness_name
+    if not cache_harness.exists():
+        fail(f"Staged harness {harness_name} not found at rebuild_id={alt_build_rid}")
+    log(f"PASS: staged build artifacts downloadable at rebuild_id={alt_build_rid}")
+
     # --- Apply patch + test ---
     log("Running test.sh via Python API...")
     test_response = RESPONSE_DIR / "test"
@@ -141,7 +175,9 @@ def main() -> int:
         fail(f"Tests returned exit code {test_rc}")
     log(f"Test exit code: {test_rc}")
 
-    # --- Run POV ---
+    # --- Run POV against unpatched base build (no rebuild_id) ---
+    # Without a rebuild_id the runner uses the original unpatched build, so the
+    # POV must trigger a sanitizer crash (non-zero exit code).
     pov_dir = Path(fetch_dir) / "povs"
     if not pov_dir.is_dir():
         fail(f"POV directory {pov_dir} does not exist")
@@ -150,6 +186,32 @@ def main() -> int:
     if not pov_files:
         fail(f"No POV files found in {pov_dir}")
 
+    for pov_file in pov_files:
+        log(f"Running POV {pov_file.name} against unpatched build (no rebuild_id)...")
+        unpatched_response = RESPONSE_DIR / "pov-unpatched"
+        unpatched_rc = crs.run_pov(pov_file, harness_name, unpatched_response)
+
+        log(f"Unpatched POV exit code: {unpatched_rc}")
+        stderr_file = unpatched_response / "stderr.log"
+        stderr_text = ""
+        if stderr_file.exists():
+            stderr_text = stderr_file.read_text()
+            log(f"  stderr: {stderr_text.strip()[:200]}")
+
+        if unpatched_rc == 0:
+            fail(
+                f"POV {pov_file.name}: expected crash on unpatched build but got exit code 0"
+            )
+        if "Sanitizer" not in stderr_text:
+            fail(
+                f"POV {pov_file.name}: crash on unpatched build not from sanitizer — "
+                f"stderr: {stderr_text.strip()[:300]}"
+            )
+        log(
+            f"PASS: POV {pov_file.name} triggers sanitizer crash on unpatched build with retcode {unpatched_rc}"
+        )
+
+    # --- Run POV against patched build (with rebuild_id) ---
     for pov_file in pov_files:
         log(
             f"Running POV {pov_file.name} (harness={harness_name}, rebuild_id={rebuild_id})..."

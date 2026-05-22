@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from typing import TYPE_CHECKING, Optional
@@ -166,13 +167,21 @@ def prepare_llm_context(
             raise RuntimeError("External LiteLLM URL is required.")
         if not key:
             raise RuntimeError("External LiteLLM API key is required.")
+        tmp_dir = tmp_docker_compose.dir
+        if tmp_dir is None:
+            raise RuntimeError("Temporary docker compose directory was not initialized")
         keys = {}
+        secret_files = {}
         for crs in crs_compose.crs_list:
             keys[crs.name] = key
+            key_file = tmp_dir / f"oss_crs_llm_api_key_{crs.name}"
+            key_file.write_text(key)
+            secret_files[crs.name] = str(key_file)
         return {
             "mode": "external",
             "llm_api_url": url,
             "api_keys": keys,
+            "secret_files": secret_files,
         }
 
     if crs_compose.llm.mode == "internal":
@@ -180,14 +189,16 @@ def prepare_llm_context(
         tmp_dir = tmp_docker_compose.dir
         if tmp_dir is None:
             raise RuntimeError("Temporary docker compose directory was not initialized")
-        litellm_env = {}
+        litellm_env_secret_files = {}
         for name in crs_compose.llm.extract_envs():
             tmp = os.environ.get(name)
             if tmp is None:
                 raise RuntimeError(
                     f"Environment variable '{name}' required by LiteLLM config is not set."
                 )
-            litellm_env[name] = tmp
+            secret_file = tmp_dir / f"litellm_env_{name}"
+            secret_file.write_text(tmp)
+            litellm_env_secret_files[name] = str(secret_file)
         # Generate keys for each CRS
         keys = {}
         key_info = {}
@@ -208,16 +219,32 @@ def prepare_llm_context(
             yaml.dump(key_info, default_flow_style=False, sort_keys=False)
         )
 
+        # Write secrets to files for Docker Compose secrets
+        master_key = "sk-" + _generate_random_key(16)
+        master_key_file = tmp_dir / "litellm_master_key"
+        master_key_file.write_text(master_key)
+
+        postgres_password = _generate_random_key(16)
+        postgres_password_file = tmp_dir / "postgres_password"
+        postgres_password_file.write_text(postgres_password)
+
+        secret_files = {}
+        for crs_name, crs_key in keys.items():
+            key_file = tmp_dir / f"oss_crs_llm_api_key_{crs_name}"
+            key_file.write_text(crs_key)
+            secret_files[crs_name] = str(key_file)
+
         return {
             "mode": "internal",
             "llm_api_url": LITELLM_INTERNAL_URL,
-            "litellm_master_key": "sk-" + _generate_random_key(16),
-            "postgres_password": _generate_random_key(16),
+            "master_key_file": str(master_key_file),
+            "postgres_password_file": str(postgres_password_file),
             "litellm_config_path": llm_config.litellm.internal.config_path
             if llm_config.litellm.internal and llm_config.litellm.internal.config_path
             else str(DEFAULT_LITELLM_CONFIG_PATH),
             "api_keys": keys,
-            "litellm_env": litellm_env,
+            "secret_files": secret_files,
+            "litellm_env_secret_files": litellm_env_secret_files,
             "key_gen_request_path": str(key_gen_request_path),
         }
 
@@ -250,6 +277,22 @@ def render_run_crs_compose_docker_compose(
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
 
+    # When triage CRS(s) are present, non-triage CRS should fetch from the
+    # triage exchange dir (triaged POVs) instead of the main exchange dir
+    # (raw POVs). A second exchange sidecar collects triage outputs there.
+    # Post-processor CRS (triage, seed-filter) read from exchange_dir and write
+    # processed results to their submit dirs.  A dedicated sidecar collects those
+    # into processed_exchange_dir, which non-processor CRS mount as FETCH_DIR.
+    has_post_processor = any(
+        crs.config.is_triage or crs.config.is_seed_filter
+        for crs in crs_compose.crs_list
+    )
+    processed_exchange_dir = (
+        str(crs_compose.work_dir.get_processed_exchange_dir(target, run_id, sanitizer))
+        if has_post_processor
+        else None
+    )
+
     # Sidecar services are always injected as infrastructure (per D-04: single parent mount)
     rebuild_out_dir = str(
         crs_compose.work_dir.get_rebuild_out_dir(
@@ -273,6 +316,7 @@ def render_run_crs_compose_docker_compose(
         "resolve_dockerfile": _resolve_module_dockerfile,
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
+        "processed_exchange_dir": processed_exchange_dir,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path

@@ -1,0 +1,7 @@
+name: crs-atlantis-ensemble
+description: "Team Atlanta Atlantis Seed Filter Ensemble"
+type:
+  - seed-filter
+source:
+  url: https://github.com/Team-Atlanta/crs-atlantis-ensemble.git
+  ref: main

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Shared fixtures for integration tests."""
 
 import subprocess

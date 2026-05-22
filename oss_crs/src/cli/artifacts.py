@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Artifacts command handling for oss-crs CLI."""
 
 import re
@@ -15,28 +16,21 @@ def collect_run_ids_for_target(
     """Collect all run-ids for a target from SUBMIT_DIR (run artifacts)."""
     seen = set()
 
-    runs_dir = crs_compose.work_dir.get_runs_dir(sanitizer)
-    if not runs_dir.exists():
-        return []
-
     # Temporarily set harness for path resolution
     original_harness = target.target_harness
     if harness:
         target.target_harness = harness
 
-    for run_id_dir in runs_dir.iterdir():
-        if not run_id_dir.is_dir():
-            continue
-        run_id = run_id_dir.name
+    for entry in crs_compose.work_dir.iter_runs(sanitizer=sanitizer):
         for crs in crs_compose.crs_list:
             submit_path = crs_compose.work_dir.get_submit_dir(
-                crs.name, target, run_id, sanitizer, create=False
+                crs.name, target, entry.run_id, sanitizer, create=False
             )
             # For harness=None, check parent dir (without harness component)
             if not harness:
                 submit_path = submit_path.parent
             if submit_path.exists():
-                seen.add(run_id)
+                seen.add(entry.run_id)
                 break
 
     target.target_harness = original_harness
@@ -72,18 +66,21 @@ def select_run_id_interactively(
     return select("Select run-id:", choices)
 
 
-def handle_artifacts(args, crs_compose, target: Target) -> bool:
-    """Handle the artifacts command."""
+def resolve_run_context(args, crs_compose, target: Target) -> tuple[str, str] | None:
+    """Resolve (sanitizer, run_id) from args, returning None on failure.
+
+    Shared by the artifacts and archive commands. Handles sanitizer resolution,
+    run_id normalization, and interactive run selection.
+    """
     harness = target.target_harness
     if args.sanitizer is not None:
         sanitizer = args.sanitizer
     else:
         sanitizer = crs_compose.resolve_effective_sanitizer(target)
         if sanitizer is None:
-            return False
+            return None
     work_dir = crs_compose.work_dir
 
-    # run_id for SUBMIT/FETCH/SHARED dirs.
     # If --run-id is provided and not found on disk yet, still accept it and
     # normalize to deterministic run-scoped paths (pre-run resolution).
     if args.run_id:
@@ -95,11 +92,31 @@ def handle_artifacts(args, crs_compose, target: Target) -> bool:
                 run_id = normalize_run_id(args.run_id)
             except ValueError:
                 print(f"Invalid run id '{args.run_id}'.", file=sys.stderr)
-                return False
+                return None
+    elif getattr(args, "latest", False):
+        all_run_ids = collect_run_ids_for_target(
+            crs_compose, target, harness, sanitizer
+        )
+        if not all_run_ids:
+            print("No runs found for this target.", file=sys.stderr)
+            return None
+        run_id = all_run_ids[0]
     else:
         run_id = select_run_id_interactively(crs_compose, target, harness, sanitizer)
         if run_id is None:
-            return False
+            return None
+
+    return sanitizer, run_id
+
+
+def handle_artifacts(args, crs_compose, target: Target) -> bool:
+    """Handle the artifacts command."""
+    ctx = resolve_run_context(args, crs_compose, target)
+    if ctx is None:
+        return False
+    sanitizer, run_id = ctx
+    harness = target.target_harness
+    work_dir = crs_compose.work_dir
 
     # build_id for BUILD_OUT_DIR - use provided, read from run, or find latest
     if args.build_id:

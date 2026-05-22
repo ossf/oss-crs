@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from pathlib import Path
 from typing import Optional
 import hashlib
@@ -11,7 +12,7 @@ from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
-from .utils import TmpDockerCompose, log_dim, preserved_builder_image_name
+from .utils import TmpDockerCompose, log_dim, log_warning, preserved_builder_image_name
 from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
@@ -126,6 +127,54 @@ class CRS:
         self.work_dir = work_dir
         self.resource = resource
         self.crs_compose_env = crs_compose_env
+
+    def get_bake_image_tags(self) -> list[str]:
+        """Return all image tags defined in the prepare-phase HCL bake plan.
+
+        Runs ``docker buildx bake --print`` to discover tags without building
+        or pulling anything.  Returns an empty list when the CRS has no
+        prepare phase or the bake plan cannot be parsed.
+        """
+        if self.config.prepare_phase is None:
+            return []
+        hcl_path = self.crs_path / self.config.prepare_phase.hcl
+        if not hcl_path.exists():
+            return []
+        env = build_prepare_env(
+            base_env=os.environ.copy(),
+            crs_additional_env=(
+                self.resource.additional_env if self.resource else None
+            ),
+            version=self.config.version,
+            scope=f"{self.name}:prepare",
+        ).effective_env
+        result = subprocess.run(
+            ["docker", "buildx", "bake", "-f", str(hcl_path), "--print"],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=self.crs_path,
+        )
+        if result.returncode != 0:
+            log_warning(
+                f"{self.name}: could not discover prepare-phase image tags "
+                f"(bake --print exited {result.returncode})"
+            )
+            return []
+        try:
+            plan = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            log_warning(f"{self.name}: could not parse bake --print output as JSON")
+            return []
+        tags: list[str] = []
+        for target_name, target_conf in plan.get("target", {}).items():
+            explicit_tags = target_conf.get("tags", [])
+            if explicit_tags:
+                tags.extend(explicit_tags)
+            else:
+                # When no tags are specified, bake uses the target name
+                tags.append(target_name)
+        return tags
 
     def _try_pull_prebuilt_images(
         self, hcl_path: Path, env: dict

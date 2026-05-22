@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Run lint, type-check, and unit-test verification."""
 
 import subprocess

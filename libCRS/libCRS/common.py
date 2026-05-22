@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from enum import Enum
 import os
 import hashlib

@@ -1,4 +1,5 @@
 name: crs-patch-ensemble
+description: "Bug Fixing Ensemble"
 type:
   - bug-fixing-ensemble
 source:

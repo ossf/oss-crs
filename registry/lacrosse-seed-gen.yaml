@@ -1,4 +1,5 @@
 name: lacrosse-seed-gen
+description: "Team Lacrosse Seed Generation Agent"
 type:
   - bug-finding
 source:

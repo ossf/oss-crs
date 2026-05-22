@@ -1,4 +1,5 @@
 name: crs-jazzer
+description: "Jazzer JVM Fuzzer"
 type:
   - bug-finding
 source:

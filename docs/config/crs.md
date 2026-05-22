@@ -41,7 +41,7 @@ The root `CRSConfig` object contains the following fields:
 ```yaml
 name: my-crs
 type:
-  - bug-finding
+  - bug-finding-triage
 version: "1.0.0"
 docker_registry: "ghcr.io/my-org/my-crs"
 prepare_phase:
@@ -195,6 +195,16 @@ crs_run_phase:
 - For framework-owned `OSS_CRS_*` keys in a given phase, framework values take
   precedence. Unknown `OSS_CRS_*` keys are warned and may pass through.
 
+### Post-Processor CRS (Triage / Seed-Filter)
+
+When a compose includes at least one `bug-finding-triage` or `seed-filter` CRS, the framework automatically adjusts the exchange flow:
+
+1. **Post-processor CRS** (`bug-finding-triage`, `seed-filter`) mount the main `EXCHANGE_DIR` as `FETCH_DIR` (read-only) and write results to their `SUBMIT_DIR` as usual.
+2. A second exchange sidecar (`oss-crs-processed-exchange`) collects post-processor submit dirs into a `PROCESSED_EXCHANGE_DIR`.
+3. **Non-processor CRS** (`bug-finding`, `bug-fixing`, etc.) mount `PROCESSED_EXCHANGE_DIR` as their `FETCH_DIR` instead of the main exchange dir, so they consume triaged/filtered artifacts rather than raw ones.
+
+This is fully automatic — no extra configuration is needed beyond setting the CRS `type` to `bug-finding-triage` or `seed-filter`.
+
 ---
 
 ## Supported Target
@@ -242,7 +252,9 @@ Defines the type of CRS:
 |-------|-------------|
 | `bug-finding` | CRS designed for finding bugs |
 | `bug-fixing` | CRS designed for fixing bugs |
-| `builder` | Builder-side CRS for incremental patch build/test workflows |
+| `bug-fixing-ensemble` | Ensemble CRS that aggregates bug-fixing outputs |
+| `bug-finding-triage` | Post-processor CRS that triages bug-finding results (e.g. deduplication, validation). Reads from the main exchange dir and writes to the processed exchange dir. |
+| `seed-filter` | Post-processor CRS that filters or prioritizes seeds/inputs for downstream CRS. Reads from the main exchange dir and writes to the processed exchange dir. |
 
 ### TargetMode
 

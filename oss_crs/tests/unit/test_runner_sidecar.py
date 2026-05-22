@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for runner-sidecar server.py.
 
 Uses mocked subprocess and filesystem -- no real base-runner image or reproduce binary required.

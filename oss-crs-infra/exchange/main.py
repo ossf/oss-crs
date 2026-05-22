@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Exchange sidecar: polls SUBMIT_DIR trees and copies new files to EXCHANGE_DIR.
 
 Layout expected:

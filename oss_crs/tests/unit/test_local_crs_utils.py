@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for LocalCRSUtils sidecar integration.
 
 Tests all INT-* requirements with mocked HTTP requests and DNS resolution.

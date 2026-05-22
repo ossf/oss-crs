@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from pathlib import Path
 
 from oss_crs.src.target import Target

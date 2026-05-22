@@ -1,4 +1,5 @@
 name: crs-libfuzzer
+description: "Local Testing Variant of LibFuzzer CRS"
 type:
   - bug-finding
 source:

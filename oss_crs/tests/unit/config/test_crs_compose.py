@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for oss_crs.src.config.crs_compose module."""
 
 import pytest

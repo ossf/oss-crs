@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for builder-sidecar docker_ops.py and server.py.
 
 Uses fully mocked Docker SDK — no real Docker daemon required.
@@ -29,8 +30,10 @@ from docker_ops import (
     get_build_image,
     get_test_image,
     next_rebuild_id,
+    rebuild_output_dir,
     run_ephemeral_build,
     run_ephemeral_test,
+    stage_cached_rebuild,
 )
 
 # ---------------------------------------------------------------------------
@@ -88,6 +91,70 @@ class TestNextRebuildId:
         (crs_dir / "temp").mkdir()
         (crs_dir / "2").mkdir()
         assert next_rebuild_id(tmp_path, "my-crs") == 3
+
+
+# ===========================================================================
+# TestStageCachedRebuild
+# ===========================================================================
+
+
+class TestStageCachedRebuild:
+    """Tests for docker_ops.stage_cached_rebuild() hardlink-staging helper."""
+
+    def _make_rebuild(self, rebuild_out: Path, crs_name: str, rid: int) -> Path:
+        """Create a minimal rebuild directory tree and return its path."""
+        rdir = rebuild_output_dir(rebuild_out, crs_name, rid)
+        (rdir / "build").mkdir(parents=True)
+        (rdir / "stdout.log").write_text("stdout\n")
+        (rdir / "stderr.log").write_text("stderr\n")
+        (rdir / "exit_code").write_text("0\n")
+        (rdir / "build" / "harness").write_bytes(b"\x7fELF fake harness")
+        return rdir
+
+    def test_stages_all_files_into_dst(self, tmp_path):
+        """All files from the source rebuild appear at the destination rebuild."""
+        src = self._make_rebuild(tmp_path, TEST_CRS_NAME, 7)
+        stage_cached_rebuild(tmp_path, TEST_CRS_NAME, 7, 99)
+        dst = rebuild_output_dir(tmp_path, TEST_CRS_NAME, 99)
+        assert (dst / "stdout.log").read_text() == "stdout\n"
+        assert (dst / "stderr.log").read_text() == "stderr\n"
+        assert (dst / "exit_code").read_text() == "0\n"
+        assert (dst / "build" / "harness").read_bytes() == b"\x7fELF fake harness"
+        # Source remains intact
+        assert (src / "stdout.log").exists()
+
+    def test_files_are_hardlinked(self, tmp_path):
+        """Staged files share inodes with the source (hardlinks, not copies)."""
+        self._make_rebuild(tmp_path, TEST_CRS_NAME, 7)
+        stage_cached_rebuild(tmp_path, TEST_CRS_NAME, 7, 99)
+        src_file = rebuild_output_dir(tmp_path, TEST_CRS_NAME, 7) / "build" / "harness"
+        dst_file = rebuild_output_dir(tmp_path, TEST_CRS_NAME, 99) / "build" / "harness"
+        assert src_file.stat().st_ino == dst_file.stat().st_ino
+
+    def test_staging_directory_is_cleaned_up(self, tmp_path):
+        """No sibling ``.{rid}.staging`` directory remains after success."""
+        self._make_rebuild(tmp_path, TEST_CRS_NAME, 7)
+        stage_cached_rebuild(tmp_path, TEST_CRS_NAME, 7, 99)
+        staging = tmp_path / TEST_CRS_NAME / ".99.staging"
+        assert not staging.exists()
+
+    def test_overwrites_existing_destination(self, tmp_path):
+        """An existing destination rebuild is replaced entirely."""
+        self._make_rebuild(tmp_path, TEST_CRS_NAME, 7)
+        # Pre-existing unrelated content at dst
+        old_dst = rebuild_output_dir(tmp_path, TEST_CRS_NAME, 99)
+        old_dst.mkdir(parents=True)
+        (old_dst / "stale.log").write_text("stale content")
+
+        stage_cached_rebuild(tmp_path, TEST_CRS_NAME, 7, 99)
+
+        assert not (old_dst / "stale.log").exists()
+        assert (old_dst / "stdout.log").read_text() == "stdout\n"
+
+    def test_raises_when_source_missing(self, tmp_path):
+        """Staging from a non-existent source raises RuntimeError."""
+        with pytest.raises(RuntimeError, match="Cached rebuild artifacts missing"):
+            stage_cached_rebuild(tmp_path, TEST_CRS_NAME, 7, 99)
 
 
 # ===========================================================================
@@ -384,6 +451,102 @@ class TestBuildEndpoint:
         assert "builds" in body
         assert isinstance(body["builds"], list)
         assert len(body["builds"]) >= 1
+
+
+# ===========================================================================
+# TestBuildCacheRebuildId
+# ===========================================================================
+
+
+class TestBuildCacheRebuildId:
+    """Cache-hit behavior for POST /build when the caller supplies rebuild_id.
+
+    When the same patch is submitted a second time with an explicit rebuild_id
+    that differs from the cached one, the sidecar must (a) stage the cached
+    artifacts at the caller-requested rebuild_id location, (b) return a
+    response carrying the requested rebuild_id, and (c) leave the cached
+    entry itself pointing at the canonical original rebuild_id.
+    """
+
+    _PATCH = b"diff --git a/cached_rebuild"
+
+    def _seed_cached_entry(self, rebuild_out: Path, cached_rid: int) -> tuple:
+        """Pre-populate job_results with a successful build + on-disk artifacts.
+
+        Returns (job_id, test_client). ``job_results`` is cleared first.
+        """
+        from fastapi.testclient import TestClient
+        import server
+
+        server.job_results.clear()
+        job_id = server._make_job_id(self._PATCH, TEST_BUILDER_NAME)
+
+        # Real files so stage_cached_rebuild has something to hardlink.
+        rdir = rebuild_output_dir(rebuild_out, TEST_CRS_NAME, cached_rid)
+        (rdir / "build").mkdir(parents=True)
+        (rdir / "stdout.log").write_text("cached stdout\n")
+        (rdir / "stderr.log").write_text("")
+        (rdir / "exit_code").write_text("0\n")
+        (rdir / "build" / "harness").write_bytes(b"cached harness")
+
+        server.job_results[job_id] = {
+            "id": job_id,
+            "status": "done",
+            "result": {
+                "exit_code": 0,
+                "stdout": "cached stdout",
+                "stderr": "",
+                "rebuild_id": cached_rid,
+            },
+        }
+        return job_id, TestClient(server.app)
+
+    def _post(self, client, rebuild_id: "int | None" = None):
+        files = {"patch": ("patch.diff", self._PATCH, "application/octet-stream")}
+        data = {"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME}
+        if rebuild_id is not None:
+            data["rebuild_id"] = str(rebuild_id)
+        return client.post("/build", files=files, data=data)
+
+    def test_cache_hit_with_no_rebuild_id_returns_cached_rid(self, tmp_path):
+        """Implicit rebuild_id → client sees the cached rid unchanged."""
+        with patch.dict(os.environ, {"REBUILD_OUT_DIR": str(tmp_path)}):
+            _, client = self._seed_cached_entry(tmp_path, cached_rid=7)
+            resp = self._post(client)
+        assert resp.status_code == 200
+        assert resp.json()["result"]["rebuild_id"] == 7
+        assert (tmp_path / TEST_CRS_NAME / "7").is_dir()
+        assert not (tmp_path / TEST_CRS_NAME / "99").exists()
+
+    def test_cache_hit_with_matching_rebuild_id_returns_same(self, tmp_path):
+        """Explicit rebuild_id == cached rid → cached entry returned, no staging."""
+        with patch.dict(os.environ, {"REBUILD_OUT_DIR": str(tmp_path)}):
+            _, client = self._seed_cached_entry(tmp_path, cached_rid=7)
+            resp = self._post(client, rebuild_id=7)
+        assert resp.status_code == 200
+        assert resp.json()["result"]["rebuild_id"] == 7
+
+    def test_cache_hit_with_differing_rebuild_id_stages_and_rewrites(self, tmp_path):
+        """Explicit rebuild_id ≠ cached rid → stage cached tree, return new rid."""
+        import server
+
+        with patch.dict(os.environ, {"REBUILD_OUT_DIR": str(tmp_path)}):
+            job_id, client = self._seed_cached_entry(tmp_path, cached_rid=7)
+            resp = self._post(client, rebuild_id=99)
+
+        assert resp.status_code == 200
+        assert resp.json()["result"]["rebuild_id"] == 99
+
+        # Artifacts now exist at the requested rebuild_id
+        staged = tmp_path / TEST_CRS_NAME / "99"
+        assert (staged / "stdout.log").read_text() == "cached stdout\n"
+        assert (staged / "build" / "harness").read_bytes() == b"cached harness"
+
+        # Cache entry untouched — still points at the canonical original
+        assert server.job_results[job_id]["result"]["rebuild_id"] == 7
+
+        # Source rebuild still intact
+        assert (tmp_path / TEST_CRS_NAME / "7" / "stdout.log").exists()
 
 
 # ===========================================================================

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for required_inputs validation in CRSCompose."""
 
 from oss_crs.src.crs_compose import CRSCompose

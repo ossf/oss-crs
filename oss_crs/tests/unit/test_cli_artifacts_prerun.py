@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for artifacts command pre-run path resolution behavior."""
 
 from types import SimpleNamespace

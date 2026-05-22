@@ -1,4 +1,5 @@
 name: crs-shellphish-aijon
+description: "Team Shellphish AIJON Fuzzer"
 type:
   - bug-finding
 source:

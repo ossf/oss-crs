@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for MultiTaskProgress cleanup semantics."""
 
 import io

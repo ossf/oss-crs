@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for Target.extract_workdir_to_host() and _resolve_effective_workdir_with_inspect_fallback()."""
 
 from pathlib import Path

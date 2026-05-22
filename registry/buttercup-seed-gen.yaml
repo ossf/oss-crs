@@ -1,4 +1,5 @@
 name: buttercup-seed-gen
+description: "Team Trail of Bits Seed Generation Agent"
 type:
   - bug-finding
 source:

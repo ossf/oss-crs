@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Integration tests for mount infrastructure verification.
 
 These tests verify that OSS_CRS_FUZZ_PROJ and OSS_CRS_TARGET_SOURCE

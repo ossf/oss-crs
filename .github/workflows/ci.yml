@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -10,16 +11,20 @@ on:
       - "libCRS/**"
       - "uv.lock"
       - "pyproject.toml"
-      - ".github/workflows/**"
+      - ".github/workflows/ci.yml"
       - "!**/*.md"
 
 jobs:
   verify:
     name: Verify
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -28,11 +33,15 @@ jobs:
 
   integration-test:
     name: Integration tests
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [verify]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - name: sync
@@ -42,12 +51,16 @@ jobs:
 
   smoke-c:
     name: Smoke test (C)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [verify]
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -134,7 +147,7 @@ jobs:
 
       - name: Upload smoke-c workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-c-workdir
           path: /tmp/smoke-c-workdir.tar.gz
@@ -143,18 +156,22 @@ jobs:
 
   smoke-c-patch:
     name: Smoke test (C patching)
+    permissions:
+      contents: read
     if: |
       github.actor != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     needs: [verify]
-    timeout-minutes: 40
+    timeout-minutes: 20
     env:
       EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
       EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -185,6 +202,15 @@ jobs:
       - name: Create CI litellm config (codex)
         run: |
           cp example/crs-codex/litellm-config.yaml /tmp/ci-config/litellm-codex.yaml
+          uv run python -c "
+          from oss_crs.src.llm import apply_litellm_proxy_to_file
+          from pathlib import Path
+          apply_litellm_proxy_to_file(
+              Path('/tmp/ci-config/litellm-codex.yaml'),
+              key_env='EXTERNAL_LITELLM_API_KEY',
+              base_url_env='EXTERNAL_LITELLM_API_BASE',
+          )
+          "
 
       - name: Setup mock-c repo as git
         run: |
@@ -228,7 +254,7 @@ jobs:
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
             --target-harness fuzz_parse_buffer \
-            --timeout 1200 \
+            --timeout 600 \
             --build-id smoke-c-patch \
             --run-id bugfixing-c \
             --pov-dir oss_crs/tests/integration/fixtures/mock-c-povs \
@@ -265,21 +291,158 @@ jobs:
 
       - name: Upload smoke-c-patch workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-c-patch-workdir
           path: /tmp/smoke-c-patch-workdir.tar.gz
           if-no-files-found: warn
           retention-days: 2
 
-  smoke-java:
-    name: Smoke test (Java)
+  smoke-c-bugfinding-codex:
+    name: Smoke test (C agentic bug-finding)
+    permissions:
+      contents: read
+    if: |
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     needs: [verify]
-    timeout-minutes: 30
+    timeout-minutes: 20
+    env:
+      EXTERNAL_LITELLM_API_BASE: ${{ secrets.EXTERNAL_LITELLM_API_BASE }}
+      EXTERNAL_LITELLM_API_KEY: ${{ secrets.EXTERNAL_LITELLM_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --dev
+
+      - name: Create CI compose (bugfinding - codex)
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-bugfinding-codex.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-bug-finding-codex:
+            cpuset: "1-3"
+            memory: "10G"
+            llm_budget: 5
+            additional_env:
+              CRS_AGENT: codex
+              CODEX_MODEL: gpt-5.2-codex
+          llm_config:
+            litellm:
+              mode: internal
+              internal:
+                config_path: /tmp/ci-config/litellm-bugfinding-codex.yaml
+          EOF
+
+      - name: Create CI litellm config (bugfinding codex)
+        run: |
+          cp example/crs-bug-finding-codex/litellm-config.yaml /tmp/ci-config/litellm-bugfinding-codex.yaml
+          uv run python -c "
+          from oss_crs.src.llm import apply_litellm_proxy_to_file
+          from pathlib import Path
+          apply_litellm_proxy_to_file(
+              Path('/tmp/ci-config/litellm-bugfinding-codex.yaml'),
+              key_env='EXTERNAL_LITELLM_API_KEY',
+              base_url_env='EXTERNAL_LITELLM_API_BASE',
+          )
+          "
+
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Prepare CRSs
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c-bugfinding-codex
+
+      - name: Bugfinding (crs-bug-finding-codex)
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 600 \
+            --build-id smoke-c-bugfinding-codex \
+            --run-id bugfinding-c-codex \
+            --early-exit
+
+      - name: Verify POVs found
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --build-id smoke-c-bugfinding-codex \
+            --run-id bugfinding-c-codex)
+          echo "$artifacts" | jq .
+          pov_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.pov')
+          echo "POV directory: $pov_dir"
+          if [ ! -d "$pov_dir" ] || [ -z "$(ls -A "$pov_dir")" ]; then
+            echo "ERROR: No POVs found"
+            exit 1
+          fi
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+
+      - name: Create smoke-c-bugfinding-codex workdir tarball
+        if: failure()
+        run: |
+          python scripts/create_workdir_tarball.py \
+            --output /tmp/smoke-c-bugfinding-codex-workdir.tar.gz \
+            --empty-message "No smoke-c-bugfinding-codex workdir artifacts were found."
+          tarball=/tmp/smoke-c-bugfinding-codex-workdir.tar.gz
+          ls -lh "$tarball"
+
+      - name: Upload smoke-c-bugfinding-codex workdir artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-c-bugfinding-codex-workdir
+          path: /tmp/smoke-c-bugfinding-codex-workdir.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+  smoke-java:
+    name: Smoke test (Java)
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    needs: [verify]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
@@ -366,7 +529,7 @@ jobs:
 
       - name: Upload smoke-java workdir artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-java-workdir
           path: /tmp/smoke-java-workdir.tar.gz

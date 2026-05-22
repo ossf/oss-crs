@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 import json
 import subprocess
 import time
@@ -94,6 +95,7 @@ class MultiTaskProgress:
         self._current_task: Optional[str] = None  # Current task ID (full path)
         self._head = []
         self._tail = []
+        self._deferred_prints: list = []
         # Subtask hierarchy: parent_id -> list of child task IDs
         self._subtasks: dict[Optional[str], list[str]] = {None: list(self.task_names)}
         self._task_funcs: dict[str, Callable[["MultiTaskProgress"], TaskResult]] = {
@@ -596,6 +598,9 @@ class MultiTaskProgress:
             self._live.__exit__(*args)
             self._live = None
         self._entered = False
+        for item in self._deferred_prints:
+            self.console.print(item, soft_wrap=True)
+        self._deferred_prints.clear()
 
     def run_command_with_streaming_output(
         self,
@@ -749,14 +754,19 @@ class MultiTaskProgress:
 
     def show_run_result(self, crs_results: list[dict]) -> None:
         """
-        Display a summary of CRS run results in a dedicated panel.
+        Display a summary of CRS run results.
+
+        Deferred to print after the Live context exits so that long directory
+        paths are never truncated by panel border wrapping.
 
         Args:
             crs_results: List of dicts with keys:
                 - name: CRS name
                 - submit_dir: Path to the CRS submit directory
         """
-        lines = Text()
+        output = Text()
+        output.append("\nCRS Run Results\n", style="bold green")
+        output.append("─" * 40 + "\n", style="green")
         for i, entry in enumerate(crs_results):
             submit_dir = entry["submit_dir"]
             pov_dir = submit_dir / "povs"
@@ -767,33 +777,24 @@ class MultiTaskProgress:
             seed_count = _count_files(seed_dir)
             patch_count = _count_files(patch_dir)
 
-            lines.append(f"{entry['name']}:\n", style="bold cyan")
-            lines.append("  - Patches: ", style="bold")
-            lines.append(f"{patch_count}\n", style="yellow")
-            lines.append("       - Directory: ", style="dim")
-            lines.append(f"{patch_dir}\n" if patch_dir.exists() else "-\n", style="dim")
-            lines.append("  - POVs: ", style="bold")
-            lines.append(f"{pov_count}\n", style="red")
-            lines.append("       - Directory: ", style="dim")
-            lines.append(f"{pov_dir}\n" if pov_dir.exists() else "-\n", style="dim")
-            lines.append("  - Seeds: ", style="bold")
-            lines.append(f"{seed_count}\n", style="green")
-            lines.append("       - Directory: ", style="dim")
-            lines.append(f"{seed_dir}\n" if seed_dir.exists() else "-\n", style="dim")
+            output.append(f"{entry['name']}:\n", style="bold cyan")
+            output.append("  Patches: ", style="bold")
+            output.append(f"{patch_count}\n", style="yellow")
+            if patch_count > 0:
+                output.append(f"    {patch_dir}\n", style="dim")
+            output.append("  POVs: ", style="bold")
+            output.append(f"{pov_count}\n", style="red")
+            if pov_count > 0:
+                output.append(f"    {pov_dir}\n", style="dim")
+            output.append("  Seeds: ", style="bold")
+            output.append(f"{seed_count}\n", style="green")
+            if seed_count > 0:
+                output.append(f"    {seed_dir}\n", style="dim")
 
             if i < len(crs_results) - 1:
-                lines.append("\n")
+                output.append("\n")
 
-        result_panel = Panel(
-            lines,
-            title="[bold]CRS Run Results[/bold]",
-            border_style="green",
-        )
-        self._tail.append(result_panel)
-        if self._headless:
-            self._print_headless(result_panel)
-        if self._live:
-            self._live.update(self._build_display())
+        self._deferred_prints.append(output)
 
     def docker_compose_build(
         self,

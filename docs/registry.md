@@ -9,7 +9,7 @@ Each CRS in the registry is defined by a YAML file at `registry/<crs-name>.yaml`
 ```yaml
 name: <crs-name>
 type:
-  - bug-finding              # and/or bug-fixing
+  - bug-finding              # bug-fixing, bug-finding-triage, seed-filter, etc.
 source:
   url: <git-repository-url>
   ref: <branch-or-tag>
@@ -18,7 +18,7 @@ source:
 | Field | Description |
 |---|---|
 | `name` | Unique identifier for the CRS |
-| `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, or both |
+| `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, `bug-finding-triage`, `seed-filter`, `bug-fixing-ensemble`, or a combination |
 | `source.url` | Git repository URL containing the CRS implementation |
 | `source.ref` | Git branch or tag to use |
 
@@ -49,6 +49,10 @@ The `source` field in compose is only needed to **override** the registry (e.g.,
 | **crs-multi-retrieval** | bug-fixing | A two-step CRS that first analyzes crashes to gather code context, then iteratively generates and refines patches using multiple retrieval mechanisms. |
 | **crs-prism** | bug-fixing | A cyclic CRS that rotates between analysis, patching, and evaluation agents to progressively converge on a validated fix. |
 | **crs-vincent** | bug-fixing | A three-stage CRS that combines root-cause analysis, project-specific property analysis, and patch generation to target semantic correctness. |
+| **crs-atlantis-triage** | bug-finding-triage | A triage CRS that validates and deduplicates bug-finding results from other CRS. |
+| **crs-clusterfuzz-triage** | bug-finding-triage | A ClusterFuzz-based triage CRS that validates bug-finding results. |
+| **crs-roboduck-triage** | bug-finding-triage | An LLM-powered triage CRS that validates and classifies bug-finding results. |
+| **crs-atlantis-ensemble** | seed-filter | A seed-filter CRS that prioritizes and filters seeds/inputs for downstream CRS. |
 
 ### Planned
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Integration test: builder-sidecar-lite (patch verify: build + rebuild + POV + test).
 
 Exercises the patch verification pipeline with mock-c:

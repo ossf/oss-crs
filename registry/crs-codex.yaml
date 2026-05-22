@@ -1,6 +1,7 @@
 name: crs-codex
+description: "Codex Bug Fixing Agent"
 type:
   - bug-fixing
 source:
   url: https://github.com/Team-Atlanta/crs-codex.git
-  ref: refactor/sidecar
+  ref: main

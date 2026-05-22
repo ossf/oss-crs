@@ -1,0 +1,7 @@
+name: crs-clusterfuzz-triage
+description: "Google ClusterFuzz Bug Triage"
+type:
+  - bug-finding-triage
+source:
+  url: https://github.com/Team-Atlanta/crs-clusterfuzz-triage.git
+  ref: main

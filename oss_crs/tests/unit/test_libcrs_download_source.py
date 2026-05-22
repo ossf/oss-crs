@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Unit tests for libCRS download-source behavior."""
 
 from pathlib import Path

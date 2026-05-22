@@ -1,4 +1,5 @@
 name: crs-shellphish-grammar
+description: "Team Shellphish Grammar-Based Fuzzer"
 type:
   - bug-finding
 source:

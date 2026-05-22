@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 import subprocess
 
 from libCRS.infra_client import InfraClient

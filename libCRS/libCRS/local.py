@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 import logging
 import os
 import socket
@@ -212,8 +213,8 @@ class LocalCRSUtils(CRSUtils):
         builder: str,
         files: dict | None = None,
         data: dict | None = None,
-        timeout: int = 1200,
-        poll_interval: int = 5,
+        timeout: int = 3600,
+        poll_interval: int = 1,
     ) -> dict | None:
         """Submit a job to the builder sidecar and poll until done.
 
@@ -240,8 +241,14 @@ class LocalCRSUtils(CRSUtils):
             logger.error("Failed to submit job to %s: %s", endpoint, e)
             return None
 
-        job_id = resp.json()["id"]
+        submit_result = resp.json()
+        job_id = submit_result["id"]
         logger.info("Submitted job %s to %s", job_id, endpoint)
+
+        # Cache hits return status=done immediately; use the POST response
+        # directly so any rewritten fields (e.g. rebuild_id) are preserved.
+        if submit_result.get("status") == "done":
+            return submit_result
 
         start = time.monotonic()
         while time.monotonic() - start < timeout:
@@ -400,10 +407,7 @@ class LocalCRSUtils(CRSUtils):
                 "cpuset": cpuset,
                 "mem_limit": mem_limit,
             }
-            test_timeout = int(os.environ.get("OSS_CRS_TEST_TIMEOUT", "1200"))
-            result = self._submit_and_poll(
-                "/test", builder, files, data, timeout=test_timeout
-            )
+            result = self._submit_and_poll("/test", builder, files, data)
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:
