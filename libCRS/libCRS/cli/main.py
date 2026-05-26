@@ -158,7 +158,7 @@ def main():
     # =========================================================================
 
     # Valid types for submit vs fetch commands
-    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH]
+    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH, DataType.HARNESS_PROJ]
     fetch_types = list(DataType)
 
     # register-submit-dir command (auto-submit data to oss-crs-infra)

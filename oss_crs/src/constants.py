@@ -14,3 +14,8 @@ POSTGRES_HOST = "postgres.oss-crs-infra-only"
 # Docker repository name for preserved builder images (tagged copies of
 # compose-built images kept for the sidecar and snapshot workflows).
 PRESERVED_BUILDER_REPO = "oss-crs-builder"
+
+# Sentinel used as the harness directory component when no --target-harness is
+# specified (e.g. harness-gen CRSs that produce harnesses rather than consume them).
+# OSS_CRS_TARGET_HARNESS is NOT set in the container environment in this case.
+UNHARNESSED = "OSS_CRS_UNHARNESSED"

@@ -11,6 +11,7 @@ import requests as http_requests
 from .base import CRSUtils, DataType, SourceType
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
+from .sync import DirSyncHelper
 from .submit import SubmitHelper
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,13 @@ class LocalCRSUtils(CRSUtils):
             self.submit_build_output(tmp_file.name, skip_file_path)
 
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
-        helper = self.__init_submit_helper(data_type)
-        helper.register_dir(path, batch_time=10, batch_size=100)
+        if data_type == DataType.HARNESS_PROJ:
+            dst = Path(get_env("OSS_CRS_SUBMIT_DIR")) / data_type.dir_name / path.name
+            DirSyncHelper(path, dst).register_dir()
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            helper = self.__init_submit_helper(data_type)
+            helper.register_dir(path, batch_time=10, batch_size=100)
 
     def register_shared_dir(self, local_path: Path, shared_path: str) -> None:
         if local_path.exists():
@@ -100,8 +105,14 @@ class LocalCRSUtils(CRSUtils):
         helper.register_dir(path)
 
     def submit(self, data_type: DataType, src: Path) -> None:
-        helper = self.__init_submit_helper(data_type)
-        helper.submit_file(src)
+        if data_type == DataType.HARNESS_PROJ:
+            if not Path(src).is_dir():
+                raise ValueError(f"submit HARNESS_PROJ requires a directory, got: {src}")
+            dst = Path(get_env("OSS_CRS_SUBMIT_DIR")) / data_type.dir_name / Path(src).name
+            DirSyncHelper(src, dst).sync_once()
+        else:
+            helper = self.__init_submit_helper(data_type)
+            helper.submit_file(src)
 
     def fetch(self, data_type: DataType, dst: Path) -> list[str]:
         helper = self.__init_fetch_helper(data_type)

@@ -71,6 +71,7 @@ class CRSArtifacts(BaseModel):
     seed: Optional[str] = None
     bug_candidate: Optional[str] = None
     patch: Optional[str] = None
+    harness_proj: Optional[str] = None
     fetch: Optional[str] = None
     shared: Optional[str] = None
     log_dir: Optional[str] = None
@@ -104,6 +105,7 @@ class CRSArtifacts(BaseModel):
         artifacts.seed = str(submit_path / "seeds")
         artifacts.bug_candidate = str(submit_path / "bug-candidates")
         artifacts.patch = str(submit_path / "patches")
+        artifacts.harness_proj = str(submit_path / "harness-projs")
         artifacts.fetch = exchange_dir_base
         artifacts.shared = str(
             work_dir.get_shared_dir(
