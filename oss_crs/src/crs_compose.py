@@ -1535,12 +1535,25 @@ class CRSCompose:
         def cleanup_exchange_dir(progress: MultiTaskProgress) -> TaskResult:
             exchange_dir = self.work_dir.get_exchange_dir(target, run_id, sanitizer)
             rm_with_docker(exchange_dir)
-            # Pre-create subdirs that will be bind-mounted as passthrough sources
-            # on the processed-exchange sidecar (avoids Docker creating them as root).
-            from oss_crs.src.templates.renderer import _get_passthrough_types
+            # Pre-create all exchange type subdirs so Docker doesn't create them as
+            # root when CRS containers bind-mount per-type subdirs at container start.
+            from oss_crs.src.templates.renderer import (
+                _ALL_EXCHANGE_TYPES,
+                _DATA_TYPE_PROCESSOR,
+                _has_post_processor,
+            )
 
-            for dtype in _get_passthrough_types(self.crs_list):
+            for dtype in _ALL_EXCHANGE_TYPES:
                 (exchange_dir / dtype).mkdir(parents=True, exist_ok=True)
+            if _has_post_processor(self.crs_list):
+                processed_exchange_dir = self.work_dir.get_processed_exchange_dir(
+                    target, run_id, sanitizer
+                )
+                for dtype, attr in _DATA_TYPE_PROCESSOR.items():
+                    if any(getattr(crs.config, attr, False) for crs in self.crs_list):
+                        (processed_exchange_dir / dtype).mkdir(
+                            parents=True, exist_ok=True
+                        )
             return TaskResult(success=True)
 
         def cleanup_shared_dir(

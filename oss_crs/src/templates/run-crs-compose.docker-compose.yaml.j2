@@ -58,8 +58,10 @@ services:
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
-{%- if processed_exchange_dir and not crs.config.is_triage and not crs.config.is_seed_filter %}
-      - {{ processed_exchange_dir }}:/OSS_CRS_FETCH_DIR:ro
+{%- if not crs.config.is_triage and not crs.config.is_seed_filter %}
+{%- for dtype, src_dir in fetch_dir_mounts.items() %}
+      - {{ src_dir }}/{{ dtype }}:/OSS_CRS_FETCH_DIR/{{ dtype }}:ro
+{%- endfor %}
 {%- elif fetch_dir %}
       - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
@@ -200,9 +202,6 @@ services:
 {%- if crs.config.is_triage or crs.config.is_seed_filter %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
-{%- endfor %}
-{%- for dtype in exchange_passthrough_types %}
-      - {{ exchange_dir }}/{{ dtype }}:/submit/_passthrough/{{ dtype }}:ro
 {%- endfor %}
     networks:
       {{ crs_compose_name }}-infra-only-network:

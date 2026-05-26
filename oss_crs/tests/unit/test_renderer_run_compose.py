@@ -151,8 +151,11 @@ def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
 
     services = yaml.safe_load(rendered)["services"]
     patcher_service = services["crs-codex_patcher"]
-    assert (
-        f"{tmp_path / 'exchange'}:/OSS_CRS_FETCH_DIR:ro" in patcher_service["volumes"]
+    assert any(
+        str(tmp_path / "exchange") + "/" in v
+        and ":/OSS_CRS_FETCH_DIR/" in v
+        and ":ro" in v
+        for v in patcher_service["volumes"]
     )
     # Exchange sidecar is always present (gated on exchange_dir, always truthy).
     assert "oss-crs-exchange" in services
@@ -588,15 +591,17 @@ def test_compose05_builder_and_runner_sidecars_present_with_triage(
 
 
 # ---------------------------------------------------------------------------
-# COMPOSE-06: Processed-exchange sidecar passthrough mounts
+# COMPOSE-06: Per-type FETCH_DIR routing for regular CRS
 # ---------------------------------------------------------------------------
 
 
-def test_compose06_processed_exchange_passthrough_seeds_when_no_seed_filter(
+def test_compose06_fetch_dir_per_type_routing_with_triage_only(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """When triage is present without seed-filter, processed-exchange sidecar
-    mounts exchange_dir/seeds as passthrough so seeds reach non-triage CRS."""
+    """When triage is present without seed-filter, regular CRS mounts:
+    - processed_exchange_dir/povs  (triage output)
+    - exchange_dir/seeds           (no seed-filter, raw exchange)
+    """
     _patch_renderer(monkeypatch)
     finder = _make_bug_finding_crs(tmp_path, "crs-finder")
     triage = _make_triage_crs(tmp_path, "crs-triage")
@@ -606,13 +611,15 @@ def test_compose06_processed_exchange_passthrough_seeds_when_no_seed_filter(
     rendered, _ = _render(crs_compose, target, tmp_path)
     services = yaml.safe_load(rendered)["services"]
 
-    assert "oss-crs-processed-exchange" in services
-    volumes = services["oss-crs-processed-exchange"].get("volumes", [])
-    # Seeds should be passed through from exchange_dir
-    assert any("/seeds:/submit/_passthrough/seeds:ro" in v for v in volumes), (
-        f"Processed-exchange sidecar must mount seeds passthrough; got: {volumes}"
-    )
-    # POVs should NOT be passed through (triage handles them)
-    assert not any("/povs:/submit/_passthrough/povs:ro" in v for v in volumes), (
-        f"POVs must not be passed through when triage is present; got: {volumes}"
-    )
+    finder_volumes = services["crs-finder_finder"].get("volumes", [])
+    processed = str(tmp_path / "processed-exchange")
+    exchange = str(tmp_path / "exchange")
+
+    # POVs come from processed_exchange_dir (triage handles them)
+    assert any(
+        f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro" == v for v in finder_volumes
+    ), f"finder must mount processed povs; got: {finder_volumes}"
+    # Seeds come from exchange_dir (no seed-filter present)
+    assert any(
+        f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro" == v for v in finder_volumes
+    ), f"finder must mount raw seeds; got: {finder_volumes}"

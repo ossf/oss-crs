@@ -264,29 +264,32 @@ _ALL_EXCHANGE_TYPES = {"povs", "seeds", "diffs", "bug-candidates"}
 
 def _has_post_processor(crs_list: list) -> bool:
     """Return True if any CRS in the list is a post-processor."""
-    return any(
-        crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list
-    )
+    return any(crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list)
 
 
-def _get_passthrough_types(crs_list: list) -> list[str]:
-    """Return exchange data types that lack a present post-processor.
+def _get_fetch_dir_mounts(
+    crs_list: list,
+    exchange_dir: str,
+    processed_exchange_dir: str | None,
+) -> dict[str, str]:
+    """Return per-type source host paths for FETCH_DIR mounts in regular CRS containers.
 
-    These must pass through from exchange_dir to processed_exchange_dir
-    so that regular CRS can see them via FETCH_DIR.
+    Each data type maps to the host directory it should be mounted from:
+    - types with a present processor use processed_exchange_dir
+    - all other types use exchange_dir
     """
-    if not _has_post_processor(crs_list):
-        return []
-    # A data type needs passthrough when its processor is absent from the ensemble.
-    present_processors = {
-        attr for attr in _DATA_TYPE_PROCESSOR.values()
-        if any(getattr(crs.config, attr, False) for crs in crs_list)
-    }
-    return sorted(
-        dtype
-        for dtype, attr in _DATA_TYPE_PROCESSOR.items()
-        if attr not in present_processors
-    ) + sorted(_ALL_EXCHANGE_TYPES - set(_DATA_TYPE_PROCESSOR.keys()))
+    result = {}
+    for dtype in sorted(_ALL_EXCHANGE_TYPES):
+        processor_attr = _DATA_TYPE_PROCESSOR.get(dtype)
+        if (
+            processor_attr
+            and processed_exchange_dir
+            and any(getattr(crs.config, processor_attr, False) for crs in crs_list)
+        ):
+            result[dtype] = processed_exchange_dir
+        else:
+            result[dtype] = exchange_dir
+    return result
 
 
 def render_run_crs_compose_docker_compose(
@@ -325,7 +328,9 @@ def render_run_crs_compose_docker_compose(
         if has_post_processor
         else None
     )
-    exchange_passthrough_types = _get_passthrough_types(crs_compose.crs_list)
+    fetch_dir_mounts = _get_fetch_dir_mounts(
+        crs_compose.crs_list, exchange_dir, processed_exchange_dir
+    )
 
     # Sidecar services are always injected as infrastructure (per D-04: single parent mount)
     rebuild_out_dir = str(
@@ -359,7 +364,7 @@ def render_run_crs_compose_docker_compose(
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,
-        "exchange_passthrough_types": exchange_passthrough_types,
+        "fetch_dir_mounts": fetch_dir_mounts,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
