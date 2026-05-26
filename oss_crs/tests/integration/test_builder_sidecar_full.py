@@ -34,11 +34,11 @@ def sidecar_full_compose(tmp_dir):
     content = {
         "run_env": "local",
         "docker_registry": "local",
-        "oss_crs_infra": {"cpuset": "0-3", "memory": "8G"},
+        "oss_crs_infra": {"cpuset": "0-3", "memory": "7G"},
         "builder-sidecar-full": {
             "source": {"local_path": str(CRS_FIXTURE)},
             "cpuset": "0-3",
-            "memory": "8G",
+            "memory": "7G",
         },
     }
     path = tmp_dir / "compose.yaml"
