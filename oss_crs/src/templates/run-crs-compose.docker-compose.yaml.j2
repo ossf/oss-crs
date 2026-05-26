@@ -201,6 +201,9 @@ services:
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endif %}
 {%- endfor %}
+{%- for dtype in exchange_passthrough_types %}
+      - {{ exchange_dir }}/{{ dtype }}:/submit/_passthrough/{{ dtype }}:ro
+{%- endfor %}
     networks:
       {{ crs_compose_name }}-infra-only-network:
 {%- endif %}

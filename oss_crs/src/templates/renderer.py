@@ -251,6 +251,44 @@ def prepare_llm_context(
     raise RuntimeError(f"Unsupported LLM mode: {crs_compose.llm.mode}")
 
 
+# Maps each exchange data type to the post-processor CRS attribute that handles it.
+# Types not listed here (or whose processor is absent) pass through from exchange_dir.
+_DATA_TYPE_PROCESSOR: dict[str, str] = {
+    "povs": "is_triage",
+    "seeds": "is_seed_filter",
+}
+
+# All data types that can appear in the exchange.
+_ALL_EXCHANGE_TYPES = {"povs", "seeds", "diffs", "bug-candidates"}
+
+
+def _has_post_processor(crs_list: list) -> bool:
+    """Return True if any CRS in the list is a post-processor."""
+    return any(
+        crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list
+    )
+
+
+def _get_passthrough_types(crs_list: list) -> list[str]:
+    """Return exchange data types that lack a present post-processor.
+
+    These must pass through from exchange_dir to processed_exchange_dir
+    so that regular CRS can see them via FETCH_DIR.
+    """
+    if not _has_post_processor(crs_list):
+        return []
+    # A data type needs passthrough when its processor is absent from the ensemble.
+    present_processors = {
+        attr for attr in _DATA_TYPE_PROCESSOR.values()
+        if any(getattr(crs.config, attr, False) for crs in crs_list)
+    }
+    return sorted(
+        dtype
+        for dtype, attr in _DATA_TYPE_PROCESSOR.items()
+        if attr not in present_processors
+    ) + sorted(_ALL_EXCHANGE_TYPES - set(_DATA_TYPE_PROCESSOR.keys()))
+
+
 def render_run_crs_compose_docker_compose(
     crs_compose: "CRSCompose",
     tmp_docker_compose: "TmpDockerCompose",
@@ -277,21 +315,17 @@ def render_run_crs_compose_docker_compose(
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
 
-    # When triage CRS(s) are present, non-triage CRS should fetch from the
-    # triage exchange dir (triaged POVs) instead of the main exchange dir
-    # (raw POVs). A second exchange sidecar collects triage outputs there.
-    # Post-processor CRS (triage, seed-filter) read from exchange_dir and write
-    # processed results to their submit dirs.  A dedicated sidecar collects those
-    # into processed_exchange_dir, which non-processor CRS mount as FETCH_DIR.
-    has_post_processor = any(
-        crs.config.is_triage or crs.config.is_seed_filter
-        for crs in crs_compose.crs_list
-    )
+    # Each data type in the exchange has an optional post-processor CRS type.
+    # When present, the processor's submit dir feeds processed_exchange_dir;
+    # when absent, the data type passes through from exchange_dir directly.
+    # Regular (non-processor) CRS always mount processed_exchange_dir as FETCH_DIR.
+    has_post_processor = _has_post_processor(crs_compose.crs_list)
     processed_exchange_dir = (
         str(crs_compose.work_dir.get_processed_exchange_dir(target, run_id, sanitizer))
         if has_post_processor
         else None
     )
+    exchange_passthrough_types = _get_passthrough_types(crs_compose.crs_list)
 
     # Sidecar services are always injected as infrastructure (per D-04: single parent mount)
     rebuild_out_dir = str(
@@ -325,6 +359,7 @@ def render_run_crs_compose_docker_compose(
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,
+        "exchange_passthrough_types": exchange_passthrough_types,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
