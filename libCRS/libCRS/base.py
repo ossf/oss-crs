@@ -12,6 +12,7 @@ class DataType(str, Enum):
     BUG_CANDIDATE = "bug-candidate"
     PATCH = "patch"
     DIFF = "diff"
+    HARNESS_PROJ = "harness-proj"
 
     def __str__(self) -> str:
         return self.value
@@ -24,6 +25,7 @@ class DataType(str, Enum):
             "bug-candidate": "bug-candidates",
             "patch": "patches",
             "diff": "diffs",
+            "harness-proj": "harness-projs",
         }
         return _DIR_NAMES[self.value]
 
@@ -76,16 +78,6 @@ class CRSUtils(ABC):
     @abstractmethod
     def skip_build_output(self, dst_path: str) -> None:
         """Skip build output for dst_path (in infra)."""
-        pass
-
-    @abstractmethod
-    def submit_harness_proj(self, name: str, local_dir: Path) -> None:
-        """Submit a generated OSS-Fuzz-style project directory under <name>.
-
-        Used by harness-gen CRSs: rsyncs local_dir to
-        OSS_CRS_HARNESS_OUT_DIR/<name>/ so the orchestrator can echo the
-        host path back to the user as a new --fuzz-proj-path.
-        """
         pass
 
     @abstractmethod

@@ -67,18 +67,6 @@ class LocalCRSUtils(CRSUtils):
             skip_file_path = dst.parent / f".{dst.name}.skip"
             self.submit_build_output(tmp_file.name, skip_file_path)
 
-    def submit_harness_proj(self, name: str, local_dir: Path) -> None:
-        if "/" in name or name in ("", ".", ".."):
-            raise ValueError(f"Invalid harness-proj name: {name!r}")
-        src = Path(local_dir)
-        if not src.is_dir():
-            raise RuntimeError(
-                f"submit-harness-proj: local-dir does not exist or is not a "
-                f"directory: {src}"
-            )
-        dst = Path(get_env("OSS_CRS_HARNESS_OUT_DIR")) / name
-        rsync_copy(src, dst)
-
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
         helper = self.__init_submit_helper(data_type)

@@ -109,24 +109,6 @@ def main():
         func=lambda args: crs_utils.skip_build_output(args.dst_path)
     )
 
-    # submit-harness-proj command (harness-gen output)
-    submit_harness_proj_parser = subparsers.add_parser(
-        "submit-harness-proj",
-        help=(
-            "Submit a generated OSS-Fuzz-style project directory. "
-            "Used by harness-gen CRSs."
-        ),
-    )
-    submit_harness_proj_parser.add_argument(
-        "name", help="Name for the submitted harness-project (becomes a subdir)"
-    )
-    submit_harness_proj_parser.add_argument(
-        "local_dir", type=Path, help="Local directory to submit"
-    )
-    submit_harness_proj_parser.set_defaults(
-        func=lambda args: crs_utils.submit_harness_proj(args.name, args.local_dir)
-    )
-
     # download-build-output command
     download_build_parser = subparsers.add_parser(
         "download-build-output",

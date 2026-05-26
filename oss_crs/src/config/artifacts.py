@@ -96,28 +96,27 @@ class CRSArtifacts(BaseModel):
             )
             artifacts.build = str(build_path)
 
-        if target.target_harness:
-            submit_path = work_dir.get_submit_dir(
+        submit_path = work_dir.get_submit_dir(
+            crs_name, target, run_id, sanitizer, create=False
+        )
+        artifacts.submit_dir = str(submit_path)
+        artifacts.pov = str(submit_path / "povs")
+        artifacts.seed = str(submit_path / "seeds")
+        artifacts.bug_candidate = str(submit_path / "bug-candidates")
+        artifacts.patch = str(submit_path / "patches")
+        artifacts.fetch = exchange_dir_base
+        artifacts.shared = str(
+            work_dir.get_shared_dir(
                 crs_name, target, run_id, sanitizer, create=False
             )
-            artifacts.submit_dir = str(submit_path)
-            artifacts.pov = str(submit_path / "povs")
-            artifacts.seed = str(submit_path / "seeds")
-            artifacts.bug_candidate = str(submit_path / "bug-candidates")
-            artifacts.patch = str(submit_path / "patches")
-            artifacts.fetch = exchange_dir_base
-            artifacts.shared = str(
-                work_dir.get_shared_dir(
-                    crs_name, target, run_id, sanitizer, create=False
-                )
-            )
-            artifacts.log_dir = str(
-                work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
-            )
-            run_logs_root = work_dir.get_run_logs_dir(
-                target, run_id, sanitizer, create=False
-            )
-            artifacts.run_logs = str(run_logs_root / "crs" / crs_name)
+        )
+        artifacts.log_dir = str(
+            work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
+        )
+        run_logs_root = work_dir.get_run_logs_dir(
+            target, run_id, sanitizer, create=False
+        )
+        artifacts.run_logs = str(run_logs_root / "crs" / crs_name)
 
         return artifacts
 

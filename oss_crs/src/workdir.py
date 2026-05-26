@@ -10,18 +10,14 @@ logic for the CRS Compose work directory structure:
         │   └── <build_id>/
         │       ├── crs/<crs_name>/<target_key>/BUILD_OUT_DIR/
         │       └── targets/<target_key>/snapshot-out-<sanitizer>/
-        ├── runs/
-        │   └── <run_id>/
-        │       ├── BUILD_ID
-        │       ├── EXCHANGE_DIR/<target_key>/<harness>/
-        │       └── crs/<crs_name>/<target_key>/
-        │           ├── SUBMIT_DIR/<harness>/
-        │           ├── SHARED_DIR/<harness>/
-        │           └── LOG_DIR/<harness>/
-        └── harnesses/
+        └── runs/
             └── <run_id>/
-                └── <crs_name>/<target_key>/
-                    └── <name>/                  # submitted harness-project
+                ├── BUILD_ID
+                ├── EXCHANGE_DIR/<target_key>/<harness>/
+                └── crs/<crs_name>/<target_key>/
+                    ├── SUBMIT_DIR/<harness>/
+                    ├── SHARED_DIR/<harness>/
+                    └── LOG_DIR/<harness>/
 """
 
 from dataclasses import dataclass
@@ -184,13 +180,13 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/logs/<target_key>/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for run logs dir"
+        harness = target.target_harness or "_"
         target_key = self._get_target_key(target)
         path = (
             self.get_run_dir(run_id, sanitizer)
             / "logs"
             / target_key
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -272,11 +268,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SUBMIT_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for submit dir"
+        harness = target.target_harness or "_"
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SUBMIT_DIR"
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -294,11 +290,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SHARED_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for shared dir"
+        harness = target.target_harness or "_"
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SHARED_DIR"
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -316,54 +312,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/LOG_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for log dir"
+        harness = target.target_harness or "_"
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "LOG_DIR"
-            / target.target_harness
-        )
-        if create:
-            path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    # -------------------------------------------------------------------------
-    # Harness-gen output directory helpers
-    # -------------------------------------------------------------------------
-
-    def get_harnesses_dir(self, sanitizer: str) -> Path:
-        """Get the harnesses directory for a sanitizer.
-
-        Structure: <sanitizer>/harnesses/
-        """
-        return self.path / sanitizer / "harnesses"
-
-    def get_harness_run_dir(self, run_id: str, sanitizer: str) -> Path:
-        """Get directory for a specific harness-gen run.
-
-        Structure: <sanitizer>/harnesses/<run_id>/
-        """
-        return self.get_harnesses_dir(sanitizer) / run_id
-
-    def get_harness_out_dir(
-        self,
-        crs_name: str,
-        target: Target,
-        run_id: str,
-        sanitizer: str,
-        create: bool = True,
-    ) -> Path:
-        """Get the HARNESS_OUT_DIR for a harness-gen CRS run.
-
-        Structure: <sanitizer>/harnesses/<run_id>/<crs_name>/<target_key>/
-
-        Does not key on target.target_harness — the CRS is generating new
-        harnesses, so there's no single harness name to scope under.
-        """
-        target_key = self._get_target_key(target)
-        path = (
-            self.get_harness_run_dir(run_id, sanitizer)
-            / crs_name
-            / target_key
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
