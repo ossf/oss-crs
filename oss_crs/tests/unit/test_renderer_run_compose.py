@@ -585,3 +585,34 @@ def test_compose05_builder_and_runner_sidecars_present_with_triage(
     assert "oss-crs-runner-sidecar" in services, (
         "oss-crs-runner-sidecar must be present for triage-only compose"
     )
+
+
+# ---------------------------------------------------------------------------
+# COMPOSE-06: Processed-exchange sidecar passthrough mounts
+# ---------------------------------------------------------------------------
+
+
+def test_compose06_processed_exchange_passthrough_seeds_when_no_seed_filter(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """When triage is present without seed-filter, processed-exchange sidecar
+    mounts exchange_dir/seeds as passthrough so seeds reach non-triage CRS."""
+    _patch_renderer(monkeypatch)
+    finder = _make_bug_finding_crs(tmp_path, "crs-finder")
+    triage = _make_triage_crs(tmp_path, "crs-triage")
+    crs_compose = _make_crs_compose(tmp_path, [finder, triage])
+    target = _make_target(tmp_path)
+
+    rendered, _ = _render(crs_compose, target, tmp_path)
+    services = yaml.safe_load(rendered)["services"]
+
+    assert "oss-crs-processed-exchange" in services
+    volumes = services["oss-crs-processed-exchange"].get("volumes", [])
+    # Seeds should be passed through from exchange_dir
+    assert any("/seeds:/submit/_passthrough/seeds:ro" in v for v in volumes), (
+        f"Processed-exchange sidecar must mount seeds passthrough; got: {volumes}"
+    )
+    # POVs should NOT be passed through (triage handles them)
+    assert not any("/povs:/submit/_passthrough/povs:ro" in v for v in volumes), (
+        f"POVs must not be passed through when triage is present; got: {volumes}"
+    )
