@@ -11,6 +11,8 @@ import yaml
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 from ..env_schema import validate_additional_env_keys
 
+CRS_ENTRY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
+
 
 class CRSSource(BaseModel):
     """Source configuration for a CRS entry."""
@@ -198,11 +200,12 @@ class CRSComposeConfig(BaseModel):
     @field_validator("crs_entries")
     @classmethod
     def validate_crs_entries_keys(cls, v: dict[str, CRSEntry]) -> dict[str, CRSEntry]:
-        uppercase_keys = [key for key in v.keys() if key != key.lower()]
-        if uppercase_keys:
+        invalid_keys = [key for key in v if not CRS_ENTRY_NAME_RE.fullmatch(key)]
+        if invalid_keys:
             raise ValueError(
-                f"CRS entry names must be lowercase. "
-                f"Invalid names: {', '.join(uppercase_keys)}"
+                "CRS entry names must start with a lowercase letter or digit and "
+                "contain only lowercase letters, digits, hyphens, and underscores "
+                f"(max 128 characters). Invalid names: {', '.join(invalid_keys)}"
             )
         return v
 
