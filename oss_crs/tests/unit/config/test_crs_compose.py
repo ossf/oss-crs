@@ -177,9 +177,12 @@ class TestCRSComposeConfigEntryNames:
         "crs_name",
         [
             "crs-libfuzzer",
+            "CRS-Name",
+            "myLocalCRS",
             "42-directed",
             "atlantis-multilang-given_fuzzer",
             "a",
+            "A",
             "a" * 128,
         ],
     )
@@ -191,7 +194,6 @@ class TestCRSComposeConfigEntryNames:
     @pytest.mark.parametrize(
         "crs_name",
         [
-            "CRS-Name",
             "../evil",
             "..",
             ".",
