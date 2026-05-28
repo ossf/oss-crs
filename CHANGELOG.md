@@ -85,4 +85,5 @@ stricter subset of Keep a Changelog).
   the main local run path.
 
 ### Security
-- N/A
+- CRS entry names are now validated at config load time before being used in
+  paths, Docker tags, service aliases, and artifact directories.
