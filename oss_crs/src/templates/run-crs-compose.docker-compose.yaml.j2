@@ -234,6 +234,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - {{ rebuild_out_dir }}:/rebuild_out:rw
+      - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
     environment:
       - REBUILD_OUT_DIR=/rebuild_out
       - HOST_REBUILD_OUT_DIR={{ rebuild_out_dir }}

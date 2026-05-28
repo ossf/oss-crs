@@ -6,6 +6,13 @@ stricter subset of Keep a Changelog).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (Python API)** `libCRS`: `apply_patch_build` and `apply_patch_test` argument order changed. `response_dir` is now the first positional argument; the target-source patch is now `target_source_patch_path` (keyword-only). A new `fuzz_proj_patch_path` keyword argument triggers a full image rebuild from a patched OSS-Fuzz project directory.
+  - Old: `crs.apply_patch_build(patch, response_dir, builder_name=...)` 
+  - New: `crs.apply_patch_build(response_dir, target_source_patch_path=patch, builder_name=...)`
+- **Shell API** `libcrs apply-patch-build`, `libcrs apply-patch-test`, `libcrs run-pov` now use named flags exclusively. `--response-dir` is required; patch inputs use `--target-source` and/or `--fuzz-proj`; POV path uses `--pov-path`. Old positional usage is still accepted with a deprecation warning printed to stderr.
+
 ### Added
 - `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
 - `--latest` flag for `oss-crs artifacts` and `oss-crs archive` — automatically selects the most recent run instead of prompting interactively.

@@ -32,14 +32,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from docker_ops import (
-    get_build_image,
-    get_test_image,
     next_rebuild_id,
     run_ephemeral_build,
     run_ephemeral_test,
     stage_cached_rebuild,
 )
-import docker
 
 
 app = FastAPI(
@@ -67,13 +64,16 @@ _executor = ThreadPoolExecutor(
 )
 
 
-def _make_job_id(patch_content: bytes, builder_name: str = "") -> str:
-    """Deterministic job ID: SHA256 of PROJECT_NAME:SANITIZER:builder_name:patch_content, 12-char hex."""
+def _make_job_id(patch_content: bytes, builder_name: str = "", fuzz_proj_patch_content: bytes = b"") -> str:
+    """Deterministic job ID: SHA256 of PROJECT_NAME:SANITIZER:builder_name:patch_content[:fuzz_proj], 12-char hex."""
     project = os.environ.get("PROJECT_NAME", "unknown")
     sanitizer = os.environ.get("SANITIZER", "unknown")
     hasher = hashlib.sha256()
     hasher.update(f"{project}:{sanitizer}:{builder_name}:".encode())
     hasher.update(patch_content)
+    if fuzz_proj_patch_content:
+        hasher.update(b":fuzz-proj:")
+        hasher.update(fuzz_proj_patch_content)
     return hasher.hexdigest()[:12]
 
 
@@ -116,16 +116,27 @@ def health():
 
 @app.post("/build")
 async def submit_build(
-    patch: UploadFile = File(...),
+    patch: UploadFile = File(None),
+    fuzz_proj_patch: UploadFile = File(None),
     crs_name: str = Form(...),
     builder_name: str = Form(""),
     rebuild_id: int = Form(None),
     cpuset: str = Form(""),
     mem_limit: str = Form(""),
 ):
-    """Submit a rebuild job. rebuild_id auto-increments if not provided."""
-    patch_content = await patch.read()
-    job_id = _make_job_id(patch_content, builder_name)
+    """Submit a rebuild job. rebuild_id auto-increments if not provided.
+
+    At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
+    """
+    patch_content = await patch.read() if patch else b""
+    fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
+    if not patch_content and not fuzz_proj_patch_content:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "At least one of patch or fuzz_proj_patch must be provided"},
+        )
+
+    job_id = _make_job_id(patch_content, builder_name, fuzz_proj_patch_content)
 
     if job_id in job_results:
         existing = job_results[job_id]
@@ -147,6 +158,7 @@ async def submit_build(
         "build",
         job_id,
         patch_content,
+        fuzz_proj_patch_content,
         crs_name,
         builder_name,
         rebuild_id,
@@ -173,15 +185,26 @@ def list_builds():
 
 @app.post("/test")
 async def run_test(
-    patch: UploadFile = File(...),
+    patch: UploadFile = File(None),
+    fuzz_proj_patch: UploadFile = File(None),
     crs_name: str = Form(...),
     rebuild_id: int = Form(None),
     cpuset: str = Form(""),
     mem_limit: str = Form(""),
 ):
-    """Submit a test job. Uses PROJECT_BASE_IMAGE."""
-    patch_content = await patch.read()
-    job_id = "test:" + _make_job_id(patch_content)
+    """Submit a test job. Uses PROJECT_BASE_IMAGE.
+
+    At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
+    """
+    patch_content = await patch.read() if patch else b""
+    fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
+    if not patch_content and not fuzz_proj_patch_content:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "At least one of patch or fuzz_proj_patch must be provided"},
+        )
+
+    job_id = "test:" + _make_job_id(patch_content, fuzz_proj_patch_content=fuzz_proj_patch_content)
 
     if job_id in job_results:
         existing = job_results[job_id]
@@ -198,7 +221,7 @@ async def run_test(
 
     job_results[job_id] = {"id": job_id, "status": "queued"}
     _executor.submit(
-        _run_job, "test", job_id, patch_content, crs_name, rebuild_id, cpuset, mem_limit
+        _run_job, "test", job_id, patch_content, fuzz_proj_patch_content, crs_name, rebuild_id, cpuset, mem_limit
     )
     return JobResponse(id=job_id, status="queued")
 
@@ -247,6 +270,7 @@ def _resolve_builder_name(builder_name: str) -> tuple[str, str]:
 def _handle_build(
     _job_id: str,
     patch_content: bytes,
+    fuzz_proj_patch_content: bytes,
     crs_name: str,
     builder_name: str,
     rebuild_id: int,
@@ -257,9 +281,8 @@ def _handle_build(
     rebuild_out_dir = Path(os.environ["REBUILD_OUT_DIR"])
     timeout = int(os.environ.get("BUILD_TIMEOUT", "1800"))
 
-    image = get_build_image(docker.from_env(), base_image, builder_name, crs_name)
     return run_ephemeral_build(
-        base_image=image,
+        base_image=base_image,
         rebuild_id=rebuild_id,
         builder_name=builder_name,
         crs_name=crs_name,
@@ -268,12 +291,14 @@ def _handle_build(
         timeout=timeout,
         cpuset=cpuset or None,
         mem_limit=mem_limit or None,
+        fuzz_proj_patch_bytes=fuzz_proj_patch_content or None,
     )
 
 
 def _handle_test(
     _job_id: str,
     patch_content: bytes,
+    fuzz_proj_patch_content: bytes,
     crs_name: str,
     rebuild_id: int,
     cpuset: str,
@@ -284,9 +309,8 @@ def _handle_test(
         raise ValueError("PROJECT_BASE_IMAGE env var not set on sidecar service.")
     rebuild_out_dir = Path(os.environ["REBUILD_OUT_DIR"])
     timeout = int(os.environ.get("BUILD_TIMEOUT", "1800"))
-    image = get_test_image(docker.from_env(), base_image)
     return run_ephemeral_test(
-        base_image=image,
+        base_image=base_image,
         rebuild_id=rebuild_id,
         crs_name=crs_name,
         patch_bytes=patch_content,
@@ -294,6 +318,7 @@ def _handle_test(
         timeout=timeout,
         cpuset=cpuset or None,
         mem_limit=mem_limit or None,
+        fuzz_proj_patch_bytes=fuzz_proj_patch_content or None,
     )
 
 

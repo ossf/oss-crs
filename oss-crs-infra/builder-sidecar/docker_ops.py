@@ -9,9 +9,11 @@ Provides public functions:
     run_ephemeral_test  - Test container lifecycle: create/start/wait/commit/remove (no artifacts)
 """
 
+import hashlib
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import docker
@@ -307,6 +309,41 @@ def _run_ephemeral(
                 pass
 
 
+def _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes: bytes) -> str:
+    """Copy OSS_CRS_FUZZ_PROJ to a temp dir, apply the patch, build and return the new image tag.
+
+    The resulting image is built fresh from the patched fuzz project directory,
+    bypassing any cached snapshots. Used when a fuzz-proj diff is provided.
+    """
+    job_prefix = hashlib.sha256(fuzz_proj_patch_bytes).hexdigest()[:12]
+    fuzz_proj_src = os.environ.get("OSS_CRS_FUZZ_PROJ", "/OSS_CRS_FUZZ_PROJ")
+    tmp_dir = Path(f"/tmp/oss-crs-fuzz-proj-patch-{job_prefix}")
+
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    shutil.copytree(fuzz_proj_src, tmp_dir)
+
+    # Write patch outside the copied tree to avoid polluting it.
+    patch_file = Path(f"/tmp/oss-crs-fuzz-proj-patch-{job_prefix}.diff")
+    try:
+        patch_file.write_bytes(fuzz_proj_patch_bytes)
+        subprocess.run(
+            ["git", "apply", str(patch_file)],
+            cwd=str(tmp_dir),
+            check=True,
+            capture_output=True,
+        )
+    finally:
+        if patch_file.exists():
+            patch_file.unlink()
+
+    image_tag = f"oss-crs-fuzz-proj-patched:{job_prefix}"
+    client = docker.from_env()
+    # build() sends the context as a tar to the daemon — no host-path issues.
+    client.images.build(path=str(tmp_dir), tag=image_tag, rm=True)
+    return image_tag
+
+
 def run_ephemeral_build(
     base_image: str,
     rebuild_id: int,
@@ -317,13 +354,24 @@ def run_ephemeral_build(
     timeout: int = 1800,
     cpuset: "str | None" = None,
     mem_limit: "str | None" = None,
+    fuzz_proj_patch_bytes: "bytes | None" = None,
 ) -> dict:
-    """Run a patch + build inside an ephemeral Docker container."""
+    """Run a patch + build inside an ephemeral Docker container.
+
+    When fuzz_proj_patch_bytes is provided, a fresh builder image is built from
+    the patched fuzz project directory instead of using the cached snapshot.
+    """
     client = docker.from_env()
-    build_cmd = " ".join(get_image_cmd(client, base_image))
+
+    if fuzz_proj_patch_bytes:
+        image = _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes)
+    else:
+        image = get_build_image(client, base_image, builder_name, crs_name)
+
+    build_cmd = " ".join(get_image_cmd(client, image))
 
     return _run_ephemeral(
-        base_image=base_image,
+        base_image=image,
         rebuild_id=rebuild_id,
         crs_name=crs_name,
         patch_bytes=patch_bytes,
@@ -346,12 +394,24 @@ def run_ephemeral_test(
     timeout: int = 1800,
     cpuset: "str | None" = None,
     mem_limit: "str | None" = None,
+    fuzz_proj_patch_bytes: "bytes | None" = None,
 ) -> dict:
-    """Run a patch + test inside an ephemeral Docker container."""
+    """Run a patch + test inside an ephemeral Docker container.
+
+    When fuzz_proj_patch_bytes is provided, a fresh builder image is built from
+    the patched fuzz project directory instead of using the cached snapshot.
+    """
+    client = docker.from_env()
+
+    if fuzz_proj_patch_bytes:
+        image = _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes)
+    else:
+        image = get_test_image(client, base_image)
+
     run_tests_path = os.environ.get("RUN_TESTS_SCRIPT_PATH", "/run_tests.sh")
 
     return _run_ephemeral(
-        base_image=base_image,
+        base_image=image,
         rebuild_id=rebuild_id,
         crs_name=crs_name,
         patch_bytes=patch_bytes,

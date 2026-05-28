@@ -83,7 +83,7 @@ def main() -> int:
     # --- Apply patch + build (no builder_name, exercises default/auto-detect) ---
     log("Applying patch and building via Python API (no builder_name)...")
     default_build_response = RESPONSE_DIR / "build-default"
-    default_build_rc = crs.apply_patch_build(PATCH, default_build_response)
+    default_build_rc = crs.apply_patch_build(default_build_response, target_source_patch_path=PATCH)
     if default_build_rc != 0:
         fail(f"Build (default builder_name) failed with exit code {default_build_rc}")
     log(f"Build (default) exit code: {default_build_rc}")
@@ -92,7 +92,7 @@ def main() -> int:
     log("Applying patch and building via Python API (builder_name=default-build)...")
     build_response = RESPONSE_DIR / "build"
     build_rc = crs.apply_patch_build(
-        PATCH, build_response, builder_name="default-build"
+        build_response, target_source_patch_path=PATCH, builder_name="default-build"
     )
     if build_rc != 0:
         fail(f"Build failed with exit code {build_rc}")
@@ -108,7 +108,7 @@ def main() -> int:
     log("Rebuilding with coverage builder via Python API...")
     cov_rebuild_response = RESPONSE_DIR / "coverage-rebuild"
     cov_rebuild_rc = crs.apply_patch_build(
-        PATCH, cov_rebuild_response, builder_name="coverage-build"
+        cov_rebuild_response, target_source_patch_path=PATCH, builder_name="coverage-build"
     )
     if cov_rebuild_rc != 0:
         fail(f"Coverage rebuild failed with exit code {cov_rebuild_rc}")
@@ -144,8 +144,8 @@ def main() -> int:
     )
     cache_build_response = RESPONSE_DIR / "cache-build"
     cache_build_rc = crs.apply_patch_build(
-        PATCH,
         cache_build_response,
+        target_source_patch_path=PATCH,
         builder_name="default-build",
         rebuild_id=alt_build_rid,
     )
@@ -170,7 +170,7 @@ def main() -> int:
     # --- Apply patch + test ---
     log("Running test.sh via Python API...")
     test_response = RESPONSE_DIR / "test"
-    test_rc = crs.apply_patch_test(PATCH, test_response)
+    test_rc = crs.apply_patch_test(test_response, target_source_patch_path=PATCH)
     if test_rc != 0:
         fail(f"Tests returned exit code {test_rc}")
     log(f"Test exit code: {test_rc}")

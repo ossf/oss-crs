@@ -273,19 +273,28 @@ class LocalCRSUtils(CRSUtils):
 
     def apply_patch_build(
         self,
-        patch_path: Path,
         response_dir: Path,
+        target_source_patch_path: "Path | None" = None,
+        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
         """Apply a patch and rebuild via the builder sidecar."""
+        if not target_source_patch_path and not fuzz_proj_patch_path:
+            raise ValueError("At least one of target_source_patch_path or fuzz_proj_patch_path must be provided")
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")
         mem_limit = os.environ.get("OSS_CRS_MEMORY_LIMIT", "")
-        with open(patch_path, "rb") as patch_file:
-            files = {"patch": patch_file}
+
+        files = {}
+        if target_source_patch_path:
+            files["patch"] = open(target_source_patch_path, "rb")
+        if fuzz_proj_patch_path:
+            files["fuzz_proj_patch"] = open(fuzz_proj_patch_path, "rb")
+
+        try:
             data = {
                 "crs_name": crs_name,
                 "builder_name": builder_name or "",
@@ -295,6 +304,9 @@ class LocalCRSUtils(CRSUtils):
             if rebuild_id is not None:
                 data["rebuild_id"] = str(rebuild_id)
             result = self._submit_and_poll("/build", builder, files, data)
+        finally:
+            for f in files.values():
+                f.close()
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:
@@ -303,6 +315,7 @@ class LocalCRSUtils(CRSUtils):
             return 1
 
         inner = result.get("result") or {}
+        server_error = result.get("error") or ""
         exit_code = inner.get("exit_code", 1)
         rid = inner.get("rebuild_id")
 
@@ -316,6 +329,9 @@ class LocalCRSUtils(CRSUtils):
                 src = log_src / log_file
                 if src.exists():
                     rsync_copy(src, response_dir / log_file)
+        elif server_error:
+            # Server-side exception before any rebuild_id was assigned — surface it.
+            (response_dir / "stderr.log").write_text(server_error)
 
         (response_dir / "retcode").write_text(str(exit_code))
         if exit_code == 0 and rid is not None:
@@ -390,23 +406,35 @@ class LocalCRSUtils(CRSUtils):
 
     def apply_patch_test(
         self,
-        patch_path: Path,
         response_dir: Path,
+        target_source_patch_path: "Path | None" = None,
+        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
     ) -> int:
         """Apply a patch and run the project's bundled test.sh via the builder sidecar."""
+        if not target_source_patch_path and not fuzz_proj_patch_path:
+            raise ValueError("At least one of target_source_patch_path or fuzz_proj_patch_path must be provided")
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")
         mem_limit = os.environ.get("OSS_CRS_MEMORY_LIMIT", "")
-        with open(patch_path, "rb") as patch_file:
-            files = {"patch": patch_file}
+
+        files = {}
+        if target_source_patch_path:
+            files["patch"] = open(target_source_patch_path, "rb")
+        if fuzz_proj_patch_path:
+            files["fuzz_proj_patch"] = open(fuzz_proj_patch_path, "rb")
+
+        try:
             data = {
                 "crs_name": crs_name,
                 "cpuset": cpuset,
                 "mem_limit": mem_limit,
             }
             result = self._submit_and_poll("/test", builder, files, data)
+        finally:
+            for f in files.values():
+                f.close()
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:

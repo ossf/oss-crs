@@ -127,18 +127,23 @@ class CRSUtils(ABC):
     @abstractmethod
     def apply_patch_build(
         self,
-        patch_path: Path,
         response_dir: Path,
+        target_source_patch_path: "Path | None" = None,
+        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
         """Apply a patch and rebuild via the builder sidecar.
 
+        At least one of target_source_patch_path or fuzz_proj_patch_path must be provided.
+
         Args:
-            patch_path: Path to a unified diff file.
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log, rebuild_id
+            target_source_patch_path: Unified diff to apply against the target source tree.
+            fuzz_proj_patch_path: Unified diff to apply against OSS_CRS_FUZZ_PROJ; triggers
+                a full image rebuild from the patched fuzz project directory.
             builder: Builder sidecar service name for DNS. Defaults to BUILDER_MODULE env var.
             builder_name: Builder config name for image resolution (e.g. "coverage-build").
                           Defaults to builder if not specified.
@@ -176,16 +181,21 @@ class CRSUtils(ABC):
     @abstractmethod
     def apply_patch_test(
         self,
-        patch_path: Path,
         response_dir: Path,
+        target_source_patch_path: "Path | None" = None,
+        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
     ) -> int:
         """Apply a patch and run the project's bundled test.sh via the builder sidecar.
 
+        At least one of target_source_patch_path or fuzz_proj_patch_path must be provided.
+
         Args:
-            patch_path: Path to the unified diff file to apply before testing.
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log
+            target_source_patch_path: Unified diff to apply against the target source tree.
+            fuzz_proj_patch_path: Unified diff to apply against OSS_CRS_FUZZ_PROJ; triggers
+                a full image rebuild from the patched fuzz project directory.
             builder: Builder sidecar module name. Defaults to BUILDER_MODULE env var.
 
         Returns:
