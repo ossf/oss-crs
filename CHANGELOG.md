@@ -80,6 +80,9 @@ stricter subset of Keep a Changelog).
   `_relative_repo_hint`).
 
 ### Fixed
+- Incremental snapshot locks now use a per-user runtime/cache directory instead
+  of a shared `/tmp/oss-crs-snapshot-locks` path, avoiding cross-user
+  permission failures from stale lock files.
 - The local run path now passes a `Path` compose-file object consistently into
   `docker_compose_up()`, so helper-sidecar teardown classification applies on
   the main local run path.
