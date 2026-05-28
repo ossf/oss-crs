@@ -22,12 +22,13 @@ Environment variables:
     MAX_PARALLEL_JOBS       - Thread pool size (default: "4")
 """
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import copy
 import hashlib
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -46,6 +47,8 @@ app = FastAPI(
     title="Builder Sidecar",
     description="Host-side ephemeral container build orchestrator",
 )
+
+_SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 class BuildResult(BaseModel):
@@ -75,6 +78,12 @@ def _make_job_id(patch_content: bytes, builder_name: str = "") -> str:
     hasher.update(f"{project}:{sanitizer}:{builder_name}:".encode())
     hasher.update(patch_content)
     return hasher.hexdigest()[:12]
+
+
+def _validate_path_component(value: str, field_name: str) -> None:
+    """Reject path separators and traversal components from API path fields."""
+    if not _SAFE_PATH_COMPONENT_RE.fullmatch(value) or value == "." or value == "..":
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
 
 
 def _cached_response_for_rebuild_id(
@@ -124,6 +133,7 @@ async def submit_build(
     mem_limit: str = Form(""),
 ):
     """Submit a rebuild job. rebuild_id auto-increments if not provided."""
+    _validate_path_component(crs_name, "crs_name")
     patch_content = await patch.read()
     job_id = _make_job_id(patch_content, builder_name)
 
@@ -180,6 +190,7 @@ async def run_test(
     mem_limit: str = Form(""),
 ):
     """Submit a test job. Uses PROJECT_BASE_IMAGE."""
+    _validate_path_component(crs_name, "crs_name")
     patch_content = await patch.read()
     job_id = "test:" + _make_job_id(patch_content)
 

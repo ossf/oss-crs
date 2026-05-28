@@ -15,10 +15,11 @@ Environment variables:
 """
 
 import os
+import re
 import subprocess
 import tempfile
 
-from fastapi import FastAPI, Form, UploadFile, File
+from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
@@ -29,11 +30,24 @@ app = FastAPI(
     description="POV reproduction service using OSS-Fuzz reproduce",
 )
 
+_SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+
 
 class POVResult(BaseModel):
     exit_code: int
     stdout: str = ""
     stderr: str
+
+
+def _validate_path_component(value: str, field_name: str) -> None:
+    """Reject path separators and traversal components from API path fields."""
+    if not _SAFE_PATH_COMPONENT_RE.fullmatch(value) or value == "." or value == "..":
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
+
+
+def _validate_rebuild_id(value: str | None) -> None:
+    if value is not None and not re.fullmatch(r"[0-9]+", value):
+        raise HTTPException(status_code=400, detail="Invalid rebuild_id")
 
 
 @app.get("/health")
@@ -65,6 +79,9 @@ async def run_pov(
         JSON with exit_code (0=no crash, non-zero=crash) and stderr from reproduce.
     """
     pov_timeout = int(os.environ.get("POV_TIMEOUT", "30"))
+    _validate_path_component(harness_name, "harness_name")
+    _validate_path_component(crs_name, "crs_name")
+    _validate_rebuild_id(rebuild_id)
 
     if rebuild_id is not None:
         # Rebuild artifacts: /out/{crs_name}/{rebuild_id}/build/{harness_name}

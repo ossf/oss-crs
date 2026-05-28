@@ -80,6 +80,8 @@ stricter subset of Keep a Changelog).
   `_relative_repo_hint`).
 
 ### Fixed
+- Builder and runner sidecar APIs now reject path-like CRS, harness, and
+  rebuild identifiers before using them to resolve artifact paths.
 - The local run path now passes a `Path` compose-file object consistently into
   `docker_compose_up()`, so helper-sidecar teardown classification applies on
   the main local run path.
