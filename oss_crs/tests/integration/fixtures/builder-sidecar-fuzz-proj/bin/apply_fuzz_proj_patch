@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """Fuzz-proj patching integration test CRS:
-  1. Call apply-patch-build with the bundled fuzz-proj diff
-  2. Verify rebuild succeeded (exit code 0, rebuild_id written)
-  3. Check response_dir/stdout.log for sentinel string written by patched build.sh
+  1. Apply fuzz-proj-only diff; verify sentinel in stdout.log.
+  2. Apply same fuzz-proj diff + target source diff; verify sentinel again.
 """
 
 import sys
@@ -12,7 +11,8 @@ from pathlib import Path
 from libCRS.local import LocalCRSUtils
 
 FUZZ_PROJ_DIFF = Path("/usr/local/bin/fuzz_proj_patch.diff")
-RESPONSE_DIR = Path("/tmp/response")
+TARGET_SOURCE_DIFF = Path("/usr/local/bin/target_source_patch.diff")
+
 SENTINEL = "fuzz_proj_patched_sentinel"
 
 
@@ -20,37 +20,62 @@ def log(msg: str) -> None:
     print(f"[apply-fuzz-proj-patch] {msg}", flush=True)
 
 
+def _check_sentinel(response_dir: Path, sentinel: str, label: str) -> bool:
+    stdout_path = response_dir / "stdout.log"
+    if not stdout_path.exists():
+        log(f"FAIL ({label}): stdout.log missing from response dir")
+        return False
+    stdout_text = stdout_path.read_text(errors="replace")
+    if sentinel not in stdout_text:
+        log(f"FAIL ({label}): sentinel '{sentinel}' not found in stdout.log — patched image was NOT used")
+        log(f"stdout.log contents:\n{stdout_text[:500]}")
+        return False
+    log(f"PASS ({label}): sentinel '{sentinel}' found in stdout.log")
+    return True
+
+
+def _apply_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwargs) -> bool:
+    response_dir.mkdir(parents=True, exist_ok=True)
+    rc = crs.apply_patch_build(response_dir, **kwargs)
+    if rc != 0:
+        stdout = (response_dir / "stdout.log").read_text(errors="replace") if (response_dir / "stdout.log").exists() else ""
+        stderr = (response_dir / "stderr.log").read_text(errors="replace") if (response_dir / "stderr.log").exists() else ""
+        log(f"FAIL ({label}): apply_patch_build failed (exit={rc}):\nstdout:\n{stdout}\nstderr:\n{stderr}")
+        return False
+    rid_file = response_dir / "rebuild_id"
+    if not rid_file.exists():
+        log(f"FAIL ({label}): rebuild_id missing from response dir")
+        return False
+    log(f"({label}) rebuild_id={rid_file.read_text().strip()}")
+    return True
+
+
 def main() -> int:
     crs = LocalCRSUtils()
-    RESPONSE_DIR.mkdir(parents=True, exist_ok=True)
 
-    log(f"Applying fuzz-proj patch: {FUZZ_PROJ_DIFF}")
-    rc = crs.apply_patch_build(RESPONSE_DIR, fuzz_proj_patch_path=FUZZ_PROJ_DIFF)
-    if rc != 0:
-        stdout = (RESPONSE_DIR / "stdout.log").read_text(errors="replace") if (RESPONSE_DIR / "stdout.log").exists() else ""
-        stderr = (RESPONSE_DIR / "stderr.log").read_text(errors="replace") if (RESPONSE_DIR / "stderr.log").exists() else ""
-        log(f"apply_patch_build failed (exit={rc}):\nstdout:\n{stdout}\nstderr:\n{stderr}")
+    # --- Test 1: fuzz-proj patch only ---
+    log(f"Test 1: fuzz-proj patch only ({FUZZ_PROJ_DIFF.name})")
+    resp1 = Path("/tmp/response-fuzz-proj-only")
+    if not _apply_and_check(crs, resp1, "fuzz-proj-only", fuzz_proj_patch_path=FUZZ_PROJ_DIFF):
         return 1
-
-    rid_file = RESPONSE_DIR / "rebuild_id"
-    if not rid_file.exists():
-        log("rebuild_id file missing from response dir")
+    if not _check_sentinel(resp1, SENTINEL, "fuzz-proj-only"):
         return 1
-    rebuild_id = int(rid_file.read_text().strip())
-    log(f"rebuild_id={rebuild_id}")
+    log("Test 1 PASSED")
 
-    stdout_path = RESPONSE_DIR / "stdout.log"
-    if not stdout_path.exists():
-        log("FAIL: stdout.log missing from response dir")
+    # --- Test 2: fuzz-proj patch + target source patch ---
+    log(f"Test 2: fuzz-proj ({FUZZ_PROJ_DIFF.name}) + target source ({TARGET_SOURCE_DIFF.name})")
+    resp2 = Path("/tmp/response-combined")
+    if not _apply_and_check(
+        crs, resp2, "combined",
+        fuzz_proj_patch_path=FUZZ_PROJ_DIFF,
+        target_source_patch_path=TARGET_SOURCE_DIFF,
+    ):
         return 1
-
-    stdout_text = stdout_path.read_text(errors="replace")
-    if SENTINEL not in stdout_text:
-        log(f"FAIL: sentinel '{SENTINEL}' not found in stdout.log — patched image was NOT used")
-        log(f"stdout.log contents:\n{stdout_text[:500]}")
+    if not _check_sentinel(resp2, SENTINEL, "combined"):
         return 1
+    log("Test 2 PASSED")
 
-    log(f"SUCCESS: sentinel '{SENTINEL}' found in stdout.log — fuzz-proj patch applied and image rebuilt correctly")
+    log("ALL TESTS PASSED")
     return 0
 
 

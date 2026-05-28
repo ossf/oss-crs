@@ -13,6 +13,7 @@ RUN /libCRS/install.sh
 
 COPY bin/apply_fuzz_proj_patch /usr/local/bin/apply_fuzz_proj_patch
 COPY bin/fuzz_proj_patch.diff /usr/local/bin/fuzz_proj_patch.diff
+COPY bin/target_source_patch.diff /usr/local/bin/target_source_patch.diff
 RUN chmod +x /usr/local/bin/apply_fuzz_proj_patch
 
 CMD ["apply_fuzz_proj_patch"]
