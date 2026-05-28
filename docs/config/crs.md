@@ -35,6 +35,7 @@ The root `CRSConfig` object contains the following fields:
 | `supported_target` | `SupportedTarget` | Yes | Defines what targets this CRS supports |
 | `required_llms` | `list[string]` | No | Minimum required LLM model names (duplicates are automatically removed). This is for dependency validation, not a runtime allowlist. |
 | `required_inputs` | `list[string]` | No | Input channels this CRS requires to function. Valid names: `diff`, `pov`, `seed`, `bug-candidate`. When declared, `oss-crs run` validates that the corresponding CLI flags were provided before spawning containers. |
+| `required_envs` | `list[string]` | No | Environment variable names this CRS requires. When declared, `oss-crs run` validates that each variable is present in the host environment or provided through `additional_env` before spawning containers. |
 
 ### Example
 
@@ -71,6 +72,8 @@ required_llms:
 required_inputs:
   - diff
   - bug-candidate
+required_envs:
+  - COPILOT_GITHUB_TOKEN
 ```
 
 ---

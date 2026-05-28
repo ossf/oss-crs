@@ -37,6 +37,23 @@ import docker.errors
 import requests.exceptions
 
 
+_ENV_INTERPOLATION_RE = re.compile(
+    r"(?<!\$)\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])[^}]*)?\}|([A-Za-z_][A-Za-z0-9_]*))"
+)
+
+
+def _additional_env_value_is_resolved(value: object, host_envs: set[str]) -> bool:
+    """Return whether a compose additional_env value can be resolved now."""
+    for match in _ENV_INTERPOLATION_RE.finditer(str(value)):
+        env_name = match.group(1) or match.group(3)
+        operator = match.group(2)
+        if operator in ("-", ":-"):
+            continue
+        if env_name not in host_envs:
+            return False
+    return True
+
+
 class CRSCompose:
     @classmethod
     def from_yaml_file(
@@ -914,6 +931,56 @@ class CRSCompose:
             return TaskResult(success=False, error="\n".join(errors))
         return TaskResult(success=True)
 
+    def _validate_required_envs(self) -> TaskResult:
+        """Validate that all CRS-declared required_envs are available."""
+        errors: list[str] = []
+        host_envs = set(os.environ)
+
+        for crs in self.crs_list:
+            required_envs = getattr(crs.config, "required_envs", None)
+            if not required_envs:
+                continue
+
+            additional_envs: set[str] = set()
+            resource = getattr(crs, "resource", None)
+            if resource is not None and getattr(resource, "additional_env", None):
+                additional_envs.update(
+                    key
+                    for key, value in resource.additional_env.items()
+                    if _additional_env_value_is_resolved(value, host_envs)
+                )
+            target_build_phase = getattr(crs.config, "target_build_phase", None)
+            if target_build_phase is not None:
+                for build in target_build_phase.builds:
+                    additional_envs.update(
+                        key
+                        for key, value in build.additional_env.items()
+                        if _additional_env_value_is_resolved(value, host_envs)
+                    )
+            crs_run_phase = getattr(crs.config, "crs_run_phase", None)
+            if crs_run_phase is not None:
+                for module in crs_run_phase.modules.values():
+                    additional_envs.update(
+                        key
+                        for key, value in module.additional_env.items()
+                        if _additional_env_value_is_resolved(value, host_envs)
+                    )
+
+            available = host_envs | additional_envs
+            missing = set(required_envs) - available
+            if missing:
+                env_list = ", ".join(sorted(missing))
+                errors.append(
+                    f"CRS '{crs.name}' requires environment variables "
+                    f"{env_list} but they were not provided. "
+                    f"Please set them in the host environment or provide them "
+                    "through additional_env."
+                )
+
+        if errors:
+            return TaskResult(success=False, error="\n".join(errors))
+        return TaskResult(success=True)
+
     def __validate_before_run(
         self,
         target: Target,
@@ -936,6 +1003,10 @@ class CRSCompose:
                     bug_candidate=bug_candidate,
                     bug_candidate_dir=bug_candidate_dir,
                 ),
+            ),
+            (
+                "Validate required environment variables for CRS targets",
+                lambda _: self._validate_required_envs(),
             ),
         ]
 

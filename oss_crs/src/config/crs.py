@@ -6,7 +6,7 @@ from typing import Optional, Set
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..env_schema import validate_additional_env_keys
+from ..env_schema import ENV_KEY_PATTERN, validate_additional_env_keys
 from .target import FuzzingEngine, TargetLangauge, TargetSanitizer, TargetArch
 
 # Prefix for framework-provided infrastructure modules (e.g., "oss-crs-infra:default-builder")
@@ -182,6 +182,7 @@ class CRSConfig(BaseModel):
 
     required_llms: Optional[list[str]] = Field(default=None)
     required_inputs: Optional[list[str]] = Field(default=None)
+    required_envs: Optional[list[str]] = Field(default=None)
 
     @property
     def is_bug_fixing(self) -> bool:
@@ -234,6 +235,19 @@ class CRSConfig(BaseModel):
             raise ValueError(
                 f"Unknown input names: {sorted(invalid)}. "
                 f"Valid names: {sorted(VALID_REQUIRED_INPUT_NAMES)}"
+            )
+        return list(set(v))  # Remove duplicates
+
+    @field_validator("required_envs")
+    @classmethod
+    def validate_required_envs(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is None:
+            return v
+        invalid = [name for name in v if not ENV_KEY_PATTERN.match(str(name))]
+        if invalid:
+            raise ValueError(
+                f"Invalid environment variable names: {sorted(set(invalid))}. "
+                "Expected pattern: [A-Za-z_][A-Za-z0-9_]*"
             )
         return list(set(v))  # Remove duplicates
 

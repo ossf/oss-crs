@@ -118,6 +118,11 @@ required_llms:
 required_inputs:
   - diff
   - bug-candidate
+
+# Only needed if your CRS requires environment variables to function.
+# OSS-CRS will fail fast before spawning containers if these are missing.
+required_envs:
+  - COPILOT_GITHUB_TOKEN
 ```
 
 ### Configuration Fields
@@ -134,6 +139,7 @@ required_inputs:
 | `supported_target` | Languages, sanitizers, architectures, and modes your CRS supports |
 | `required_llms` | *(Optional)* Minimum required LLM model names your CRS needs (validation baseline) |
 | `required_inputs` | *(Optional)* Input channels the CRS requires (`diff`, `pov`, `seed`, `bug-candidate`). Validated before run. |
+| `required_envs` | *(Optional)* Environment variable names the CRS requires. Validated before run against the host environment and compose `additional_env`. |
 
 For the complete schema reference, see [config/crs.md](config/crs.md).
 
@@ -808,6 +814,7 @@ Before publishing your CRS, verify:
 - [ ] `supported_target` accurately reflects your CRS capabilities
 - [ ] `required_llms` lists all models used (if any)
 - [ ] `required_inputs` lists inputs the CRS depends on (if any)
+- [ ] `required_envs` lists environment variables the CRS depends on (if any)
 - [ ] The CRS runs successfully against at least one OSS-Fuzz project
 
 **Additional checks for bug-fixing CRSs (builder sidecar):**

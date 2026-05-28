@@ -111,6 +111,7 @@ class TestRequiredInputs:
                 required_inputs=["diff", "pov", "seed", "bug-candidate"]
             )
         )
+        assert config.required_inputs is not None
         assert set(config.required_inputs) == {"diff", "pov", "seed", "bug-candidate"}
 
     def test_removes_duplicates(self):
@@ -118,6 +119,7 @@ class TestRequiredInputs:
         config = CRSConfig.from_dict(
             _minimal_crs_config(required_inputs=["diff", "diff", "pov"])
         )
+        assert config.required_inputs is not None
         assert len(config.required_inputs) == 2
         assert set(config.required_inputs) == {"diff", "pov"}
 
@@ -137,6 +139,44 @@ class TestRequiredInputs:
         """A single-element list is accepted."""
         config = CRSConfig.from_dict(_minimal_crs_config(required_inputs=["pov"]))
         assert config.required_inputs == ["pov"]
+
+
+class TestRequiredEnvs:
+    """Tests for required_envs field validation."""
+
+    def test_none_by_default(self):
+        """required_envs defaults to None when not specified."""
+        config = CRSConfig.from_dict(_minimal_crs_config())
+        assert config.required_envs is None
+
+    def test_accepts_valid_env_names(self):
+        """Valid environment variable names are accepted."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(required_envs=["OPENAI_API_KEY", "_CUSTOM_TOKEN"])
+        )
+        assert config.required_envs is not None
+        assert set(config.required_envs) == {"OPENAI_API_KEY", "_CUSTOM_TOKEN"}
+
+    def test_removes_duplicates(self):
+        """Duplicate environment variable names are removed."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(required_envs=["API_KEY", "API_KEY", "TOKEN"])
+        )
+        assert config.required_envs is not None
+        assert len(config.required_envs) == 2
+        assert set(config.required_envs) == {"API_KEY", "TOKEN"}
+
+    def test_rejects_invalid_env_names(self):
+        """Invalid environment variable names raise a validation error."""
+        with pytest.raises(ValidationError, match="Invalid environment variable names"):
+            CRSConfig.from_dict(
+                _minimal_crs_config(required_envs=["GOOD_KEY", "BAD-KEY", "1BAD"])
+            )
+
+    def test_empty_list_accepted(self):
+        """required_envs=[] is valid and distinct from None."""
+        config = CRSConfig.from_dict(_minimal_crs_config(required_envs=[]))
+        assert config.required_envs == []
 
 
 class TestCRSTypeProperties:
