@@ -9,6 +9,7 @@ All Docker SDK calls are mocked — no real Docker daemon required.
 """
 
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -114,7 +115,7 @@ _PATCH_PREFIX = "oss_crs.src.crs_compose"
 
 
 @contextmanager
-def _noop_lock(path):
+def _noop_lock(path, **kwargs):
     yield
 
 
@@ -125,6 +126,37 @@ def _noop_lock(path):
 
 class TestCreateIncrementalSnapshots:
     """Tests for CRSCompose._create_incremental_snapshots()."""
+
+    def test_snapshot_lock_uses_shared_permissions(self):
+        """Snapshot locks must remain global while allowing cross-user reuse."""
+        build_id = "abc123"
+        content_key = "content123"
+        obj = _make_crs_compose([])
+        client, _ = _make_mock_docker_client(snapshot_exists=True)
+        calls = []
+
+        @contextmanager
+        def capture_lock(path, **kwargs):
+            calls.append((path, kwargs))
+            yield
+
+        with patch(f"{_PATCH_PREFIX}.file_lock", side_effect=capture_lock):
+            result = obj._snapshot_one(
+                client,
+                "base:latest",
+                "build-test-crs-builderA-abc123",
+                build_id,
+                [],
+                content_key,
+            )
+
+        assert result is True
+        assert calls == [
+            (
+                Path("/tmp/oss-crs-snapshot-locks/snapshot-content123.lock"),
+                {"shared_permissions": True},
+            )
+        ]
 
     def test_snapshots_created_for_all_builders(self):
         """When two builders exist, container.commit called for each builder and project image."""

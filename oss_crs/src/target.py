@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Optional
 import hashlib
+import os
 import posixpath
 import re
 import subprocess
@@ -32,6 +33,9 @@ OSS_FUZZ_SCRIPTS = {
 # Custom scripts from our templates directory.
 CUSTOM_SCRIPTS = ["oss_crs_handler.sh", "oss_crs_builder_server.py"]
 
+SHARED_LOCK_DIR_MODE = 0o1777
+SHARED_LOCK_FILE_MODE = 0o666
+
 
 def _ensure_third_party_oss_fuzz() -> bool:
     """Auto-fetch oss-fuzz third-party scripts if not present."""
@@ -50,17 +54,48 @@ def _ensure_third_party_oss_fuzz() -> bool:
 
 
 @contextmanager
-def file_lock(lock_path: Path):
+def file_lock(lock_path: Path, *, shared_permissions: bool = False):
     """
     Context manager for file-based locking to prevent race conditions.
 
     Args:
         lock_path: Path to the lock file
+        shared_permissions: Create/open the lock for cross-user reuse. This is
+            intended for machine-wide coordination points such as snapshot locks.
     """
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if shared_permissions:
+        lock_path.parent.mkdir(mode=SHARED_LOCK_DIR_MODE, parents=True, exist_ok=True)
+        try:
+            lock_path.parent.chmod(SHARED_LOCK_DIR_MODE)
+        except PermissionError:
+            pass
+    else:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+
     lock_file = None
     try:
-        lock_file = open(lock_path, "w")
+        if shared_permissions:
+            nofollow = getattr(os, "O_NOFOLLOW", 0)
+            try:
+                fd = os.open(
+                    lock_path,
+                    os.O_RDWR | os.O_CREAT | nofollow,
+                    SHARED_LOCK_FILE_MODE,
+                )
+            except PermissionError:
+                # Existing lock files may have been created by older versions
+                # with owner-only write permission. flock works on a read-only
+                # descriptor, so keep the global coordination point usable.
+                fd = os.open(lock_path, os.O_RDONLY | nofollow)
+                lock_file = os.fdopen(fd, "r")
+            else:
+                try:
+                    os.fchmod(fd, SHARED_LOCK_FILE_MODE)
+                except PermissionError:
+                    pass
+                lock_file = os.fdopen(fd, "r+")
+        else:
+            lock_file = open(lock_path, "w")
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         yield
     finally:

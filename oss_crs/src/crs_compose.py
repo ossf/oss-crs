@@ -205,7 +205,7 @@ class CRSCompose:
         lock_dir = Path("/tmp/oss-crs-snapshot-locks")
         lock_path = lock_dir / f"snapshot-{content_key}.lock"
 
-        with file_lock(lock_path):
+        with file_lock(lock_path, shared_permissions=True):
             # Re-check after acquiring lock — another process may have built it.
             try:
                 img = client.images.get(content_tag)
