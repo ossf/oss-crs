@@ -126,29 +126,10 @@ def _noop_lock(path):
 class TestCreateIncrementalSnapshots:
     """Tests for CRSCompose._create_incremental_snapshots()."""
 
-    def test_snapshot_lock_dir_uses_xdg_runtime_dir(self, tmp_path, monkeypatch):
-        """Snapshot locks should live under the user's runtime dir when available."""
-        from oss_crs.src.crs_compose import _snapshot_lock_dir
-
-        runtime_dir = tmp_path / "runtime"
-        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-
-        assert _snapshot_lock_dir() == runtime_dir / "oss-crs" / "snapshot-locks"
-
-    def test_snapshot_lock_dir_uses_xdg_cache_dir(self, tmp_path, monkeypatch):
-        """Fallback to XDG_CACHE_HOME when XDG_RUNTIME_DIR is unavailable."""
-        from oss_crs.src.crs_compose import _snapshot_lock_dir
-
-        cache_dir = tmp_path / "cache"
-        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
-
-        assert _snapshot_lock_dir() == cache_dir / "oss-crs" / "snapshot-locks"
-
     def test_snapshot_one_uses_user_scoped_lock_dir(self, tmp_path, monkeypatch):
         """_snapshot_one should not use the legacy shared /tmp lock directory."""
         runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
         obj = _make_crs_compose([])
 

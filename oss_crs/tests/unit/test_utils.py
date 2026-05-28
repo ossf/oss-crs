@@ -3,7 +3,38 @@
 
 import pytest
 import re
-from oss_crs.src.utils import normalize_run_id
+from pathlib import Path
+
+from oss_crs.src.utils import normalize_run_id, user_temporary_dir
+
+
+class TestUserTemporaryDir:
+    """Tests for the reusable per-user temporary directory helper."""
+
+    def test_uses_existing_xdg_runtime_dir(self, tmp_path, monkeypatch):
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+
+        assert user_temporary_dir() == runtime_dir / "oss-crs"
+
+    def test_uses_existing_xdg_cache_dir_when_runtime_missing(
+        self, tmp_path, monkeypatch
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
+
+        assert user_temporary_dir() == cache_dir / "oss-crs"
+
+    def test_ignores_missing_xdg_dirs(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "missing-runtime"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "missing-cache"))
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+        assert user_temporary_dir() == tmp_path / "home" / ".cache" / "oss-crs"
 
 
 class TestNormalizeRunId:

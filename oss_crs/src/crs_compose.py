@@ -24,6 +24,7 @@ from .utils import (
     log_success,
     log_warning,
     log_dim,
+    user_temporary_dir,
 )
 from .workdir import WorkDir
 from .cgroup import (
@@ -35,19 +36,6 @@ from .cgroup import (
 import docker
 import docker.errors
 import requests.exceptions
-
-
-def _snapshot_lock_dir() -> Path:
-    """Return a per-user lock directory for incremental snapshot creation."""
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime_dir:
-        return Path(runtime_dir) / "oss-crs" / "snapshot-locks"
-
-    cache_dir = os.environ.get("XDG_CACHE_HOME")
-    if cache_dir:
-        return Path(cache_dir) / "oss-crs" / "snapshot-locks"
-
-    return Path.home() / ".cache" / "oss-crs" / "snapshot-locks"
 
 
 class CRSCompose:
@@ -215,7 +203,7 @@ class CRSCompose:
 
         # File lock keyed on the content hash — serializes concurrent snapshot
         # creation for the same content across processes.
-        lock_dir = _snapshot_lock_dir()
+        lock_dir = user_temporary_dir() / "snapshot-locks"
         lock_path = lock_dir / f"snapshot-{content_key}.lock"
 
         with file_lock(lock_path):

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
 import hashlib
-import shutil
-import subprocess
+import os
 import random
-import string
-import time
 import re
+import shutil
+import string
+import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +85,19 @@ def generate_run_id() -> str:
     ts = int(time.time())
     suffix = "".join(random.choice(RAND_CHARS) for _ in range(2))
     return f"{ts}{suffix}"
+
+
+def user_temporary_dir() -> Path:
+    """Return a per-user directory for reusable OSS-CRS temporary state."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir and (runtime_path := Path(runtime_dir)).is_dir():
+        return runtime_path / "oss-crs"
+
+    cache_dir = os.environ.get("XDG_CACHE_HOME")
+    if cache_dir and (cache_path := Path(cache_dir)).is_dir():
+        return cache_path / "oss-crs"
+
+    return Path.home() / ".cache" / "oss-crs"
 
 
 def normalize_run_id(run_id: str) -> str:
