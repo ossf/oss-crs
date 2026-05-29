@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """Fuzz-proj patching integration test CRS:
-  1. Apply fuzz-proj-only diff; verify sentinel in stdout.log.
-  2. Apply same fuzz-proj diff + target source diff; verify sentinel again.
+  1. build_project with a modified fuzz-proj dir only; verify sentinel in stdout.log.
+  2. build_project with modified fuzz-proj dir + modified target source dir; verify again.
+
+The modified directories are materialized by copying the base mounts
+(/OSS_CRS_FUZZ_PROJ, /OSS_CRS_TARGET_SOURCE) and git-applying the bundled diffs.
+build_project then diffs them back against the base mounts under the hood.
 """
 
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from libCRS.local import LocalCRSUtils
+
+FUZZ_PROJ_MOUNT = Path("/OSS_CRS_FUZZ_PROJ")
+TARGET_SOURCE_MOUNT = Path("/OSS_CRS_TARGET_SOURCE")
 
 FUZZ_PROJ_DIFF = Path("/usr/local/bin/fuzz_proj_patch.diff")
 TARGET_SOURCE_DIFF = Path("/usr/local/bin/target_source_patch.diff")
@@ -18,6 +28,14 @@ SENTINEL = "fuzz_proj_patched_sentinel"
 
 def log(msg: str) -> None:
     print(f"[apply-fuzz-proj-patch] {msg}", flush=True)
+
+
+def _materialize(base_mount: Path, diff_path: Path, label: str) -> Path:
+    """Copy a base mount and git-apply a diff to produce a modified source dir."""
+    dst = Path(tempfile.mkdtemp(prefix=f"modified-{label}-"))
+    subprocess.run(["rsync", "-a", "--exclude=.git", f"{base_mount}/", f"{dst}/"], check=True)
+    subprocess.run(["git", "apply", str(diff_path)], cwd=str(dst), check=True)
+    return dst
 
 
 def _check_sentinel(response_dir: Path, sentinel: str, label: str) -> bool:
@@ -34,7 +52,7 @@ def _check_sentinel(response_dir: Path, sentinel: str, label: str) -> bool:
     return True
 
 
-def _apply_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwargs) -> bool:
+def _build_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwargs) -> bool:
     response_dir.mkdir(parents=True, exist_ok=True)
     rc = crs.build_project(response_dir, **kwargs)
     if rc != 0:
@@ -53,27 +71,33 @@ def _apply_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwa
 def main() -> int:
     crs = LocalCRSUtils()
 
-    # --- Test 1: fuzz-proj patch only ---
-    log(f"Test 1: fuzz-proj patch only ({FUZZ_PROJ_DIFF.name})")
+    fuzz_proj_dir = _materialize(FUZZ_PROJ_MOUNT, FUZZ_PROJ_DIFF, "fuzz-proj")
+
+    # --- Test 1: modified fuzz-proj dir only ---
+    log("Test 1: modified fuzz-proj dir only")
     resp1 = Path("/tmp/response-fuzz-proj-only")
-    if not _apply_and_check(crs, resp1, "fuzz-proj-only", fuzz_proj_patch_path=FUZZ_PROJ_DIFF):
+    if not _build_and_check(crs, resp1, "fuzz-proj-only", fuzz_proj_dir=fuzz_proj_dir):
         return 1
     if not _check_sentinel(resp1, SENTINEL, "fuzz-proj-only"):
         return 1
     log("Test 1 PASSED")
 
-    # --- Test 2: fuzz-proj patch + target source patch ---
-    log(f"Test 2: fuzz-proj ({FUZZ_PROJ_DIFF.name}) + target source ({TARGET_SOURCE_DIFF.name})")
+    # --- Test 2: modified fuzz-proj dir + modified target source dir ---
+    log("Test 2: modified fuzz-proj dir + modified target source dir")
+    target_source_dir = _materialize(TARGET_SOURCE_MOUNT, TARGET_SOURCE_DIFF, "target-source")
     resp2 = Path("/tmp/response-combined")
-    if not _apply_and_check(
+    if not _build_and_check(
         crs, resp2, "combined",
-        fuzz_proj_patch_path=FUZZ_PROJ_DIFF,
-        target_source_patch_path=TARGET_SOURCE_DIFF,
+        fuzz_proj_dir=fuzz_proj_dir,
+        target_source_dir=target_source_dir,
     ):
         return 1
     if not _check_sentinel(resp2, SENTINEL, "combined"):
         return 1
     log("Test 2 PASSED")
+
+    shutil.rmtree(fuzz_proj_dir, ignore_errors=True)
+    shutil.rmtree(target_source_dir, ignore_errors=True)
 
     log("ALL TESTS PASSED")
     return 0

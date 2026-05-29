@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Integration test: fuzz-proj patching (build-project --fuzz-proj).
+"""Integration test: fuzz-proj patching (build-project --fuzz-proj-dir).
 
 Exercises the fuzz-proj patch pipeline with mock-c:
-  prepare → build-target → run (CRS applies fuzz-proj diff, verifies sentinel in rebuild output)
+  prepare → build-target → run (CRS builds a modified fuzz-proj dir, verifies sentinel in rebuild output)
 
-The CRS applies a bundled fuzz-proj diff via build_project(..., fuzz_proj_patch_path=...),
-which triggers a full image rebuild from the patched OSS-Fuzz project directory.
+The CRS materializes a modified fuzz-proj dir and calls build_project(..., fuzz_proj_dir=...),
+which diffs it against the base and triggers a full image rebuild from the patched project.
 The patched build.sh echoes a sentinel string to stdout; the CRS verifies it in stdout.log.
 """
 

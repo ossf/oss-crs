@@ -359,10 +359,10 @@ def main():
 
     apply_patch_build_parser.set_defaults(func=_apply_patch_build)
 
-    # build-project command (harness-gen: rebuild from fuzz-proj and/or target source patch)
+    # build-project command (harness-gen: rebuild from a modified fuzz-proj and/or target source)
     build_project_parser = subparsers.add_parser(
         "build-project",
-        help="Rebuild the project image from a patched fuzz-proj and/or target source",
+        help="Rebuild the project image from a modified fuzz-proj and/or target source dir",
     )
     build_project_parser.add_argument(
         "--response-dir",
@@ -373,20 +373,20 @@ def main():
         help="Directory to receive build results",
     )
     build_project_parser.add_argument(
-        "--target-source",
+        "--fuzz-proj-dir",
         type=Path,
         default=None,
-        dest="target_source",
-        metavar="DIFF",
-        help="Unified diff to apply against the target source tree",
+        dest="fuzz_proj_dir",
+        metavar="DIR",
+        help="Modified OSS-Fuzz project directory (diffed against the fuzz-proj base)",
     )
     build_project_parser.add_argument(
-        "--fuzz-proj",
+        "--target-source-dir",
         type=Path,
         default=None,
-        dest="fuzz_proj",
-        metavar="DIFF",
-        help="Unified diff to apply against OSS_CRS_FUZZ_PROJ (triggers image rebuild)",
+        dest="target_source_dir",
+        metavar="DIR",
+        help="Modified target source directory (diffed against the target-source base)",
     )
     build_project_parser.add_argument(
         "--builder",
@@ -408,14 +408,14 @@ def main():
     )
 
     def _build_project(args):
-        if not args.target_source and not args.fuzz_proj:
+        if not args.fuzz_proj_dir and not args.target_source_dir:
             build_project_parser.error(
-                "At least one of --target-source or --fuzz-proj must be provided"
+                "At least one of --fuzz-proj-dir or --target-source-dir must be provided"
             )
         exit_code = crs_utils.build_project(
             args.response_dir,
-            target_source_patch_path=args.target_source,
-            fuzz_proj_patch_path=args.fuzz_proj,
+            fuzz_proj_dir=args.fuzz_proj_dir,
+            target_source_dir=args.target_source_dir,
             builder=args.builder,
             builder_name=args.builder_name,
             rebuild_id=args.rebuild_id,

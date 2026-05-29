@@ -2,6 +2,7 @@
 import logging
 import os
 import socket
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -310,26 +311,118 @@ class LocalCRSUtils(CRSUtils):
     def build_project(
         self,
         response_dir: Path,
-        target_source_patch_path: "Path | None" = None,
-        fuzz_proj_patch_path: "Path | None" = None,
+        fuzz_proj_dir: "Path | None" = None,
+        target_source_dir: "Path | None" = None,
         builder: "str | None" = None,
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
-        """Rebuild the project image from a patched fuzz-proj and/or target source."""
-        if not target_source_patch_path and not fuzz_proj_patch_path:
+        """Rebuild the project image from a modified fuzz-proj and/or target source.
+
+        The directories are diffed against their base mounts to reproduce the
+        patches that _submit_build applies via the builder sidecar.
+        """
+        if not fuzz_proj_dir and not target_source_dir:
             raise ValueError(
-                "At least one of target_source_patch_path or fuzz_proj_patch_path "
-                "must be provided"
+                "At least one of fuzz_proj_dir or target_source_dir must be provided"
             )
-        return self._submit_build(
-            response_dir,
-            target_source_patch_path=target_source_patch_path,
-            fuzz_proj_patch_path=fuzz_proj_patch_path,
-            builder=builder,
-            builder_name=builder_name,
-            rebuild_id=rebuild_id,
-        )
+
+        tmp_patches: list[Path] = []
+
+        def _stage_patch(base_mount: Path, src_dir: Path, label: str) -> Path:
+            diff = self._diff_against_base(base_mount, Path(src_dir))
+            fd, name = tempfile.mkstemp(prefix=f"oss-crs-{label}-", suffix=".diff")
+            patch_path = Path(name)
+            with os.fdopen(fd, "wb") as f:
+                f.write(diff)
+            tmp_patches.append(patch_path)
+            return patch_path
+
+        try:
+            fuzz_proj_patch_path = (
+                _stage_patch(_FUZZ_PROJ_MOUNT, fuzz_proj_dir, "fuzz-proj")
+                if fuzz_proj_dir
+                else None
+            )
+            target_source_patch_path = (
+                _stage_patch(_TARGET_SOURCE_MOUNT, target_source_dir, "target-source")
+                if target_source_dir
+                else None
+            )
+            return self._submit_build(
+                response_dir,
+                target_source_patch_path=target_source_patch_path,
+                fuzz_proj_patch_path=fuzz_proj_patch_path,
+                builder=builder,
+                builder_name=builder_name,
+                rebuild_id=rebuild_id,
+            )
+        finally:
+            for p in tmp_patches:
+                p.unlink(missing_ok=True)
+
+    @staticmethod
+    def _diff_against_base(base_dir: Path, new_dir: Path) -> bytes:
+        """Produce a root-relative `git diff` turning base_dir into new_dir.
+
+        Reproduces the diff a harness author would get from `git diff` inside a
+        modified checkout, so the builder sidecar can `git apply` it at the
+        project root. `.git` is excluded from both sides.
+        """
+        base_dir = Path(base_dir)
+        new_dir = Path(new_dir)
+        if not base_dir.is_dir():
+            raise RuntimeError(f"build_project: base source not found: {base_dir}")
+        if not new_dir.is_dir():
+            raise RuntimeError(f"build_project: directory not found: {new_dir}")
+
+        env = {
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        }
+
+        def git(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                ["git", "-C", str(work), *args],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+
+        with tempfile.TemporaryDirectory(prefix="oss-crs-diff-") as td:
+            work = Path(td)
+            # 1. Seed the work tree with the pristine base and commit it.
+            subprocess.run(
+                ["rsync", "-a", "--exclude=.git", f"{base_dir}/", f"{work}/"],
+                check=True,
+            )
+            # Pin the base mtimes to the epoch so that the modified files copied
+            # in below always look newer. Otherwise git's racy-clean optimization
+            # skips re-hashing a same-size edit made within the same second.
+            for p in work.rglob("*"):
+                try:
+                    os.utime(p, (1, 1), follow_symlinks=False)
+                except (OSError, NotImplementedError):
+                    pass
+            git("init", "-q")
+            git("config", "user.email", "crs@local")
+            git("config", "user.name", "crs")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base", "--allow-empty")
+            # 2. Mirror the modified tree over the base (captures add/del/modify).
+            subprocess.run(
+                ["rsync", "-a", "--delete", "--exclude=.git", f"{new_dir}/", f"{work}/"],
+                check=True,
+            )
+            git("add", "-A")
+            diff = subprocess.run(
+                ["git", "-C", str(work), "diff", "--cached", "--binary"],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+            return diff.stdout
 
     def _submit_build(
         self,
