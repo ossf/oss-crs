@@ -376,22 +376,39 @@ class LocalCRSUtils(CRSUtils):
         if not new_dir.is_dir():
             raise RuntimeError(f"build_project: directory not found: {new_dir}")
 
-        env = {
-            **os.environ,
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_SYSTEM": os.devnull,
-        }
-
         def git(*args: str) -> subprocess.CompletedProcess:
-            return subprocess.run(
+            proc = subprocess.run(
                 ["git", "-C", str(work), *args],
-                check=True,
                 capture_output=True,
                 env=env,
             )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"git {' '.join(args)} failed (exit {proc.returncode}): "
+                    f"{proc.stderr.decode(errors='replace').strip()}"
+                )
+            return proc
 
         with tempfile.TemporaryDirectory(prefix="oss-crs-diff-") as td:
-            work = Path(td)
+            tdp = Path(td)
+            work = tdp / "work"
+            work.mkdir()
+            # Isolate from the host's user/system git config, but supply our own
+            # identity AND safe.directory=*: the rsynced base files keep their
+            # source ownership, which would otherwise trip git's dubious-ownership
+            # guard. safe.directory is only honored from system/global config
+            # (never -c or local), so it must live in this global config file.
+            gitconfig = tdp / "gitconfig"
+            gitconfig.write_text(
+                "[safe]\n\tdirectory = *\n"
+                "[user]\n\tname = crs\n\temail = crs@local\n"
+                "[commit]\n\tgpgsign = false\n"
+            )
+            env = {
+                **os.environ,
+                "GIT_CONFIG_GLOBAL": str(gitconfig),
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
             # 1. Seed the work tree with the pristine base and commit it.
             subprocess.run(
                 ["rsync", "-a", "--exclude=.git", f"{base_dir}/", f"{work}/"],
@@ -406,8 +423,6 @@ class LocalCRSUtils(CRSUtils):
                 except (OSError, NotImplementedError):
                     pass
             git("init", "-q")
-            git("config", "user.email", "crs@local")
-            git("config", "user.name", "crs")
             git("add", "-A")
             git("commit", "-q", "-m", "base", "--allow-empty")
             # 2. Mirror the modified tree over the base (captures add/del/modify).
@@ -416,13 +431,7 @@ class LocalCRSUtils(CRSUtils):
                 check=True,
             )
             git("add", "-A")
-            diff = subprocess.run(
-                ["git", "-C", str(work), "diff", "--cached", "--binary"],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
-            return diff.stdout
+            return git("diff", "--cached", "--binary").stdout
 
     def _submit_build(
         self,
