@@ -158,7 +158,7 @@ def main():
     # =========================================================================
 
     # Valid types for submit vs fetch commands
-    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH, DataType.HARNESS_PROJ]
+    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH]
     fetch_types = list(DataType)
 
     # register-submit-dir command (auto-submit data to oss-crs-infra)
@@ -262,6 +262,39 @@ def main():
     )
     submit_parser.add_argument("path", type=Path, help="File path to submit")
     submit_parser.set_defaults(func=lambda args: crs_utils.submit(args.type, args.path))
+
+    # submit-harness command (harness-gen output: fuzz-proj dir + optional target source dir)
+    submit_harness_parser = subparsers.add_parser(
+        "submit-harness",
+        help="Submit a generated harness project (fuzz-proj dir + optional target source dir)",
+    )
+    submit_harness_parser.add_argument(
+        "--fuzz-proj-dir",
+        type=Path,
+        required=True,
+        dest="fuzz_proj_dir",
+        metavar="DIR",
+        help="OSS-Fuzz project directory (Dockerfile, build.sh, harness source)",
+    )
+    submit_harness_parser.add_argument(
+        "--target-source-dir",
+        type=Path,
+        default=None,
+        dest="target_source_dir",
+        metavar="DIR",
+        help="Modified upstream target source tree (optional)",
+    )
+    submit_harness_parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Subdir name under harness-projs (defaults to fuzz-proj dir basename)",
+    )
+    submit_harness_parser.set_defaults(
+        func=lambda args: crs_utils.submit_harness(
+            args.fuzz_proj_dir, args.target_source_dir, args.name
+        )
+    )
 
     # fetch command (manually fetch shared data)
     fetch_parser = subparsers.add_parser(

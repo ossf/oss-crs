@@ -69,13 +69,9 @@ class LocalCRSUtils(CRSUtils):
             self.submit_build_output(tmp_file.name, skip_file_path)
 
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
-        if data_type == DataType.HARNESS_PROJ:
-            dst = Path(get_env("OSS_CRS_SUBMIT_DIR")) / data_type.dir_name / path.name
-            DirSyncHelper(path, dst).register_dir()
-        else:
-            path.mkdir(parents=True, exist_ok=True)
-            helper = self.__init_submit_helper(data_type)
-            helper.register_dir(path, batch_time=10, batch_size=100)
+        path.mkdir(parents=True, exist_ok=True)
+        helper = self.__init_submit_helper(data_type)
+        helper.register_dir(path, batch_time=10, batch_size=100)
 
     def register_shared_dir(self, local_path: Path, shared_path: str) -> None:
         if local_path.exists():
@@ -105,14 +101,36 @@ class LocalCRSUtils(CRSUtils):
         helper.register_dir(path)
 
     def submit(self, data_type: DataType, src: Path) -> None:
-        if data_type == DataType.HARNESS_PROJ:
-            if not Path(src).is_dir():
-                raise ValueError(f"submit HARNESS_PROJ requires a directory, got: {src}")
-            dst = Path(get_env("OSS_CRS_SUBMIT_DIR")) / data_type.dir_name / Path(src).name
-            DirSyncHelper(src, dst).sync_once()
-        else:
-            helper = self.__init_submit_helper(data_type)
-            helper.submit_file(src)
+        helper = self.__init_submit_helper(data_type)
+        helper.submit_file(src)
+
+    def submit_harness(
+        self,
+        fuzz_proj_dir: Path,
+        target_source_dir: "Path | None" = None,
+        name: "str | None" = None,
+    ) -> None:
+        fuzz_proj_dir = Path(fuzz_proj_dir)
+        if not fuzz_proj_dir.is_dir():
+            raise ValueError(
+                f"submit_harness: fuzz_proj_dir does not exist or is not a "
+                f"directory: {fuzz_proj_dir}"
+            )
+        name = name or fuzz_proj_dir.name
+        if "/" in name or name in ("", ".", ".."):
+            raise ValueError(f"Invalid harness name: {name!r}")
+
+        base = Path(get_env("OSS_CRS_SUBMIT_DIR")) / "harness-projs" / name
+        DirSyncHelper(fuzz_proj_dir, base / "fuzz-proj").sync_once()
+
+        if target_source_dir is not None:
+            target_source_dir = Path(target_source_dir)
+            if not target_source_dir.is_dir():
+                raise ValueError(
+                    f"submit_harness: target_source_dir is not a directory: "
+                    f"{target_source_dir}"
+                )
+            DirSyncHelper(target_source_dir, base / "target-source").sync_once()
 
     def fetch(self, data_type: DataType, dst: Path) -> list[str]:
         helper = self.__init_fetch_helper(data_type)

@@ -12,7 +12,6 @@ class DataType(str, Enum):
     BUG_CANDIDATE = "bug-candidate"
     PATCH = "patch"
     DIFF = "diff"
-    HARNESS_PROJ = "harness-proj"
 
     def __str__(self) -> str:
         return self.value
@@ -25,7 +24,6 @@ class DataType(str, Enum):
             "bug-candidate": "bug-candidates",
             "patch": "patches",
             "diff": "diffs",
-            "harness-proj": "harness-projs",
         }
         return _DIR_NAMES[self.value]
 
@@ -108,6 +106,31 @@ class CRSUtils(ABC):
     @abstractmethod
     def submit(self, data_type: DataType, src: Path) -> None:
         """Submit a local file to oss-crs-infra."""
+        pass
+
+    @abstractmethod
+    def submit_harness(
+        self,
+        fuzz_proj_dir: Path,
+        target_source_dir: "Path | None" = None,
+        name: "str | None" = None,
+    ) -> None:
+        """Submit a generated harness project for downstream rebuilding.
+
+        Used by harness-gen CRSs. Unlike submit(), which handles single files
+        for the generic exchange types, this submits whole directories:
+
+            fuzz_proj_dir: the OSS-Fuzz project directory (Dockerfile, build.sh,
+                harness source) — required.
+            target_source_dir: the modified upstream target source tree — optional,
+                provided when the harness requires source-level changes.
+            name: subdirectory name under the harness-projs submit dir; defaults
+                to fuzz_proj_dir's basename.
+
+        The two directories are placed under
+        OSS_CRS_SUBMIT_DIR/harness-projs/<name>/{fuzz-proj,target-source}/ so a
+        consumer can reconstruct and rebuild the harness.
+        """
         pass
 
     @abstractmethod
