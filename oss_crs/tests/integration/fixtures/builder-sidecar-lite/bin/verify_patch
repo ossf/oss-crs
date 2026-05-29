@@ -228,7 +228,7 @@ def main() -> int:
 
     patched_resp = RESPONSE_DIR / "build-patched"
     with timed("rebuild") as t_rebuild:
-        rc = crs.apply_patch_build(patched_resp, target_source_patch_path=patch, builder_name="default-build")
+        rc = crs.apply_patch_build(patch, patched_resp, builder_name="default-build")
     _result["rebuild"] = t_rebuild.elapsed
     if rc != 0:
         build_stderr = patched_resp / "stderr.log"
@@ -329,7 +329,7 @@ def main() -> int:
     log("Step 4: Running functionality tests...")
     test_resp = RESPONSE_DIR / "test"
     with timed("test") as t_test:
-        rc = crs.apply_patch_test(test_resp, target_source_patch_path=patch)
+        rc = crs.apply_patch_test(patch, test_resp)
     _result["test"] = t_test.elapsed
     if rc != 0:
         test_stderr = test_resp / "stderr.log"

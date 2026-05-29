@@ -291,6 +291,24 @@ class LocalCRSUtils(CRSUtils):
 
     def apply_patch_build(
         self,
+        patch_path: Path,
+        response_dir: Path,
+        builder: "str | None" = None,
+        builder_name: "str | None" = None,
+        rebuild_id: "int | None" = None,
+    ) -> int:
+        """Apply a target-source patch and rebuild via the builder sidecar."""
+        return self._submit_build(
+            response_dir,
+            target_source_patch_path=patch_path,
+            fuzz_proj_patch_path=None,
+            builder=builder,
+            builder_name=builder_name,
+            rebuild_id=rebuild_id,
+        )
+
+    def build_project(
+        self,
         response_dir: Path,
         target_source_patch_path: "Path | None" = None,
         fuzz_proj_patch_path: "Path | None" = None,
@@ -298,9 +316,31 @@ class LocalCRSUtils(CRSUtils):
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
-        """Apply a patch and rebuild via the builder sidecar."""
+        """Rebuild the project image from a patched fuzz-proj and/or target source."""
         if not target_source_patch_path and not fuzz_proj_patch_path:
-            raise ValueError("At least one of target_source_patch_path or fuzz_proj_patch_path must be provided")
+            raise ValueError(
+                "At least one of target_source_patch_path or fuzz_proj_patch_path "
+                "must be provided"
+            )
+        return self._submit_build(
+            response_dir,
+            target_source_patch_path=target_source_patch_path,
+            fuzz_proj_patch_path=fuzz_proj_patch_path,
+            builder=builder,
+            builder_name=builder_name,
+            rebuild_id=rebuild_id,
+        )
+
+    def _submit_build(
+        self,
+        response_dir: Path,
+        target_source_patch_path: "Path | None",
+        fuzz_proj_patch_path: "Path | None",
+        builder: "str | None",
+        builder_name: "str | None",
+        rebuild_id: "int | None",
+    ) -> int:
+        """Shared /build submission for apply_patch_build and build_project."""
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")
@@ -424,35 +464,23 @@ class LocalCRSUtils(CRSUtils):
 
     def apply_patch_test(
         self,
+        patch_path: Path,
         response_dir: Path,
-        target_source_patch_path: "Path | None" = None,
-        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
     ) -> int:
-        """Apply a patch and run the project's bundled test.sh via the builder sidecar."""
-        if not target_source_patch_path and not fuzz_proj_patch_path:
-            raise ValueError("At least one of target_source_patch_path or fuzz_proj_patch_path must be provided")
+        """Apply a target-source patch and run the project's bundled test.sh."""
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")
         mem_limit = os.environ.get("OSS_CRS_MEMORY_LIMIT", "")
-
-        files = {}
-        if target_source_patch_path:
-            files["patch"] = open(target_source_patch_path, "rb")
-        if fuzz_proj_patch_path:
-            files["fuzz_proj_patch"] = open(fuzz_proj_patch_path, "rb")
-
-        try:
+        with open(patch_path, "rb") as patch_file:
+            files = {"patch": patch_file}
             data = {
                 "crs_name": crs_name,
                 "cpuset": cpuset,
                 "mem_limit": mem_limit,
             }
             result = self._submit_and_poll("/test", builder, files, data)
-        finally:
-            for f in files.values():
-                f.close()
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:

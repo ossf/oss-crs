@@ -36,11 +36,11 @@ def _check_sentinel(response_dir: Path, sentinel: str, label: str) -> bool:
 
 def _apply_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwargs) -> bool:
     response_dir.mkdir(parents=True, exist_ok=True)
-    rc = crs.apply_patch_build(response_dir, **kwargs)
+    rc = crs.build_project(response_dir, **kwargs)
     if rc != 0:
         stdout = (response_dir / "stdout.log").read_text(errors="replace") if (response_dir / "stdout.log").exists() else ""
         stderr = (response_dir / "stderr.log").read_text(errors="replace") if (response_dir / "stderr.log").exists() else ""
-        log(f"FAIL ({label}): apply_patch_build failed (exit={rc}):\nstdout:\n{stdout}\nstderr:\n{stderr}")
+        log(f"FAIL ({label}): build_project failed (exit={rc}):\nstdout:\n{stdout}\nstderr:\n{stderr}")
         return False
     rid_file = response_dir / "rebuild_id"
     if not rid_file.exists():

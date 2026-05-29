@@ -150,6 +150,31 @@ class CRSUtils(ABC):
     @abstractmethod
     def apply_patch_build(
         self,
+        patch_path: Path,
+        response_dir: Path,
+        builder: "str | None" = None,
+        builder_name: "str | None" = None,
+        rebuild_id: "int | None" = None,
+    ) -> int:
+        """Apply a target-source patch and rebuild via the builder sidecar.
+
+        Args:
+            patch_path: Path to a unified diff file (applied against the target source tree).
+            response_dir: Directory to receive results:
+                - retcode, stdout.log, stderr.log, rebuild_id
+            builder: Builder sidecar service name for DNS. Defaults to BUILDER_MODULE env var.
+            builder_name: Builder config name for image resolution (e.g. "coverage-build").
+                          Defaults to builder if not specified.
+            rebuild_id: Optional rebuild ID. Auto-increments if None, overwrites if provided.
+
+        Returns:
+            Build exit code (0 = success).
+        """
+        pass
+
+    @abstractmethod
+    def build_project(
+        self,
         response_dir: Path,
         target_source_patch_path: "Path | None" = None,
         fuzz_proj_patch_path: "Path | None" = None,
@@ -157,9 +182,12 @@ class CRSUtils(ABC):
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
-        """Apply a patch and rebuild via the builder sidecar.
+        """Rebuild the project image from a patched fuzz-proj and/or target source.
 
-        At least one of target_source_patch_path or fuzz_proj_patch_path must be provided.
+        Used by harness-gen CRSs to validate generated harnesses. Unlike
+        apply_patch_build (which applies a single source patch against the
+        existing build), this performs a full image rebuild and accepts either
+        or both patch types. At least one must be provided.
 
         Args:
             response_dir: Directory to receive results:
@@ -204,21 +232,16 @@ class CRSUtils(ABC):
     @abstractmethod
     def apply_patch_test(
         self,
+        patch_path: Path,
         response_dir: Path,
-        target_source_patch_path: "Path | None" = None,
-        fuzz_proj_patch_path: "Path | None" = None,
         builder: "str | None" = None,
     ) -> int:
-        """Apply a patch and run the project's bundled test.sh via the builder sidecar.
-
-        At least one of target_source_patch_path or fuzz_proj_patch_path must be provided.
+        """Apply a target-source patch and run the project's bundled test.sh.
 
         Args:
+            patch_path: Path to the unified diff file to apply before testing.
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log
-            target_source_patch_path: Unified diff to apply against the target source tree.
-            fuzz_proj_patch_path: Unified diff to apply against OSS_CRS_FUZZ_PROJ; triggers
-                a full image rebuild from the patched fuzz project directory.
             builder: Builder sidecar module name. Defaults to BUILDER_MODULE env var.
 
         Returns:

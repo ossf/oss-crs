@@ -320,36 +320,13 @@ def main():
     # apply-patch-build command
     apply_patch_build_parser = subparsers.add_parser(
         "apply-patch-build",
-        help="Apply a patch to the snapshot image and rebuild",
+        help="Apply a target-source patch to the snapshot image and rebuild",
     )
     apply_patch_build_parser.add_argument(
-        "compat_args",
-        nargs="*",
-        help=argparse.SUPPRESS,  # backward-compat positionals: [patch_path] [response_dir]
+        "patch_path", type=Path, help="Path to the unified diff file"
     )
     apply_patch_build_parser.add_argument(
-        "--response-dir",
-        type=Path,
-        default=None,
-        dest="response_dir",
-        metavar="DIR",
-        help="Directory to receive build results (required)",
-    )
-    apply_patch_build_parser.add_argument(
-        "--target-source",
-        type=Path,
-        default=None,
-        dest="target_source",
-        metavar="DIFF",
-        help="Unified diff to apply against the target source tree",
-    )
-    apply_patch_build_parser.add_argument(
-        "--fuzz-proj",
-        type=Path,
-        default=None,
-        dest="fuzz_proj",
-        metavar="DIFF",
-        help="Unified diff to apply against OSS_CRS_FUZZ_PROJ (triggers image rebuild)",
+        "response_dir", type=Path, help="Directory to receive build results"
     )
     apply_patch_build_parser.add_argument(
         "--builder",
@@ -371,27 +348,9 @@ def main():
     )
 
     def _apply_patch_build(args):
-        response_dir = args.response_dir
-        target_source = args.target_source
-        if args.compat_args:
-            print(
-                "WARNING: positional arguments for apply-patch-build are deprecated. "
-                "Use --response-dir and --target-source instead.",
-                file=sys.stderr,
-            )
-            if len(args.compat_args) >= 2:
-                target_source = target_source or Path(args.compat_args[0])
-                response_dir = response_dir or Path(args.compat_args[1])
-            elif len(args.compat_args) == 1:
-                response_dir = response_dir or Path(args.compat_args[0])
-        if not response_dir:
-            apply_patch_build_parser.error("--response-dir is required")
-        if not target_source and not args.fuzz_proj:
-            apply_patch_build_parser.error("At least one of --target-source or --fuzz-proj must be provided")
         exit_code = crs_utils.apply_patch_build(
-            response_dir,
-            target_source_patch_path=target_source,
-            fuzz_proj_patch_path=args.fuzz_proj,
+            args.patch_path,
+            args.response_dir,
             builder=args.builder,
             builder_name=args.builder_name,
             rebuild_id=args.rebuild_id,
@@ -400,37 +359,87 @@ def main():
 
     apply_patch_build_parser.set_defaults(func=_apply_patch_build)
 
+    # build-project command (harness-gen: rebuild from fuzz-proj and/or target source patch)
+    build_project_parser = subparsers.add_parser(
+        "build-project",
+        help="Rebuild the project image from a patched fuzz-proj and/or target source",
+    )
+    build_project_parser.add_argument(
+        "--response-dir",
+        type=Path,
+        required=True,
+        dest="response_dir",
+        metavar="DIR",
+        help="Directory to receive build results",
+    )
+    build_project_parser.add_argument(
+        "--target-source",
+        type=Path,
+        default=None,
+        dest="target_source",
+        metavar="DIFF",
+        help="Unified diff to apply against the target source tree",
+    )
+    build_project_parser.add_argument(
+        "--fuzz-proj",
+        type=Path,
+        default=None,
+        dest="fuzz_proj",
+        metavar="DIFF",
+        help="Unified diff to apply against OSS_CRS_FUZZ_PROJ (triggers image rebuild)",
+    )
+    build_project_parser.add_argument(
+        "--builder",
+        type=str,
+        default=None,
+        help="Builder sidecar module name (defaults to BUILDER_MODULE env var)",
+    )
+    build_project_parser.add_argument(
+        "--builder-name",
+        type=str,
+        default=None,
+        help="Builder config name for image resolution (e.g. 'coverage-build'). Defaults to --builder value.",
+    )
+    build_project_parser.add_argument(
+        "--rebuild-id",
+        type=int,
+        default=None,
+        help="Rebuild ID (auto-increments if omitted, overwrites artifacts if provided)",
+    )
+
+    def _build_project(args):
+        if not args.target_source and not args.fuzz_proj:
+            build_project_parser.error(
+                "At least one of --target-source or --fuzz-proj must be provided"
+            )
+        exit_code = crs_utils.build_project(
+            args.response_dir,
+            target_source_patch_path=args.target_source,
+            fuzz_proj_patch_path=args.fuzz_proj,
+            builder=args.builder,
+            builder_name=args.builder_name,
+            rebuild_id=args.rebuild_id,
+        )
+        sys.exit(exit_code)
+
+    build_project_parser.set_defaults(func=_build_project)
+
     # run-pov command
     run_pov_parser = subparsers.add_parser(
         "run-pov",
         help="Run a POV binary against a specific rebuild's output",
     )
     run_pov_parser.add_argument(
-        "compat_args",
-        nargs="*",
-        help=argparse.SUPPRESS,  # backward-compat positionals: [pov_path] [response_dir]
+        "pov_path", type=Path, help="Path to the POV binary file"
     )
     run_pov_parser.add_argument(
-        "--pov-path",
-        type=Path,
-        default=None,
-        dest="pov_path",
-        metavar="PATH",
-        help="Path to the POV binary file (required)",
-    )
-    run_pov_parser.add_argument(
-        "--response-dir",
-        type=Path,
-        default=None,
-        dest="response_dir",
-        metavar="DIR",
-        help="Directory to receive POV results (required)",
+        "response_dir", type=Path, help="Directory to receive POV results"
     )
     run_pov_parser.add_argument(
         "--harness",
         type=str,
-        default=None,
-        help="Harness binary name in /out/ (required)",
+        required=True,
+        help="Harness binary name in /out/",
     )
     run_pov_parser.add_argument(
         "--rebuild-id",
@@ -446,29 +455,10 @@ def main():
     )
 
     def _run_pov(args):
-        pov_path = args.pov_path
-        response_dir = args.response_dir
-        if args.compat_args:
-            print(
-                "WARNING: positional arguments for run-pov are deprecated. "
-                "Use --pov-path and --response-dir instead.",
-                file=sys.stderr,
-            )
-            if len(args.compat_args) >= 2:
-                pov_path = pov_path or Path(args.compat_args[0])
-                response_dir = response_dir or Path(args.compat_args[1])
-            elif len(args.compat_args) == 1:
-                pov_path = pov_path or Path(args.compat_args[0])
-        if not pov_path:
-            run_pov_parser.error("--pov-path is required")
-        if not response_dir:
-            run_pov_parser.error("--response-dir is required")
-        if not args.harness:
-            run_pov_parser.error("--harness is required")
         exit_code = crs_utils.run_pov(
-            pov_path,
+            args.pov_path,
             args.harness,
-            response_dir,
+            args.response_dir,
             args.rebuild_id,
             args.builder,
         )
@@ -479,36 +469,13 @@ def main():
     # apply-patch-test command
     apply_patch_test_parser = subparsers.add_parser(
         "apply-patch-test",
-        help="Apply a patch and run the project's bundled test.sh",
+        help="Apply a target-source patch and run the project's bundled test.sh",
     )
     apply_patch_test_parser.add_argument(
-        "compat_args",
-        nargs="*",
-        help=argparse.SUPPRESS,  # backward-compat positionals: [patch_path] [response_dir]
+        "patch_path", type=Path, help="Path to the unified diff file"
     )
     apply_patch_test_parser.add_argument(
-        "--response-dir",
-        type=Path,
-        default=None,
-        dest="response_dir",
-        metavar="DIR",
-        help="Directory to receive test results (required)",
-    )
-    apply_patch_test_parser.add_argument(
-        "--target-source",
-        type=Path,
-        default=None,
-        dest="target_source",
-        metavar="DIFF",
-        help="Unified diff to apply against the target source tree",
-    )
-    apply_patch_test_parser.add_argument(
-        "--fuzz-proj",
-        type=Path,
-        default=None,
-        dest="fuzz_proj",
-        metavar="DIFF",
-        help="Unified diff to apply against OSS_CRS_FUZZ_PROJ (triggers image rebuild)",
+        "response_dir", type=Path, help="Directory to receive test results"
     )
     apply_patch_test_parser.add_argument(
         "--builder",
@@ -518,28 +485,10 @@ def main():
     )
 
     def _apply_patch_test(args):
-        response_dir = args.response_dir
-        target_source = args.target_source
-        if args.compat_args:
-            print(
-                "WARNING: positional arguments for apply-patch-test are deprecated. "
-                "Use --response-dir and --target-source instead.",
-                file=sys.stderr,
-            )
-            if len(args.compat_args) >= 2:
-                target_source = target_source or Path(args.compat_args[0])
-                response_dir = response_dir or Path(args.compat_args[1])
-            elif len(args.compat_args) == 1:
-                response_dir = response_dir or Path(args.compat_args[0])
-        if not response_dir:
-            apply_patch_test_parser.error("--response-dir is required")
-        if not target_source and not args.fuzz_proj:
-            apply_patch_test_parser.error("At least one of --target-source or --fuzz-proj must be provided")
         exit_code = crs_utils.apply_patch_test(
-            response_dir,
-            target_source_patch_path=target_source,
-            fuzz_proj_patch_path=args.fuzz_proj,
-            builder=args.builder,
+            args.patch_path,
+            args.response_dir,
+            args.builder,
         )
         sys.exit(exit_code)
 
