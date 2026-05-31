@@ -1,0 +1,130 @@
+# Sanity-check config: CRSBench projects with CPV-bearing harnesses.
+# Usage: uv run sanity-check --config sanity_check/sample_config.yaml --csv results.csv
+#
+# Only harnesses that have at least one cpv entry are included.
+# Delta projects include their ref.diff for --diff passthrough.
+# Language field enables automatic filtering of incompatible CRS+target combos.
+
+skip_crs:
+  - crs-bug-finding-claude-code
+  - crs-bug-finding-codex
+  - crs-bug-finding-copilot-cli
+  - crs-bug-finding-gemini-cli
+  - crs-bug-finding-opencode
+  - crs-shellphish-aijon
+  - crs-shellphish-c-fuzzers-aflpp
+  - crs-shellphish-c-fuzzers-libfuzzer
+  - crs-shellphish-discoveryguy
+  - crs-shellphish-grammar
+  - crs-shellphish-jvm-fuzzers
+  - crs-shellphish-quickseed
+  - roboduck
+
+targets:
+  # --- C/C++ projects ------------------------------------------------------
+
+  # afc-sqlite3-full-01: cpv_0 (stack-buffer-overflow), cpv_1 (heap-buffer-overflow)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/afc-sqlite3-full-01
+    target_harness: customfuzz3
+    language: c
+
+  # afc-curl-delta-01: cpv_0 (SEGV)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/afc-curl-delta-01
+    target_harness: curl_fuzzer_ws
+    diff: ~/post/CRSBench/benchmarks/afc-curl-delta-01/.aixcc/ref.diff
+    language: c
+
+  # atlanta-mosquitto-delta-01: cpv_0, cpv_1 (heap-buffer-overflow)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-mosquitto-delta-01
+    target_harness: broker_fuzz_test_config
+    language: c
+
+  # atlanta-mosquitto-delta-01: cpv_2 (heap-use-after-free)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-mosquitto-delta-01
+    target_harness: dynsec_fuzz_load
+    language: c
+
+  # atlanta-mosquitto-delta-01: cpv_3 (heap-buffer-overflow)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-mosquitto-delta-01
+    target_harness: libcommon_fuzz_utf8
+    language: c
+
+  # atlanta-libxml2-delta-01: cpv_0 (use-of-uninitialized-value, msan)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-libxml2-delta-01
+    target_harness: api
+    diff: ~/post/CRSBench/benchmarks/atlanta-libxml2-delta-01/.aixcc/ref.diff
+    language: c
+
+  # --- Java projects -------------------------------------------------------
+
+  # atlanta-jenkins-delta-01: cpv_0 (OS Command Injection)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsTwo
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_16 (OS Command Injection)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsTwoFDP
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_1-11 (multiple)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsThree
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_17-27 (multiple)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsThreeFDP
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_12-13 (SSRF, RCE)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsFour
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_14-15 (OS Command Injection)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsFive
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-jenkins-delta-01: cpv_28-29 (OS Command Injection)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01
+    target_harness: JenkinsFiveFDP
+    diff: ~/post/CRSBench/benchmarks/atlanta-jenkins-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-netty-delta-01: cpv_0 (ArrayIndexOutOfBoundsException)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01
+    target_harness: ByteBufUtilFuzzer
+    diff: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-netty-delta-01: cpv_1 (OS Command Injection)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01
+    target_harness: HttpRequestDecoderFuzzer
+    diff: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # atlanta-netty-delta-01: cpv_2 (timeout)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01
+    target_harness: ServerCookieDecoderFuzzer
+    diff: ~/post/CRSBench/benchmarks/atlanta-netty-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # afc-apache-poi-delta-01: cpv_0 (SSRF), cpv_1 (Stack overflow)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/afc-apache-poi-delta-01
+    target_harness: POIXSSFFuzzer
+    diff: ~/post/CRSBench/benchmarks/afc-apache-poi-delta-01/.aixcc/ref.diff
+    language: jvm
+
+  # afc-apache-commons-compress-delta-02: cpv_0 (Out of memory)
+  - fuzz_proj_path: ~/post/CRSBench/benchmarks/afc-apache-commons-compress-delta-02
+    target_harness: ExpanderFuzzer
+    diff: ~/post/CRSBench/benchmarks/afc-apache-commons-compress-delta-02/.aixcc/ref.diff
+    language: jvm

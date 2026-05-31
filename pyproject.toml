@@ -26,9 +26,10 @@ dependencies = [
 [project.scripts]
 oss-crs = "oss_crs.src.cli.crs_compose:main"
 verify = "scripts.verify:main"
+sanity-check = "sanity_check.run_all:main"
 
 [tool.setuptools.packages.find]
-include = ["oss_crs*", "scripts"]
+include = ["oss_crs*", "scripts", "sanity_check"]
 
 [tool.setuptools.package-data]
 "oss_crs.src.templates" = ["*.j2", "*.py"]

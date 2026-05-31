@@ -1,0 +1,15 @@
+# Example sanity-check config file.
+# Usage: uv run sanity-check --config sanity_check/example_config.yaml
+
+# CRSs to skip (optional). These won't be tested even if they're in the
+# registry.  Useful for CRSs that are known-broken or need special setup.
+skip_crs:
+  - crs-shellphish-grammar
+  - crs-vincent
+
+# Targets to test each CRS against.  Every CRS is run against every target.
+# Paths can be absolute or relative to this config file's directory.
+targets:
+  - fuzz_proj_path: ../oss_crs/tests/integration/fixtures/mock-c-project
+    target_harness: fuzz_parse_buffer
+    target_source_path: ../oss_crs/tests/integration/fixtures/mock-c-repo
