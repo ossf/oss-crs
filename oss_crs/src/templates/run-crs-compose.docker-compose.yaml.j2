@@ -38,7 +38,7 @@ services:
 {%- if llm_context is defined and llm_context.mode == "internal" %}
     depends_on:
       oss-crs-litellm-key-gen:
-  condition: service_healthy
+        condition: service_healthy
 {%- endif %}
 {%- if llm_context is defined and crs.name in llm_context.secret_files %}
     secrets:

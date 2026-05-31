@@ -84,86 +84,48 @@ def get_available_models() -> list[str]:
         return []
 
 
-def get_global_spend_report() -> dict | list | None:
-    """Fetch global spend report from LiteLLM."""
-    url = f"{LITELLM_API_URL}/global/spend/report"
+def get_key_spend(api_key: str) -> float:
+    """Fetch cumulative spend for a single key via /key/info."""
+    url = f"{LITELLM_API_URL}/key/info"
     headers = {
         "Authorization": f"Bearer {LITELLM_MASTER_KEY}",
     }
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(
+            url, headers=headers, params={"key": api_key}, timeout=30
+        )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        info = data.get("info") or data
+        spend = info.get("spend")
+        if isinstance(spend, (int, float)):
+            return float(spend)
+        return 0.0
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching global spend report: {e}")
-        return None
+        print(f"Error fetching spend for key: {e}")
+        return 0.0
 
 
-def _iter_dicts(obj):
-    if isinstance(obj, dict):
-        yield obj
-        for v in obj.values():
-            yield from _iter_dicts(v)
-    elif isinstance(obj, list):
-        for item in obj:
-            yield from _iter_dicts(item)
-
-
-def _as_float(value) -> float | None:
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
-
-
-def summarize_spend_report(report, key_requests: dict[str, dict]) -> dict:
-    """Build a stable summary with totals and per-CRS credits used."""
-    per_key: dict[str, float] = {}
-
-    if report is not None:
-        for entry in _iter_dicts(report):
-            key = None
-            for key_field in ("api_key", "key", "user_api_key", "token"):
-                raw_key = entry.get(key_field)
-                if isinstance(raw_key, str) and raw_key:
-                    key = raw_key
-                    break
-            if key is None:
-                continue
-
-            spend = None
-            for spend_field in ("spend", "total_spend", "credits_used", "cost"):
-                spend = _as_float(entry.get(spend_field))
-                if spend is not None:
-                    break
-            if spend is None:
-                continue
-            per_key[key] = per_key.get(key, 0.0) + spend
-
+def collect_spend_summary(key_requests: dict[str, dict]) -> dict:
+    """Build spend summary by querying per-key spend from LiteLLM."""
     crs_summary: dict[str, dict[str, float]] = {}
+    total = 0.0
     for crs_name, info in key_requests.items():
         api_key = str(info.get("api_key", ""))
-        crs_summary[crs_name] = {"credits_used": round(per_key.get(api_key, 0.0), 6)}
-
-    total = round(sum(v["credits_used"] for v in crs_summary.values()), 6)
+        spend = get_key_spend(api_key) if api_key else 0.0
+        crs_summary[crs_name] = {"credits_used": round(spend, 6)}
+        total += spend
     return {
-        "totals": {"credits_used": total},
+        "totals": {"credits_used": round(total, 6)},
         "crs": crs_summary,
         "updated_at": int(time.time()),
     }
 
 
 def write_spend_summary(summary: dict) -> None:
-    dst = SPEND_REPORT_PATH
-    tmp = f"{dst}.tmp"
-    with open(tmp, "w") as f:
+    with open(SPEND_REPORT_PATH, "w") as f:
         json.dump(summary, f, indent=2, sort_keys=True)
         f.write("\n")
-    os.replace(tmp, dst)
 
 
 def main():
@@ -200,10 +162,9 @@ def main():
     with open(READY_FILE_PATH, "w") as f:
         f.write("ready\n")
 
-    # Poll LiteLLM spend report and keep writing a host-recoverable summary file.
+    # Poll LiteLLM spend and keep writing a host-recoverable summary file.
     while not _SHUTDOWN:
-        report = get_global_spend_report()
-        summary = summarize_spend_report(report, key_requests)
+        summary = collect_spend_summary(key_requests)
         write_spend_summary(summary)
         time.sleep(max(SPEND_POLL_INTERVAL_SEC, 1))
 
