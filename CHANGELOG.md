@@ -8,12 +8,11 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
-- **Breaking (Python API)** `libCRS`: `apply_patch_build` and `apply_patch_test` argument order changed. `response_dir` is now the first positional argument; the target-source patch is now `target_source_patch_path` (keyword-only). A new `fuzz_proj_patch_path` keyword argument triggers a full image rebuild from a patched OSS-Fuzz project directory.
-  - Old: `crs.apply_patch_build(patch, response_dir, builder_name=...)` 
-  - New: `crs.apply_patch_build(response_dir, target_source_patch_path=patch, builder_name=...)`
-- **Shell API** `libcrs apply-patch-build`, `libcrs apply-patch-test`, `libcrs run-pov` now use named flags exclusively. `--response-dir` is required; patch inputs use `--target-source` and/or `--fuzz-proj`; POV path uses `--pov-path`. Old positional usage is still accepted with a deprecation warning printed to stderr.
+- `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
 
 ### Added
+- `libCRS build-project --response-dir <dir> [--fuzz-proj-dir <dir>] [--target-source-dir <dir>]` — rebuild the project image from a modified fuzz-proj and/or target-source **directory** (Python: `build_project(response_dir, fuzz_proj_dir=None, target_source_dir=None, builder=None, builder_name=None, rebuild_id=None)`). libCRS diffs each directory against its base mount (`/OSS_CRS_FUZZ_PROJ`, `/OSS_CRS_TARGET_SOURCE`) and applies the resulting patch via the builder sidecar's `/build` endpoint; at least one directory is required. Used by harness-gen CRSs to validate generated harnesses without hand-writing diffs.
+- `libCRS submit-harness --fuzz-proj-dir <dir> [--target-source-dir <dir>] [--name <name>]` — submit a generated harness project as directories (Python: `submit_harness(fuzz_proj_dir, target_source_dir=None, name=None)`). Syncs them to `OSS_CRS_SUBMIT_DIR/harness-projs/<name>/{fuzz-proj,target-source}/`. `target-source` is omitted when the harness needs no source-level changes.
 - `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
 - `--latest` flag for `oss-crs artifacts` and `oss-crs archive` — automatically selects the most recent run instead of prompting interactively.
 - `oss-crs gen-compose --litellm-proxy KEY_ENV PROVIDERS [BASE_URL_ENV]` — override litellm config env vars to route selected providers through a proxy. Only rewrites entries that use known default provider keys; custom keys (e.g. `VLLM_KEY`) are never touched.

@@ -348,6 +348,28 @@ $ libCRS submit seed /tmp/interesting-input
 $ libCRS submit bug-candidate /tmp/bug-report
 ```
 
+#### `submit-harness` ✅
+
+Submit a generated harness project as directories (used by harness-gen CRSs). Unlike `submit`, which handles single files, this submits the modified fuzz-proj directory and, optionally, the modified target-source directory.
+
+```bash
+$ libCRS submit-harness --fuzz-proj-dir <dir> [--target-source-dir <dir>] [--name <name>]
+```
+
+| Argument | Description |
+|---|---|
+| `--fuzz-proj-dir` | **(Required)** Modified OSS-Fuzz project directory |
+| `--target-source-dir` | Modified target source tree — only when the harness needs source-level changes |
+| `--name` | Subdir name under `harness-projs/` (defaults to the fuzz-proj dir's basename) |
+
+The directories are placed under `OSS_CRS_SUBMIT_DIR/harness-projs/<name>/{fuzz-proj,target-source}/` so a consumer can reconstruct and rebuild the harness.
+
+**Example:**
+```bash
+$ libCRS submit-harness --fuzz-proj-dir /work/fuzz-proj \
+    --target-source-dir /work/target-src --name tmux
+```
+
 #### `fetch` ✅
 
 Fetch shared data from other CRSs (and bootup data) to a local directory. Returns a list of newly downloaded file names (one per line). Files already present in the destination are skipped.
@@ -430,6 +452,30 @@ The command exits with the build's exit code (0 = success, non-zero = failure). 
 $ libCRS apply-patch-build /tmp/fix.diff /tmp/build-result
 $ cat /tmp/build-result/rebuild_id
 2
+```
+
+#### `build-project` ✅
+
+Rebuild the project image from a modified fuzz-proj and/or target-source **directory** (rather than a patch). libCRS diffs each directory against its base mount (`/OSS_CRS_FUZZ_PROJ`, `/OSS_CRS_TARGET_SOURCE`) to produce the patch it applies via the builder sidecar's `/build` endpoint — so callers never hand-write a diff. Used by harness-gen CRSs to validate generated harnesses. Unlike `apply-patch-build` (which applies a single source patch to the existing build), this performs a full image rebuild from the patched project.
+
+```bash
+$ libCRS build-project --response-dir <dir> [--fuzz-proj-dir <dir>] [--target-source-dir <dir>]
+```
+
+| Argument | Description |
+|---|---|
+| `--response-dir` | **(Required)** Directory to receive build results |
+| `--fuzz-proj-dir` | Modified OSS-Fuzz project directory (diffed against the fuzz-proj base) |
+| `--target-source-dir` | Modified target source directory (diffed against the target-source base) |
+| `--builder-name` | Builder config name (e.g., `default-build`). Auto-detected if omitted. |
+| `--rebuild-id` | Rebuild ID (auto-increments if omitted) |
+
+At least one of `--fuzz-proj-dir` / `--target-source-dir` is required. The response directory contains the same `retcode` / `rebuild_id` / `stdout.log` / `stderr.log` as `apply-patch-build`.
+
+**Example:**
+```bash
+$ libCRS build-project --response-dir /tmp/build-result \
+    --fuzz-proj-dir /work/fuzz-proj --target-source-dir /work/target-src
 ```
 
 #### `run-pov` ✅
@@ -562,9 +608,11 @@ libCRS submit patch /tmp/patch.diff
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
 | `register-log-dir` | ✅ Implemented | Symlink-based log persistence to host |
 | `submit` | ✅ Implemented | Single-file submission |
+| `submit-harness` | ✅ Implemented | Directory submission (fuzz-proj + optional target-source) to `harness-projs/` |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
 | `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |
 | `apply-patch-build` | ✅ Implemented | Ephemeral rebuild via builder sidecar |
+| `build-project` | ✅ Implemented | Full image rebuild from modified dir(s); diffs against base mounts |
 | `run-pov` | ✅ Implemented | PoV reproduction via runner sidecar |
 | `apply-patch-test` | ✅ Implemented | Patch + test.sh via builder sidecar |
 | `fetch` | ✅ Implemented | One-shot fetch from FETCH_DIR via InfraClient |

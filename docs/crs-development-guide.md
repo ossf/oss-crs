@@ -364,7 +364,21 @@ libCRS get-service-domain <service_name>
 libCRS apply-patch-build <patch_path> <response_dir>
 libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
 libCRS apply-patch-test <patch_path> <response_dir>
+
+# Harness generation (directory-based)
+libCRS download-source fuzz-proj <dir>          # download the OSS-Fuzz project
+libCRS download-source target-source <dir>      # download the upstream source
+libCRS build-project --response-dir <dir> \     # validate: diffs dirs vs base, rebuilds
+  --fuzz-proj-dir <dir> [--target-source-dir <dir>]
+libCRS submit-harness --fuzz-proj-dir <dir> \   # submit the generated harness project
+  [--target-source-dir <dir>] [--name <name>]
 ```
+
+A harness-gen CRS downloads the fuzz-proj and target source, edits the working
+copies (new harness source lives wherever it naturally belongs — the fuzz-proj
+or the target source tree), validates with `build-project` (libCRS diffs the
+directories against their base mounts and rebuilds — no hand-written diffs),
+then `submit-harness` to publish both directories.
 
 For the complete libCRS reference, see [design/libCRS.md](design/libCRS.md).
 
