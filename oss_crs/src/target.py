@@ -211,8 +211,14 @@ class Target:
         if not self._has_repo:
             return True
 
-        # Use file lock to prevent race conditions when multiple runs access same repo
-        lock_path = self.repo_path.parent / ".repo.lock"
+        # Use file lock to prevent race conditions when multiple runs access same repo.
+        # For a user-provided repo the input dir is treated as read-only (and may be
+        # root-owned, e.g. harness-gen artifacts), so keep the lock in our own work dir.
+        lock_path = (
+            self.work_dir / ".repo.lock"
+            if self._user_provided_repo
+            else self.repo_path.parent / ".repo.lock"
+        )
         with file_lock(lock_path):
             title = f"Setting up Target {self.name}"
             head = [
