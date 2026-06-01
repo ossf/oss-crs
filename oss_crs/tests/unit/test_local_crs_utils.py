@@ -697,9 +697,7 @@ class TestDiffAgainstBase:
         shutil.copytree(base_dir, dst_dir)
         diff_file = dst_dir.parent / "applied.diff"
         diff_file.write_bytes(diff_bytes)
-        subprocess.run(
-            ["git", "apply", str(diff_file)], cwd=str(dst_dir), check=True
-        )
+        subprocess.run(["git", "apply", str(diff_file)], cwd=str(dst_dir), check=True)
 
     def test_roundtrip_modify_add_delete(self, tmp_path):
         base = tmp_path / "base"

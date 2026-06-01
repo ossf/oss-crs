@@ -81,9 +81,7 @@ def test_fuzz_proj_patching(cli_runner, fuzz_proj_compose, mock_repo):
         "fuzz-proj-e2e",
         timeout=600,
     )
-    assert result.returncode == 0, (
-        f"build-target failed:\n{result.stdout[-3000:]}"
-    )
+    assert result.returncode == 0, f"build-target failed:\n{result.stdout[-3000:]}"
 
     result = cli_runner(
         "run",

@@ -85,8 +85,7 @@ def git_trust_env(config_dir: Path):
     cfg = config_dir / ".gitconfig-trust"
     cfg.write_text("[safe]\n\tdirectory = *\n")
     saved = {
-        key: os.environ.get(key)
-        for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+        key: os.environ.get(key) for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
     }
     os.environ["GIT_CONFIG_GLOBAL"] = str(cfg)
     os.environ["GIT_CONFIG_SYSTEM"] = os.devnull

@@ -64,7 +64,9 @@ _executor = ThreadPoolExecutor(
 )
 
 
-def _make_job_id(patch_content: bytes, builder_name: str = "", fuzz_proj_patch_content: bytes = b"") -> str:
+def _make_job_id(
+    patch_content: bytes, builder_name: str = "", fuzz_proj_patch_content: bytes = b""
+) -> str:
     """Deterministic job ID: SHA256 of PROJECT_NAME:SANITIZER:builder_name:patch_content[:fuzz_proj], 12-char hex."""
     project = os.environ.get("PROJECT_NAME", "unknown")
     sanitizer = os.environ.get("SANITIZER", "unknown")
@@ -133,7 +135,9 @@ async def submit_build(
     if not patch_content and not fuzz_proj_patch_content:
         return JSONResponse(
             status_code=422,
-            content={"error": "At least one of patch or fuzz_proj_patch must be provided"},
+            content={
+                "error": "At least one of patch or fuzz_proj_patch must be provided"
+            },
         )
 
     job_id = _make_job_id(patch_content, builder_name, fuzz_proj_patch_content)
@@ -201,10 +205,14 @@ async def run_test(
     if not patch_content and not fuzz_proj_patch_content:
         return JSONResponse(
             status_code=422,
-            content={"error": "At least one of patch or fuzz_proj_patch must be provided"},
+            content={
+                "error": "At least one of patch or fuzz_proj_patch must be provided"
+            },
         )
 
-    job_id = "test:" + _make_job_id(patch_content, fuzz_proj_patch_content=fuzz_proj_patch_content)
+    job_id = "test:" + _make_job_id(
+        patch_content, fuzz_proj_patch_content=fuzz_proj_patch_content
+    )
 
     if job_id in job_results:
         existing = job_results[job_id]
@@ -221,7 +229,15 @@ async def run_test(
 
     job_results[job_id] = {"id": job_id, "status": "queued"}
     _executor.submit(
-        _run_job, "test", job_id, patch_content, fuzz_proj_patch_content, crs_name, rebuild_id, cpuset, mem_limit
+        _run_job,
+        "test",
+        job_id,
+        patch_content,
+        fuzz_proj_patch_content,
+        crs_name,
+        rebuild_id,
+        cpuset,
+        mem_limit,
     )
     return JobResponse(id=job_id, status="queued")
 

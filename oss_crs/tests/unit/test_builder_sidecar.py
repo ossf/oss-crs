@@ -819,7 +819,7 @@ class TestHandleTestProjectImage:
                 },
                 clear=False,
             ):
-                server._handle_test("job1", b"patch", TEST_CRS_NAME, 1, "", "")
+                server._handle_test("job1", b"patch", b"", TEST_CRS_NAME, 1, "", "")
         mock_client.containers.create.assert_called_once()
         call_args = mock_client.containers.create.call_args
         image_arg = call_args[0][0] if call_args[0] else call_args[1].get("image")
@@ -838,7 +838,7 @@ class TestHandleTestProjectImage:
         with patch("docker_ops.docker.from_env", return_value=mock_client):
             with patch.dict(_os.environ, env_without_project_base, clear=True):
                 with pytest.raises(ValueError, match="PROJECT_BASE_IMAGE"):
-                    server._handle_test("job1", b"patch", TEST_CRS_NAME, 1, "", "")
+                    server._handle_test("job1", b"patch", b"", TEST_CRS_NAME, 1, "", "")
 
     def test_handle_test_ignores_builder_base_image(self, tmp_path):
         """_handle_test() does not read BASE_IMAGE_{builder_name} even when set."""
@@ -852,7 +852,7 @@ class TestHandleTestProjectImage:
         }
         with patch("docker_ops.docker.from_env", return_value=mock_client):
             with patch.dict(__import__("os").environ, env_vars, clear=False):
-                server._handle_test("job1", b"patch", TEST_CRS_NAME, 1, "", "")
+                server._handle_test("job1", b"patch", b"", TEST_CRS_NAME, 1, "", "")
         call_args = mock_client.containers.create.call_args
         image_arg = call_args[0][0] if call_args[0] else call_args[1].get("image")
         assert image_arg == "project:correct"

@@ -108,9 +108,7 @@ class CRSArtifacts(BaseModel):
         artifacts.harness_proj = str(submit_path / "harness-projs")
         artifacts.fetch = exchange_dir_base
         artifacts.shared = str(
-            work_dir.get_shared_dir(
-                crs_name, target, run_id, sanitizer, create=False
-            )
+            work_dir.get_shared_dir(crs_name, target, run_id, sanitizer, create=False)
         )
         artifacts.log_dir = str(
             work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)

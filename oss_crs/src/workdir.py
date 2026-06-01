@@ -183,12 +183,7 @@ class WorkDir:
         """
         harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
-        path = (
-            self.get_run_dir(run_id, sanitizer)
-            / "logs"
-            / target_key
-            / harness
-        )
+        path = self.get_run_dir(run_id, sanitizer) / "logs" / target_key / harness
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
@@ -341,10 +336,7 @@ class WorkDir:
         harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
         path = (
-            self.get_run_dir(run_id, sanitizer)
-            / "EXCHANGE_DIR"
-            / target_key
-            / harness
+            self.get_run_dir(run_id, sanitizer) / "EXCHANGE_DIR" / target_key / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)

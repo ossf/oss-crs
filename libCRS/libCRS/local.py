@@ -427,7 +427,14 @@ class LocalCRSUtils(CRSUtils):
             git("commit", "-q", "-m", "base", "--allow-empty")
             # 2. Mirror the modified tree over the base (captures add/del/modify).
             subprocess.run(
-                ["rsync", "-a", "--delete", "--exclude=.git", f"{new_dir}/", f"{work}/"],
+                [
+                    "rsync",
+                    "-a",
+                    "--delete",
+                    "--exclude=.git",
+                    f"{new_dir}/",
+                    f"{work}/",
+                ],
                 check=True,
             )
             git("add", "-A")
