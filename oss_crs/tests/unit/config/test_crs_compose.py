@@ -157,6 +157,61 @@ class TestLLMConfig:
             )
 
 
+class TestCRSComposeConfigEntryNames:
+    """Tests for CRS entry name validation at config load time."""
+
+    @staticmethod
+    def _compose_data(crs_name: str) -> dict:
+        return {
+            "run_env": "local",
+            "docker_registry": "local",
+            "oss_crs_infra": {"cpuset": "0-1", "memory": "8G"},
+            crs_name: {
+                "cpuset": "2-3",
+                "memory": "8G",
+                "source": {"local_path": "/tmp/dummy-crs"},
+            },
+        }
+
+    @pytest.mark.parametrize(
+        "crs_name",
+        [
+            "crs-libfuzzer",
+            "CRS-Name",
+            "myLocalCRS",
+            "42-directed",
+            "atlantis-multilang-given_fuzzer",
+            "a",
+            "A",
+            "a" * 128,
+        ],
+    )
+    def test_valid_crs_entry_names_are_accepted(self, crs_name):
+        config = CRSComposeConfig.from_dict(self._compose_data(crs_name))
+
+        assert crs_name in config.crs_entries
+
+    @pytest.mark.parametrize(
+        "crs_name",
+        [
+            "../evil",
+            "..",
+            ".",
+            "crs/name",
+            r"crs\name",
+            "crs.name",
+            "crs name",
+            "crs;inject",
+            "_starts-with-underscore",
+            "-starts-with-hyphen",
+            "a" * 129,
+        ],
+    )
+    def test_invalid_crs_entry_names_are_rejected(self, crs_name):
+        with pytest.raises(ValidationError, match="CRS entry names must start"):
+            CRSComposeConfig.from_dict(self._compose_data(crs_name))
+
+
 class TestRemoveKeys:
     """Tests for remove_keys - verifies recursive key removal."""
 

@@ -400,6 +400,10 @@ my-crs:
 #   litellm_config: /path/to/litellm-config.yaml  # Backward-compatible legacy key; will be deprecated after gen-compose is fully implemented.
 ```
 
+The CRS entry name, such as `my-crs` above, must start with a letter or digit
+and contain only letters, digits, hyphens, and underscores. Entry names may be
+up to 128 characters long.
+
 ### Run the Three Phases
 
 ```bash

@@ -306,8 +306,9 @@ The configuration is validated using Pydantic with the following rules:
    - If omitted, OSS-CRS forwards `max_budget: null` to LiteLLM during key generation (no explicit OSS-CRS budget cap).
 
 5. **CRS Entry Name Validation:**
-   - CRS entry names (keys) must be lowercase only
-   - Invalid examples: `"My-CRS"`, `"ATLANTIS"`, `"myLocalCRS"`
-   - Valid examples: `"my-crs"`, `"atlantis"`, `"my-local-crs"`
+   - CRS entry names (keys) must start with a letter or digit and contain only letters, digits, hyphens, and underscores
+   - CRS entry names may be up to 128 characters long
+   - Invalid examples: `"../evil"`, `"."`, `"my/crs"`, `"my crs"`
+   - Valid examples: `"my-crs"`, `"ATLANTIS"`, `"myLocalCRS"`
 
 ---
