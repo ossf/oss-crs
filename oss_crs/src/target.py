@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Optional
 import hashlib
+import os
 import posixpath
 import re
 import subprocess
@@ -67,6 +68,36 @@ def file_lock(lock_path: Path):
         if lock_file:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             lock_file.close()
+
+
+@contextmanager
+def git_trust_env(config_dir: Path):
+    """Temporarily make git trust foreign-owned repositories.
+
+    A user-provided repo (e.g. root-owned harness-gen artifacts inspected by a
+    different user) trips git's dubious-ownership guard. Point git at a private
+    global config carrying ``safe.directory = *`` for the duration, so read-only
+    inspection works without mutating the user's real git config, then restore
+    the prior environment. ``safe.directory`` is only honored from system/global
+    config (never -c), so it must live in a config file.
+    """
+    config_dir.mkdir(parents=True, exist_ok=True)
+    cfg = config_dir / ".gitconfig-trust"
+    cfg.write_text("[safe]\n\tdirectory = *\n")
+    saved = {
+        key: os.environ.get(key)
+        for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+    }
+    os.environ["GIT_CONFIG_GLOBAL"] = str(cfg)
+    os.environ["GIT_CONFIG_SYSTEM"] = os.devnull
+    try:
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def extract_name_from_proj_path(proj_path: str) -> str:
@@ -298,53 +329,56 @@ class Target:
             self.repo_hash = self.__get_proj_hash()
             return self.repo_hash
 
-        repo = git.Repo(self.repo_path)
-        commit_hash = repo.head.commit.hexsha
+        # The repo may be user-provided and foreign-owned (e.g. root-owned
+        # harness-gen artifacts), which trips git's dubious-ownership guard.
+        with git_trust_env(self.work_dir):
+            repo = git.Repo(self.repo_path)
+            commit_hash = repo.head.commit.hexsha
 
-        # Check if working directory is clean
-        if not repo.is_dirty(untracked_files=True):
-            self.repo_hash = commit_hash[:12]
+            # Check if working directory is clean
+            if not repo.is_dirty(untracked_files=True):
+                self.repo_hash = commit_hash[:12]
+                return self.repo_hash
+
+            # Dirty working directory - combine commit hash with changes
+            hasher = hashlib.sha256()
+            hasher.update(commit_hash.encode())
+
+            # Get list of changed tracked files (modified + deleted + staged)
+            changed_files = set()
+            # Unstaged changes
+            for diff_item in repo.index.diff(None):
+                changed_files.add(diff_item.a_path)
+            # Staged changes
+            for diff_item in repo.index.diff("HEAD"):
+                changed_files.add(diff_item.a_path)
+
+            # Process tracked changed files in sorted order
+            for file_path in sorted(changed_files):
+                full_path = self.repo_path / file_path
+                hasher.update(f"\n--- changed: {file_path}\n".encode())
+                if full_path.exists() and full_path.is_file():
+                    try:
+                        # Read file as binary to handle both text and binary files
+                        hasher.update(full_path.read_bytes())
+                    except Exception:
+                        hasher.update(b"<read-error>")
+                else:
+                    # File was deleted
+                    hasher.update(b"<deleted>")
+
+            # Process untracked files in sorted order
+            for file_path in sorted(repo.untracked_files):
+                full_path = self.repo_path / file_path
+                if full_path.is_file():
+                    hasher.update(f"\n--- untracked: {file_path}\n".encode())
+                    try:
+                        hasher.update(full_path.read_bytes())
+                    except Exception:
+                        hasher.update(b"<read-error>")
+
+            self.repo_hash = hasher.hexdigest()[:12]
             return self.repo_hash
-
-        # Dirty working directory - combine commit hash with changes
-        hasher = hashlib.sha256()
-        hasher.update(commit_hash.encode())
-
-        # Get list of changed tracked files (modified + deleted + staged)
-        changed_files = set()
-        # Unstaged changes
-        for diff_item in repo.index.diff(None):
-            changed_files.add(diff_item.a_path)
-        # Staged changes
-        for diff_item in repo.index.diff("HEAD"):
-            changed_files.add(diff_item.a_path)
-
-        # Process tracked changed files in sorted order
-        for file_path in sorted(changed_files):
-            full_path = self.repo_path / file_path
-            hasher.update(f"\n--- changed: {file_path}\n".encode())
-            if full_path.exists() and full_path.is_file():
-                try:
-                    # Read file as binary to handle both text and binary files
-                    hasher.update(full_path.read_bytes())
-                except Exception:
-                    hasher.update(b"<read-error>")
-            else:
-                # File was deleted
-                hasher.update(b"<deleted>")
-
-        # Process untracked files in sorted order
-        for file_path in sorted(repo.untracked_files):
-            full_path = self.repo_path / file_path
-            if full_path.is_file():
-                hasher.update(f"\n--- untracked: {file_path}\n".encode())
-                try:
-                    hasher.update(full_path.read_bytes())
-                except Exception:
-                    hasher.update(b"<read-error>")
-
-        self.repo_hash = hasher.hexdigest()[:12]
-        return self.repo_hash
 
     def __build_docker_image_with_repo(
         self, image_tag: str, progress: MultiTaskProgress
