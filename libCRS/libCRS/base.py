@@ -124,11 +124,11 @@ class CRSUtils(ABC):
                 harness source) — required.
             target_source_dir: the modified upstream target source tree — optional,
                 provided when the harness requires source-level changes.
-            name: subdirectory name under the harness-projs submit dir; defaults
+            name: subdirectory name under the harnesses submit dir; defaults
                 to fuzz_proj_dir's basename.
 
         The two directories are placed under
-        OSS_CRS_SUBMIT_DIR/harness-projs/<name>/{fuzz-proj,target-source}/ so a
+        OSS_CRS_SUBMIT_DIR/harnesses/<name>/{fuzz-proj,target-source}/ so a
         consumer can reconstruct and rebuild the harness.
         """
         pass

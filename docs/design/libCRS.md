@@ -360,9 +360,9 @@ $ libCRS submit-harness --fuzz-proj-dir <dir> [--target-source-dir <dir>] [--nam
 |---|---|
 | `--fuzz-proj-dir` | **(Required)** Modified OSS-Fuzz project directory |
 | `--target-source-dir` | Modified target source tree — only when the harness needs source-level changes |
-| `--name` | Subdir name under `harness-projs/` (defaults to the fuzz-proj dir's basename) |
+| `--name` | Subdir name under `harnesses/` (defaults to the fuzz-proj dir's basename) |
 
-The directories are placed under `OSS_CRS_SUBMIT_DIR/harness-projs/<name>/{fuzz-proj,target-source}/` so a consumer can reconstruct and rebuild the harness.
+The directories are placed under `OSS_CRS_SUBMIT_DIR/harnesses/<name>/{fuzz-proj,target-source}/` so a consumer can reconstruct and rebuild the harness.
 
 **Example:**
 ```bash
@@ -608,7 +608,7 @@ libCRS submit patch /tmp/patch.diff
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
 | `register-log-dir` | ✅ Implemented | Symlink-based log persistence to host |
 | `submit` | ✅ Implemented | Single-file submission |
-| `submit-harness` | ✅ Implemented | Directory submission (fuzz-proj + optional target-source) to `harness-projs/` |
+| `submit-harness` | ✅ Implemented | Directory submission (fuzz-proj + optional target-source) to `harnesses/` |
 | `get-service-domain` | ✅ Implemented | DNS-verified domain resolution |
 | `register-fetch-dir` | ✅ Implemented | Daemon with periodic polling of FETCH_DIR via InfraClient |
 | `apply-patch-build` | ✅ Implemented | Ephemeral rebuild via builder sidecar |

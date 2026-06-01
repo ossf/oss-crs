@@ -121,7 +121,7 @@ class LocalCRSUtils(CRSUtils):
         if "/" in name or name in ("", ".", ".."):
             raise ValueError(f"Invalid harness name: {name!r}")
 
-        base = Path(get_env("OSS_CRS_SUBMIT_DIR")) / "harness-projs" / name
+        base = Path(get_env("OSS_CRS_SUBMIT_DIR")) / "harnesses" / name
         DirSyncHelper(fuzz_proj_dir, base / "fuzz-proj").sync_once()
 
         if target_source_dir is not None:

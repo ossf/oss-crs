@@ -288,7 +288,7 @@ def main():
         "--name",
         type=str,
         default=None,
-        help="Subdir name under harness-projs (defaults to fuzz-proj dir basename)",
+        help="Subdir name under harnesses (defaults to fuzz-proj dir basename)",
     )
     submit_harness_parser.set_defaults(
         func=lambda args: crs_utils.submit_harness(
