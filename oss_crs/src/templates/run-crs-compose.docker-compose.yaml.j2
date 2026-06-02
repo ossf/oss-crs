@@ -245,9 +245,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - {{ rebuild_out_dir }}:/rebuild_out:rw
+{%- for crs in crs_list %}
+      - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/sidecar-logs/{{ crs.name }}:rw
+{%- endfor %}
     environment:
       - REBUILD_OUT_DIR=/rebuild_out
       - HOST_REBUILD_OUT_DIR={{ rebuild_out_dir }}
+      - SIDECAR_LOG_DIR=/sidecar-logs
 {%- for crs in crs_list %}
 {%- if crs.config.target_build_phase and crs.config.target_build_phase.builds %}
 {%- for build_config in crs.config.target_build_phase.builds %}
@@ -294,9 +298,11 @@ services:
       - {{ rebuild_out_dir }}:/out:rw
 {%- for crs in crs_list %}
       - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/build_out/{{ crs.name }}:ro
+      - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/sidecar-logs/{{ crs.name }}:rw
 {%- endfor %}
     environment:
       - BUILD_OUT_DIR=/build_out
+      - SIDECAR_LOG_DIR=/sidecar-logs
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
       interval: 5s

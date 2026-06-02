@@ -263,6 +263,30 @@ def test_sidecar_emits_project_base_image_env_var(monkeypatch, tmp_path: Path) -
     assert "PROJECT_BASE_IMAGE=project-image:latest" in env_list
 
 
+def test_sidecars_mount_per_crs_log_dir_for_api_logging(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Both sidecars mount each CRS's LOG_DIR and point SIDECAR_LOG_DIR at it.
+
+    This is what lets the servers write libcrs-sidecar-metrics.jsonl into the
+    same per-CRS LOG_DIR that run-meta aggregation reads.
+    """
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-plain")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    services = yaml.safe_load(rendered)["services"]
+    log_mount = f"{tmp_path / 'log'}:/sidecar-logs/crs-plain:rw"
+    for svc in ("oss-crs-builder-sidecar", "oss-crs-runner-sidecar"):
+        assert "SIDECAR_LOG_DIR=/sidecar-logs" in services[svc]["environment"]
+        assert log_mount in services[svc]["volumes"]
+
+
 # ---------------------------------------------------------------------------
 # ROUTE-01 / ROUTE-02: Early exit watch_dirs and artifact_subdir selection
 # ---------------------------------------------------------------------------
