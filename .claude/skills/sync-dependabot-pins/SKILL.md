@@ -88,6 +88,38 @@ for t in data.get('results',[]):
 done
 ```
 
+**If `docker buildx imagetools inspect` returns empty digests** (Docker Hub
+rate-limits anonymous manifest inspects, often hitting newer tags like the
+`18.x` series while older tags still resolve), skip buildx entirely and match
+against the digests already embedded in the Docker Hub tags API response. Each
+tag entry carries a top-level `digest` (the multi-arch OCI index digest, which
+is what the `FROM ...@sha256:` pin uses) plus per-`images` digests:
+
+```bash
+TARGET_DIGEST="sha256:<new-digest>"
+
+for page in 1 2 3; do
+curl -s "https://registry.hub.docker.com/v2/repositories/library/postgres/tags?page_size=100&page=$page&ordering=last_updated" \
+  | python3 -c "
+import json,sys
+target='$TARGET_DIGEST'
+data=json.load(sys.stdin)
+for t in data.get('results',[]):
+    if t.get('digest','')==target:
+        print('MATCH (index digest):', t['name'])
+    for img in t.get('images',[]):
+        if img.get('digest','')==target:
+            print('MATCH (image digest):', t['name'], img.get('os'), img.get('architecture'))
+"
+done
+```
+
+This usually returns several aliases for one digest (e.g. `18.4`, `18`,
+`trixie`, `latest`). Pick the most specific numeric version tag (`18.4`) for the
+comment. Note that a digest bump does **not** always mean a version bump — a
+rebuild of the same version with refreshed base packages keeps the same numeric
+tag, so the existing comment may already be correct.
+
 ### Fallback — Inspect the Dependabot commit message
 
 The commit message from `git log -1 -- oss-crs-infra/dependabot-pins.Dockerfile` sometimes contains release note links. You can also check GHCR tags directly:
