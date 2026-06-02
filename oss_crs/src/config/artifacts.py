@@ -138,6 +138,7 @@ class CRSArtifacts(BaseModel):
     fetch: Optional[str] = None
     shared: Optional[str] = None
     log_dir: Optional[str] = None
+    sidecar_metrics: Optional[str] = None
     run_logs: Optional[str] = None
 
     @classmethod
@@ -178,6 +179,15 @@ class CRSArtifacts(BaseModel):
             artifacts.log_dir = str(
                 work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
             )
+            # Per-CRS sidecar API-call log (build/test/pov), written server-side
+            # by the builder/runner sidecars under LOG_DIR. Counts are summarized
+            # in meta.crs[name].sidecar; this points at the raw JSONL trail. Only
+            # advertised when the sidecars actually produced it.
+            sidecar_metrics_path = work_dir.get_sidecar_metrics_file(
+                crs_name, target, run_id, sanitizer
+            )
+            if sidecar_metrics_path.exists():
+                artifacts.sidecar_metrics = str(sidecar_metrics_path)
             run_logs_root = work_dir.get_run_logs_dir(
                 target, run_id, sanitizer, create=False
             )

@@ -148,6 +148,18 @@ class _FakeWorkDir:
             / target.target_harness
         )
 
+    def get_sidecar_metrics_file(
+        self,
+        crs_name: str,
+        target,
+        run_id: str,
+        sanitizer: str,
+    ):
+        return (
+            self.get_log_dir(crs_name, target, run_id, sanitizer)
+            / "libcrs-sidecar-metrics.jsonl"
+        )
+
 
 def _make_compose(
     tmp_path, resolved_run_id: str | None, resolved_sanitizer: str = "address"
@@ -269,3 +281,39 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
     assert '"patch_tests": 2' in out
     assert '"pov_runs": 8' in out
     assert '"bug_candidates": 2' in out
+
+
+def test_artifacts_advertises_per_crs_sidecar_metrics_path(tmp_path, capsys) -> None:
+    """The per-CRS artifacts block points at the sidecar API-call JSONL."""
+    compose = _make_compose(tmp_path, resolved_run_id="existing-run-id")
+    args = _make_args("existing-run-id")
+    target = _FakeTarget("fuzz_target")
+
+    # The path is only advertised once the sidecars have produced the file.
+    metrics_file = compose.work_dir.get_sidecar_metrics_file(
+        "crs-a", target, "existing-run-id", "address"
+    )
+    metrics_file.parent.mkdir(parents=True, exist_ok=True)
+    metrics_file.write_text('{"event":"run-pov"}\n')
+
+    ok = handle_artifacts(args, compose, target)
+    assert ok is True
+
+    out = json.loads(capsys.readouterr().out)
+    sidecar_path = out["crs"]["crs-a"]["sidecar_metrics"]
+    assert sidecar_path.endswith(
+        "crs/crs-a/mock-proj_deadbeef/LOG_DIR/fuzz_target/libcrs-sidecar-metrics.jsonl"
+    )
+
+
+def test_artifacts_omits_sidecar_metrics_when_file_absent(tmp_path, capsys) -> None:
+    """No sidecar_metrics key is emitted when the JSONL was never written."""
+    compose = _make_compose(tmp_path, resolved_run_id="existing-run-id")
+    args = _make_args("existing-run-id")
+    target = _FakeTarget("fuzz_target")
+
+    ok = handle_artifacts(args, compose, target)
+    assert ok is True
+
+    out = json.loads(capsys.readouterr().out)
+    assert "sidecar_metrics" not in out["crs"]["crs-a"]
