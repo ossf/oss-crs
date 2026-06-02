@@ -21,7 +21,9 @@ from .utils import (
     build_snapshot_tag,
     preserved_builder_image_name,
     rm_with_docker,
+    get_host_memory,
     log_success,
+    log_error,
     log_warning,
     log_dim,
 )
@@ -30,6 +32,8 @@ from .cgroup import (
     check_cgroup_parent_available,
     create_run_cgroups,
     cleanup_cgroup,
+    parse_cpuset,
+    parse_memory_to_bytes,
 )
 
 import docker
@@ -63,6 +67,11 @@ class CRSCompose:
             )
             for name, crs_cfg in self.config.crs_entries.items()
         ]
+
+        builder_count = sum(1 for crs in self.crs_list if crs.config.is_builder)
+        if builder_count > 1:
+            raise ValueError("At most one CRS entry with type 'builder' is allowed")
+
         self.deadline: Optional[float] = None
 
     def _resolve_target_build_options(
@@ -632,6 +641,9 @@ class CRSCompose:
         # Normalize build_id at library boundary; generate timestamp-based ID if not provided
         build_id = normalize_run_id(build_id) if build_id else generate_run_id()
 
+        if not self._validate_machine_resources():
+            return False
+
         target_base_image = target.build_docker_image()
         if target_base_image is None:
             return False
@@ -913,6 +925,52 @@ class CRSCompose:
         if errors:
             return TaskResult(success=False, error="\n".join(errors))
         return TaskResult(success=True)
+
+    def _validate_machine_resources(self) -> bool:
+        """Validate that machine resources and resource config do not conflict."""
+        # Get machine CPU count and memory (in Bytes)
+        machine_cpu_count = os.cpu_count()
+        machine_memory = get_host_memory()
+
+        if machine_cpu_count is None or machine_memory is None:
+            log_warning(
+                "Could not determine machine resources. Skipping resource check."
+            )
+            return True
+
+        # Collect entries for shared infra and all crs
+        entries = [("oss_crs_infra", self.config.oss_crs_infra)]
+        for name, crs_cfg in self.config.crs_entries.items():
+            entries.append((name, crs_cfg))
+
+        total_memory_required = 0
+        max_cpus_required = 0
+
+        for name, cfg in entries:
+            # Calculate max CPU needed
+            try:
+                cpus = parse_cpuset(cfg.cpuset)
+                max_cpus_required = max(max_cpus_required, max(cpus))
+            except ValueError as e:
+                log_warning(f"Failed to validate cpuset for {name}: {e}")
+
+            # Calculate max memory needed
+            try:
+                total_memory_required += parse_memory_to_bytes(cfg.memory)
+            except ValueError as e:
+                log_warning(f"Failed to parse memory for {name}: {e}")
+
+        cpu_check = max_cpus_required < machine_cpu_count
+        memory_check = total_memory_required <= machine_memory
+
+        if not cpu_check or not memory_check:
+            log_error(
+                f"Machine does not have adequate resources. "
+                f"Only {machine_cpu_count} CPUs and {machine_memory // (1024**3)}G memory available. "
+                f"Please edit the compose file. "
+            )
+            return False
+        return True
 
     def __validate_before_run(
         self,

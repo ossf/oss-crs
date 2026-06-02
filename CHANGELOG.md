@@ -31,6 +31,7 @@ stricter subset of Keep a Changelog).
 - 42-directed and 42-seedgen to registry/ and example/
 - `libCRS download-source fuzz-proj <dest>`: copies clean fuzz project
 - `libCRS download-source target-source <dest>`: copies clean target source
+- Warn user when compose file resource configs exceed machine resources (#49)
 
 ### Changed
 - Post-run results are now printed outside the Rich UI box so long artifact directory paths are never truncated by panel border wrapping. Directories are only shown when the artifact count is non-zero.
