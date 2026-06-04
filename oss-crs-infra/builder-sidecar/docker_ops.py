@@ -309,11 +309,91 @@ def _run_ephemeral(
                 pass
 
 
-def _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes: bytes) -> str:
-    """Copy OSS_CRS_FUZZ_PROJ to a temp dir, apply the patch, build and return the new image tag.
+def _builder_env(prefix: str, builder_name: str) -> "str | None":
+    """Look up a per-builder env var, e.g. BUILD_CONTEXT_DEFAULT_BUILD.
 
-    The resulting image is built fresh from the patched fuzz project directory,
-    bypassing any cached snapshots. Used when a fuzz-proj diff is provided.
+    Mirrors the BASE_IMAGE_{NAME} convention used by _resolve_builder_name in
+    server.py: the builder name is upper-cased and '-' replaced with '_'.
+    """
+    key = f"{prefix}_{builder_name.upper().replace('-', '_')}"
+    return os.environ.get(key)
+
+
+def _build_patched_crs_builder_image(
+    builder_name: str, target_base_image: str, job_prefix: str
+) -> "str | None":
+    """Rebuild the CRS builder image on top of a (patched) project image.
+
+    The CRS builder image is built FROM the project image — the same recipe the
+    normal build path runs via docker compose (see build-target.docker-compose.yaml.j2).
+    We replay it here with target_base_image pointed at the freshly patched project
+    image, so callers receive a builder image that incorporates the fuzz-proj diff.
+
+    Requires the compose template to mount the build context + libCRS into the
+    sidecar and to export BUILD_CONTEXT_{NAME}/BUILDER_DOCKERFILE_{NAME}/
+    CRS_VERSION_{NAME}/LIBCRS_PATH. Returns the new builder image tag, or None when
+    the wiring is absent (caller then falls back to the project image).
+    """
+    if not builder_name:
+        # No builder context (e.g. the test path builds against the project image).
+        return None
+
+    build_context = _builder_env("BUILD_CONTEXT", builder_name)
+    dockerfile = _builder_env("BUILDER_DOCKERFILE", builder_name)
+    libcrs_path = os.environ.get("LIBCRS_PATH")
+    if not (build_context and dockerfile and libcrs_path):
+        print(
+            f"[build:{builder_name}] CRS builder rebuild wiring missing "
+            f"(BUILD_CONTEXT/BUILDER_DOCKERFILE/LIBCRS_PATH); "
+            f"returning patched project image instead",
+            flush=True,
+        )
+        return None
+
+    crs_version = _builder_env("CRS_VERSION", builder_name) or ""
+    builder_tag = f"oss-crs-builder-patched:{builder_name}-{job_prefix}"
+
+    # docker-py's images.build() cannot supply BuildKit additional contexts
+    # (--build-context libcrs=...), which the builder Dockerfile relies on, so we
+    # shell out to the standalone buildx binary (talks to the host daemon over the
+    # mounted socket; no docker CLI needed). --load makes the result available in
+    # the local image store for the subsequent ephemeral build container.
+    buildx_bin = os.environ.get("BUILDX_BIN", "docker-buildx")
+    cmd = [
+        buildx_bin,
+        "build",
+        "--load",
+        "-f",
+        dockerfile,
+        "--build-context",
+        f"libcrs={libcrs_path}",
+        "--build-arg",
+        f"target_base_image={target_base_image}",
+        "--build-arg",
+        f"crs_version={crs_version}",
+        "-t",
+        builder_tag,
+        build_context,
+    ]
+    print(
+        f"[build:{builder_name}] rebuilding CRS builder image: {' '.join(cmd)}",
+        flush=True,
+    )
+    subprocess.run(cmd, check=True)
+    return builder_tag
+
+
+def _build_patched_fuzz_proj_image(
+    fuzz_proj_patch_bytes: bytes,
+    builder_name: str = "",
+) -> str:
+    """Apply the fuzz-proj patch, rebuild the project image, then the CRS builder image.
+
+    Copies OSS_CRS_FUZZ_PROJ to a temp dir, applies the patch, and builds a fresh
+    project image (bypassing cached snapshots). It then rebuilds the CRS builder
+    image on top of that patched project image and returns the *builder* image tag
+    so the ephemeral build runs with the CRS's build tooling installed. Falls back
+    to the patched project image tag when the builder-rebuild wiring is absent.
     """
     job_prefix = hashlib.sha256(fuzz_proj_patch_bytes).hexdigest()[:12]
     fuzz_proj_src = os.environ.get("OSS_CRS_FUZZ_PROJ", "/OSS_CRS_FUZZ_PROJ")
@@ -337,11 +417,15 @@ def _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes: bytes) -> str:
         if patch_file.exists():
             patch_file.unlink()
 
-    image_tag = f"oss-crs-fuzz-proj-patched:{job_prefix}"
+    proj_image_tag = f"oss-crs-fuzz-proj-patched:{job_prefix}"
     client = docker.from_env()
     # build() sends the context as a tar to the daemon — no host-path issues.
-    client.images.build(path=str(tmp_dir), tag=image_tag, rm=True)
-    return image_tag
+    client.images.build(path=str(tmp_dir), tag=proj_image_tag, rm=True)
+
+    builder_tag = _build_patched_crs_builder_image(
+        builder_name, proj_image_tag, job_prefix
+    )
+    return builder_tag or proj_image_tag
 
 
 def run_ephemeral_build(
@@ -364,7 +448,7 @@ def run_ephemeral_build(
     client = docker.from_env()
 
     if fuzz_proj_patch_bytes:
-        image = _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes)
+        image = _build_patched_fuzz_proj_image(fuzz_proj_patch_bytes, builder_name)
     else:
         image = get_build_image(client, base_image, builder_name, crs_name)
 

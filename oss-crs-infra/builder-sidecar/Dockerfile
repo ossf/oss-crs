@@ -1,6 +1,20 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# git: apply fuzz-proj patches. buildx: rebuild the CRS builder image on top of the
+# patched project image (needs BuildKit --build-context, which the docker-py SDK
+# cannot supply). The buildx binary runs standalone (it talks to the host daemon
+# over the mounted socket), so we don't need the docker CLI or daemon here — just
+# the plugin binary placed on PATH as `docker-buildx`. Fetched from its official
+# release since it is not in every Debian suite's apt repo.
+ARG BUILDX_VERSION=v0.19.3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git curl ca-certificates \
+    && curl -fsSL \
+        "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
+        -o /usr/local/bin/docker-buildx \
+    && chmod +x /usr/local/bin/docker-buildx \
+    && apt-get purge -y curl && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
 COPY requirements.txt /requirements.txt

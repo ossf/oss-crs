@@ -25,6 +25,13 @@ TARGET_SOURCE_DIFF = Path("/usr/local/bin/target_source_patch.diff")
 
 SENTINEL = "fuzz_proj_patched_sentinel"
 
+# Harness binary produced by mock-c-project/build.sh from fuzz/fuzz_parse_buffer.c.
+# Its presence in the downloaded build output proves the CRS *builder* image (with
+# libCRS + compile_target submitting build artifacts) was used for the rebuild —
+# not the bare patched project image, which lacks submit-build-output.
+HARNESS_NAME = "fuzz_parse_buffer"
+HARNESS_BUILD_OUTPUT = "build"
+
 
 def log(msg: str) -> None:
     print(f"[apply-fuzz-proj-patch] {msg}", flush=True)
@@ -67,6 +74,37 @@ def _build_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwa
     log(f"({label}) rebuild_id={rid_file.read_text().strip()}")
     return True
 
+def _check_harness(crs: "LocalCRSUtils", response_dir: Path, harness_name: str, label: str) -> bool:
+    """Download the build output by rebuild_id and assert the harness binary exists.
+
+    This verifies the rebuild ran the CRS builder image (which compiles the target
+    and submits build artifacts), not merely the patched project image.
+    """
+    rid_file = response_dir / "rebuild_id"
+    if not rid_file.exists():
+        log(f"FAIL ({label}): rebuild_id missing from response dir; cannot download build output")
+        return False
+    rebuild_id = int(rid_file.read_text().strip())
+
+    dst = Path(tempfile.mkdtemp(prefix=f"build-out-{label}-"))
+    try:
+        crs.download_build_output(HARNESS_BUILD_OUTPUT, dst, rebuild_id=rebuild_id)
+        harness_path = dst / harness_name
+        if not harness_path.exists():
+            present = ", ".join(sorted(p.name for p in dst.iterdir())) if dst.exists() else "(none)"
+            log(
+                f"FAIL ({label}): harness '{harness_name}' not found in build output "
+                f"— CRS builder image was NOT used. Present: {present}"
+            )
+            return False
+        log(f"PASS ({label}): harness '{harness_name}' present in build output")
+        return True
+    except Exception as exc:  # noqa: BLE001 - surface any download failure as a test failure
+        log(f"FAIL ({label}): download_build_output failed: {exc}")
+        return False
+    finally:
+        shutil.rmtree(dst, ignore_errors=True)
+
 
 def main() -> int:
     crs = LocalCRSUtils()
@@ -79,6 +117,8 @@ def main() -> int:
     if not _build_and_check(crs, resp1, "fuzz-proj-only", fuzz_proj_dir=fuzz_proj_dir):
         return 1
     if not _check_sentinel(resp1, SENTINEL, "fuzz-proj-only"):
+        return 1
+    if not _check_harness(crs, resp1, HARNESS_NAME, "fuzz-proj-only"):
         return 1
     log("Test 1 PASSED")
 
@@ -93,6 +133,8 @@ def main() -> int:
     ):
         return 1
     if not _check_sentinel(resp2, SENTINEL, "combined"):
+        return 1
+    if not _check_harness(crs, resp2, HARNESS_NAME, "combined"):
         return 1
     log("Test 2 PASSED")
 
