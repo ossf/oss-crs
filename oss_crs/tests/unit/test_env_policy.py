@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: MIT
 from oss_crs.src.env_policy import (
+    additional_env_value_is_resolved,
     build_prepare_env,
     build_run_service_env,
     build_target_builder_env,
+    unresolved_env_references,
 )
 
 
@@ -15,6 +17,18 @@ def test_prepare_env_keeps_version_pinned() -> None:
     )
     assert plan.effective_env["VERSION"] == "1.2.3"
     assert any("ENV001" in warning for warning in plan.warnings)
+
+
+def test_additional_env_value_resolution_reports_unset_references() -> None:
+    host_envs = {"SET_TOKEN"}
+
+    assert additional_env_value_is_resolved("${SET_TOKEN}", host_envs)
+    assert additional_env_value_is_resolved("${OPTIONAL_TOKEN:-fallback}", host_envs)
+    assert additional_env_value_is_resolved("$$ESCAPED_TOKEN", host_envs)
+    assert not additional_env_value_is_resolved("${MISSING_TOKEN}", host_envs)
+    assert unresolved_env_references("${MISSING_TOKEN}-${SET_TOKEN}", host_envs) == {
+        "MISSING_TOKEN"
+    }
 
 
 def test_build_target_env_compose_overrides_build_step_and_system_wins() -> None:

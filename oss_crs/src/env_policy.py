@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 from dataclasses import dataclass
+import re
 from typing import Mapping
 
 from .env_schema import (
@@ -17,11 +18,33 @@ OSS_FUZZ_TARGET_ENV = {
     "FUZZING_LANGUAGE": "language",
 }
 
+ENV_INTERPOLATION_RE = re.compile(
+    r"(?<!\$)\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])[^}]*)?\}|([A-Za-z_][A-Za-z0-9_]*))"
+)
+
 
 @dataclass
 class EnvPlan:
     effective_env: dict[str, str]
     warnings: list[str]
+
+
+def unresolved_env_references(value: object, host_envs: set[str]) -> set[str]:
+    """Return host env names referenced by value that are not available now."""
+    unresolved: set[str] = set()
+    for match in ENV_INTERPOLATION_RE.finditer(str(value)):
+        env_name = match.group(1) or match.group(3)
+        operator = match.group(2)
+        if operator in ("-", ":-"):
+            continue
+        if env_name not in host_envs:
+            unresolved.add(env_name)
+    return unresolved
+
+
+def additional_env_value_is_resolved(value: object, host_envs: set[str]) -> bool:
+    """Return whether a compose additional_env value can be resolved now."""
+    return not unresolved_env_references(value, host_envs)
 
 
 def _merge_envs(*env_maps: Mapping[str, str] | None) -> dict[str, str]:

@@ -8,7 +8,12 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
-from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
+from .env_policy import (
+    OSS_FUZZ_TARGET_ENV,
+    additional_env_value_is_resolved,
+    build_target_builder_env,
+    unresolved_env_references,
+)
 from .llm import LLM
 from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
@@ -35,23 +40,6 @@ from .cgroup import (
 import docker
 import docker.errors
 import requests.exceptions
-
-
-_ENV_INTERPOLATION_RE = re.compile(
-    r"(?<!\$)\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])[^}]*)?\}|([A-Za-z_][A-Za-z0-9_]*))"
-)
-
-
-def _additional_env_value_is_resolved(value: object, host_envs: set[str]) -> bool:
-    """Return whether a compose additional_env value can be resolved now."""
-    for match in _ENV_INTERPOLATION_RE.finditer(str(value)):
-        env_name = match.group(1) or match.group(3)
-        operator = match.group(2)
-        if operator in ("-", ":-"):
-            continue
-        if env_name not in host_envs:
-            return False
-    return True
 
 
 class CRSCompose:
@@ -934,40 +922,57 @@ class CRSCompose:
     def _validate_required_envs(self) -> TaskResult:
         """Validate that all CRS-declared required_envs are available."""
         errors: list[str] = []
+        warnings: list[str] = []
         host_envs = set(os.environ)
 
         for crs in self.crs_list:
             required_envs = getattr(crs.config, "required_envs", None)
-            if not required_envs:
-                continue
+            required_env_set = set(required_envs or [])
 
             additional_envs: set[str] = set()
+
+            def inspect_additional_env(
+                env_map: dict[str, object], *, source: str
+            ) -> None:
+                for key, value in env_map.items():
+                    if additional_env_value_is_resolved(value, host_envs):
+                        additional_envs.add(key)
+                        continue
+                    if key in required_env_set:
+                        continue
+                    missing_refs = ", ".join(
+                        sorted(unresolved_env_references(value, host_envs))
+                    )
+                    warnings.append(
+                        f"CRS '{crs.name}' optional {source} additional_env "
+                        f"'{key}' references unset host environment variable(s): "
+                        f"{missing_refs}. Set them to enable this optional env, "
+                        f"or add '{key}' to required_envs if it is mandatory."
+                    )
+
             resource = getattr(crs, "resource", None)
             if resource is not None and getattr(resource, "additional_env", None):
-                additional_envs.update(
-                    key
-                    for key, value in resource.additional_env.items()
-                    if _additional_env_value_is_resolved(value, host_envs)
+                inspect_additional_env(
+                    resource.additional_env,
+                    source="CRS entry",
                 )
             target_build_phase = getattr(crs.config, "target_build_phase", None)
             if target_build_phase is not None:
                 for build in target_build_phase.builds:
-                    additional_envs.update(
-                        key
-                        for key, value in build.additional_env.items()
-                        if _additional_env_value_is_resolved(value, host_envs)
+                    inspect_additional_env(
+                        build.additional_env,
+                        source="build",
                     )
             crs_run_phase = getattr(crs.config, "crs_run_phase", None)
             if crs_run_phase is not None:
                 for module in crs_run_phase.modules.values():
-                    additional_envs.update(
-                        key
-                        for key, value in module.additional_env.items()
-                        if _additional_env_value_is_resolved(value, host_envs)
+                    inspect_additional_env(
+                        module.additional_env,
+                        source="run module",
                     )
 
             available = host_envs | additional_envs
-            missing = set(required_envs) - available
+            missing = required_env_set - available
             if missing:
                 env_list = ", ".join(sorted(missing))
                 errors.append(
@@ -976,6 +981,9 @@ class CRSCompose:
                     f"Please set them in the host environment or provide them "
                     "through additional_env."
                 )
+
+        for warning in warnings:
+            log_warning(warning)
 
         if errors:
             return TaskResult(success=False, error="\n".join(errors))
