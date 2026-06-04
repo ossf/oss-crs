@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Added
 - `required_envs` in CRS configuration — declares environment variables a CRS needs and fails fast before `oss-crs run` when they are missing from the host environment and compose `additional_env`.
+- `additional_env` preflight warnings for optional env placeholders that reference unset host environment variables.
 - `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
 - `--latest` flag for `oss-crs artifacts` and `oss-crs archive` — automatically selects the most recent run instead of prompting interactively.
 - `oss-crs gen-compose --litellm-proxy KEY_ENV PROVIDERS [BASE_URL_ENV]` — override litellm config env vars to route selected providers through a proxy. Only rewrites entries that use known default provider keys; custom keys (e.g. `VLLM_KEY`) are never touched.

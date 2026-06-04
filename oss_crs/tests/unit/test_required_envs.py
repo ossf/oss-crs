@@ -2,6 +2,7 @@
 """Unit tests for required_envs validation in CRSCompose."""
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from oss_crs.src.crs_compose import CRSCompose
 
@@ -88,10 +89,12 @@ def test_required_env_fails_when_additional_env_placeholder_is_missing(monkeypat
     compose = _make_compose(
         [_FakeCRS("crs-a", ["API_KEY"], resource_env={"API_KEY": "${API_KEY}"})]
     )
-    result = compose._validate_required_envs()
+    with patch("oss_crs.src.crs_compose.log_warning") as mock_warn:
+        result = compose._validate_required_envs()
     assert result.success is False
     assert result.error is not None
     assert "API_KEY" in result.error
+    mock_warn.assert_not_called()
 
 
 def test_required_env_passes_when_additional_env_placeholder_has_default(monkeypatch):
@@ -153,3 +156,49 @@ def test_multiple_crs_reports_only_unsatisfied_crs(monkeypatch):
     assert "crs-a" not in result.error
     assert "crs-b" in result.error
     assert "TOKEN" in result.error
+
+
+def test_optional_additional_env_placeholder_warns_when_missing(monkeypatch):
+    monkeypatch.delenv("AIXCC_LITELLM_HOSTNAME", raising=False)
+    compose = _make_compose(
+        [
+            _FakeCRS(
+                "crs-a",
+                ["API_KEY"],
+                resource_env={
+                    "API_KEY": "secret",
+                    "AIXCC_LITELLM_HOSTNAME": "${AIXCC_LITELLM_HOSTNAME}",
+                },
+            )
+        ]
+    )
+
+    with patch("oss_crs.src.crs_compose.log_warning") as mock_warn:
+        result = compose._validate_required_envs()
+
+    assert result.success is True
+    mock_warn.assert_called_once()
+    warning = mock_warn.call_args[0][0]
+    assert "crs-a" in warning
+    assert "AIXCC_LITELLM_HOSTNAME" in warning
+    assert "optional CRS entry additional_env" in warning
+    assert "required_envs" in warning
+
+
+def test_optional_additional_env_placeholder_default_does_not_warn(monkeypatch):
+    monkeypatch.delenv("OPTIONAL_TOKEN", raising=False)
+    compose = _make_compose(
+        [
+            _FakeCRS(
+                "crs-a",
+                [],
+                resource_env={"OPTIONAL_TOKEN": "${OPTIONAL_TOKEN:-unused}"},
+            )
+        ]
+    )
+
+    with patch("oss_crs.src.crs_compose.log_warning") as mock_warn:
+        result = compose._validate_required_envs()
+
+    assert result.success is True
+    mock_warn.assert_not_called()
