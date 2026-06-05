@@ -239,6 +239,15 @@ fi
 
 Each module in `crs_run_phase` becomes a container at runtime. Modules share a private Docker network (for intra-CRS communication) and have access to shared infrastructure.
 
+Your run-phase module Dockerfile receives these build args and contexts:
+
+- **`target_base_image`** — The target's built image (source code + build environment). Build `FROM` this when your module needs the build toolchain or to run harnesses in the exact environment they were compiled in.
+- **`base_runner_image`** — The OSS-Fuzz `base-runner` image whose OS matches the target's `base_os_version` from `project.yaml` (e.g. `gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04`, or `:latest` when unspecified). Build `FROM` this when your module only needs a clean runtime to execute prebuilt harness binaries.
+- **`crs_version`** — Your CRS version string.
+- **`libcrs`** — An additional build context containing the libCRS library.
+
+> **Choosing a base image (avoiding GLIBC errors):** harness binaries are linked against the glibc/ABI of the OS they were built on. A runner that executes them must use a matching OS, or loading fails with `version 'GLIBC_2.xx' not found`. Use `FROM ${base_runner_image}` (not a hardcoded `base-runner` tag) so the runtime OS always matches the builder — the framework resolves the right tag from `base_os_version`.
+
 ### Example Run-Phase Dockerfile
 
 ```dockerfile
@@ -260,6 +269,26 @@ RUN chmod +x /opt/run-fuzzer.sh
 
 CMD ["/opt/run-fuzzer.sh"]
 ```
+
+### Variant: clean runner for prebuilt harnesses
+
+A module that only executes harness binaries from the build phase should start from `base_runner_image` so its OS matches the build toolchain:
+
+```dockerfile
+# oss-crs/dockerfiles/runner.Dockerfile
+
+ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest
+FROM ${base_runner_image}
+
+# Install libCRS
+COPY --from=libcrs . /libCRS
+RUN /libCRS/install.sh
+
+COPY ./run_fuzzer_wrapper.sh /usr/local/bin/run_fuzzer_wrapper.sh
+ENTRYPOINT ["/usr/local/bin/run_fuzzer_wrapper.sh"]
+```
+
+The `ARG` default keeps the Dockerfile buildable standalone; under `oss-crs run` the framework overrides it with the OS-matched tag.
 
 ### Example Entry Script
 

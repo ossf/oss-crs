@@ -7,6 +7,7 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `base_runner_image` build arg provided to CRS run-phase module Dockerfiles: the OSS-Fuzz `base-runner` image whose OS matches the target's `base_os_version` from `project.yaml`
 - `required_envs` in CRS configuration — declares environment variables a CRS needs and fails fast before `oss-crs run` when they are missing from the host environment and compose `additional_env`.
 - `additional_env` preflight warnings for optional env placeholders that reference unset host environment variables.
 - `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
@@ -82,6 +83,7 @@ stricter subset of Keep a Changelog).
   `_relative_repo_hint`).
 
 ### Fixed
+- Runner/builder OS mismatch for targets pinned to a newer base image. Fixes glibc symbol mismatch errors
 - Builder and runner sidecar APIs now reject path-like CRS, harness, and
   rebuild identifiers before using them to resolve artifact paths.
 - The local run path now passes a `Path` compose-file object consistently into
