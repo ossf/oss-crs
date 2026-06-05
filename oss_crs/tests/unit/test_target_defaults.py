@@ -107,15 +107,10 @@ def test_base_runner_image_matches_pinned_base_os_version(tmp_path: Path) -> Non
     """A pinned base_os_version selects an OS-matched base-runner tag (issue #101)."""
     proj = tmp_path / "proj"
     proj.mkdir(parents=True, exist_ok=True)
-    (proj / "project.yaml").write_text(
-        "language: c\nbase_os_version: ubuntu-24-04\n"
-    )
+    (proj / "project.yaml").write_text("language: c\nbase_os_version: ubuntu-24-04\n")
     target = Target(tmp_path / "work", proj, None)
     assert target.base_os_version == "ubuntu-24-04"
-    assert (
-        target.base_runner_image
-        == "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
-    )
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
 
 
 def test_unknown_base_os_version_warns_but_passes_through(
@@ -124,15 +119,10 @@ def test_unknown_base_os_version_warns_but_passes_through(
     """An unrecognized base_os_version warns yet still maps to a runner tag."""
     proj = tmp_path / "proj"
     proj.mkdir(parents=True, exist_ok=True)
-    (proj / "project.yaml").write_text(
-        "language: c\nbase_os_version: ubuntu-22-04\n"
-    )
+    (proj / "project.yaml").write_text("language: c\nbase_os_version: ubuntu-22-04\n")
     target = Target(tmp_path / "work", proj, None)
     assert target.base_os_version == "ubuntu-22-04"
-    assert (
-        target.base_runner_image
-        == "gcr.io/oss-fuzz-base/base-runner:ubuntu-22-04"
-    )
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-22-04"
     captured = capsys.readouterr()
     assert "Unknown base_os_version 'ubuntu-22-04'" in (captured.out + captured.err)
 
@@ -140,9 +130,7 @@ def test_unknown_base_os_version_warns_but_passes_through(
 def test_known_base_os_version_does_not_warn(tmp_path: Path, capsys) -> None:
     proj = tmp_path / "proj"
     proj.mkdir(parents=True, exist_ok=True)
-    (proj / "project.yaml").write_text(
-        "language: c\nbase_os_version: ubuntu-24-04\n"
-    )
+    (proj / "project.yaml").write_text("language: c\nbase_os_version: ubuntu-24-04\n")
     Target(tmp_path / "work", proj, None)
     captured = capsys.readouterr()
     assert "Unknown base_os_version" not in (captured.out + captured.err)

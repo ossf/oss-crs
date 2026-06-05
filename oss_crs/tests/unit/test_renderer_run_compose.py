@@ -139,13 +139,12 @@ def test_runner_module_receives_base_runner_image_build_arg(
 
     rendered, _ = _render(crs_compose, target, tmp_path)
 
-    build_args = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"][
-        "build"
-    ]["args"]
+    build_args = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]["build"][
+        "args"
+    ]
     assert "target_base_image=memcached:abc123" in build_args
     assert (
-        "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
-        in build_args
+        "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04" in build_args
     )
 
 
