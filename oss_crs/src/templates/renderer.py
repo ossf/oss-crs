@@ -303,6 +303,7 @@ def render_run_crs_compose_docker_compose(
     cgroup_parents: Optional[dict[str, str]] = None,
     incremental_build: bool = False,
     sidecar_env: dict[str, str] | None = None,
+    web_ui: bool = False,
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
     compose_env = crs_compose.crs_compose_env
@@ -387,6 +388,16 @@ def render_run_crs_compose_docker_compose(
         "incremental_build": incremental_build,
         "preserved_builder_image_name": preserved_builder_image_name,
         "sidecar_env": sidecar_env or {},
+        "web_ui": web_ui,
+        "webui_url": "http://host.docker.internal:9090",
+        "webui_log_dir": str(
+            crs_compose.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"
+        ),
+        "crs_resources": {
+            crs.name: {"cpuset": crs.resource.cpuset, "memory": crs.resource.memory}
+            for crs in crs_compose.crs_list
+            if crs.resource
+        },
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

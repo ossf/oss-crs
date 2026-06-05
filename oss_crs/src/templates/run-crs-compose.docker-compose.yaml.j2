@@ -236,6 +236,34 @@ services:
       {{ crs_compose_name }}-infra-only-network:
 {%- endif %}
   ###########################################
+  # OSS-CRS-PUBLISHER (pushes metrics to standalone web-ui)
+  ###########################################
+{%- if web_ui %}
+  oss-crs-publisher:
+    build:
+      context: {{ oss_crs_infra_root_path }}/webui-publisher
+    attach: false
+    restart: on-failure:3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - CRS_NAMES={{ crs_list | map(attribute='name') | join(',') }}
+      - 'CRS_RESOURCES={{ crs_resources | tojson }}'
+      - RUN_ID={{ run_id }}
+      - TARGET_NAME={{ target.name }}
+      - HARNESS_NAME={{ target.target_harness }}
+      - WEBUI_URL={{ webui_url }}
+    volumes:
+      - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:ro
+{%- for crs in crs_list %}
+      - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
+{%- endfor %}
+      - {{ webui_log_dir }}:/webui_logs:rw
+      - {{ work_dir.get_build_output_dir("oss-crs-coverage", target, build_id, sanitizer) }}:/coverage_build:ro
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+{%- endif %}
+  ###########################################
   # OSS-CRS-BUILDER-SIDECAR
   ###########################################
   oss-crs-builder-sidecar:

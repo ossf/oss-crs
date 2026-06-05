@@ -43,6 +43,7 @@ def _make_crs_compose(tmp_path: Path, crs_list: list) -> SimpleNamespace:
             get_log_dir=lambda *_a, **_k: tmp_path / "log",
             get_rebuild_out_dir=lambda *_a, **_k: tmp_path / "rebuild_out",
             get_target_source_dir=lambda *_a, **_k: tmp_path / "target-source",
+            get_run_dir=lambda *_a, **_k: tmp_path / "run",
         ),
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
