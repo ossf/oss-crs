@@ -8,8 +8,7 @@ build
 .vscode
 .oss-patch
 .oss-patch-work
-.claude/*
-!.claude/skills/
+.claude/
 tags
 .planning
 .oss-crs-workdir/
