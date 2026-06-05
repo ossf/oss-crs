@@ -616,6 +616,104 @@ class CRSCompose:
 
         return True
 
+    def _build_coverage(
+        self,
+        target: Target,
+        target_base_image: str,
+        build_id: str,
+        sanitizer: str,
+        progress: MultiTaskProgress,
+        target_source_path: Optional[Path] = None,
+    ) -> "TaskResult":
+        """Build the target with SANITIZER=coverage for coverage collection."""
+        from types import SimpleNamespace
+        from .config.crs import BuildConfig
+
+        webui_infra_path = (
+            Path(__file__).parent / "../../oss-crs-infra/webui"
+        ).resolve()
+
+        build_config = BuildConfig(
+            name="coverage-build",
+            dockerfile=str(webui_infra_path / "coverage-builder.Dockerfile"),
+            outputs=["coverage-build", "coverage-src"],
+        )
+
+        # Use the infra resource config for the coverage build, with an
+        # empty additional_env (ResourceConfig doesn't carry one).
+        infra_resource = self.config.oss_crs_infra
+        resource = SimpleNamespace(
+            cpuset=infra_resource.cpuset,
+            memory=infra_resource.memory,
+            additional_env={},
+        )
+
+        # Create a synthetic CRS-like object for the renderer
+        coverage_crs = SimpleNamespace(
+            name="oss-crs-coverage",
+            crs_path=webui_infra_path,
+            config=SimpleNamespace(version="1.0.0"),
+            crs_compose_env=self.crs_compose_env,
+            resource=resource,
+        )
+
+        build_out_dir = self.work_dir.get_build_output_dir(
+            "oss-crs-coverage", target, build_id, sanitizer
+        )
+
+        def prepare_docker_compose(
+            progress, project_name: str, tmp_docker_compose: TmpDockerCompose
+        ) -> "TaskResult":
+            docker_compose_path = tmp_docker_compose.docker_compose
+            assert docker_compose_path is not None
+            rendered, warnings = renderer.render_build_target_docker_compose(
+                coverage_crs,  # type: ignore[arg-type]  # synthetic CRS-like object
+                target,
+                target_base_image,
+                build_config,
+                build_out_dir,
+                build_id,
+                sanitizer,
+                target_source_path=target_source_path,
+            )
+            for warning in warnings:
+                progress.add_note(warning)
+            docker_compose_path.write_text(rendered)
+            return TaskResult(success=True)
+
+        def build_docker_compose(
+            progress, project_name: str, tmp_docker_compose
+        ) -> TaskResult:
+            return progress.docker_compose_build(
+                project_name, tmp_docker_compose.docker_compose
+            )
+
+        def run_docker_compose(
+            progress, project_name: str, tmp_docker_compose
+        ) -> TaskResult:
+            return progress.docker_compose_run(
+                project_name, tmp_docker_compose.docker_compose, "target_builder"
+            )
+
+        with TmpDockerCompose(progress, "crs") as tmp_docker_compose:
+            project_name = tmp_docker_compose.project_name
+            assert project_name is not None
+            progress.add_task(
+                "Prepare coverage build compose",
+                lambda p: prepare_docker_compose(p, project_name, tmp_docker_compose),
+            )
+            progress.add_task(
+                "Build coverage builder image",
+                lambda p: build_docker_compose(p, project_name, tmp_docker_compose),
+            )
+            progress.add_task(
+                "Run coverage build",
+                lambda p: run_docker_compose(p, project_name, tmp_docker_compose),
+            )
+            return progress.run_added_tasks()
+
+        return TaskResult(success=False, error="Unreachable")
+
     def build_target(
         self,
         target: Target,
@@ -625,6 +723,7 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
         incremental_build: bool = False,
+        coverage: bool = False,
     ) -> bool:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -718,6 +817,22 @@ class CRSCompose:
                     ),
                 )
             )
+
+        if coverage:
+            tasks.append(
+                (
+                    "coverage build",
+                    lambda progress: self._build_coverage(
+                        target,
+                        target_base_image,
+                        build_id,
+                        sanitizer,
+                        progress,
+                        target_source_path=resolved_source_path,
+                    ),
+                )
+            )
+
         with MultiTaskProgress(
             tasks=tasks,
             title="CRS Compose Build Target",
@@ -763,6 +878,7 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -845,8 +961,43 @@ class CRSCompose:
                 bug_candidate=bug_candidate,
                 bug_candidate_dir=bug_candidate_dir,
                 diff=diff,
+                coverage=web_ui,
             ):
                 return 1
+        elif web_ui:
+            # CRS builds exist but coverage build may be missing
+            assert build_id is not None
+            cov_build_dir = self.work_dir.get_build_output_dir(
+                "oss-crs-coverage", target, build_id, sanitizer, create=False
+            )
+            if not (cov_build_dir / "coverage-build").is_dir():
+                target_base_image = target.build_docker_image()
+                if target_base_image is None:
+                    return 1
+                resolved_source_path = (
+                    target.repo_path.resolve()
+                    if target._has_repo
+                    else self.work_dir.get_target_source_dir(
+                        target, build_id, sanitizer, create=False
+                    )
+                )
+                with MultiTaskProgress(
+                    tasks=[],
+                    title="Coverage Build",
+                ) as progress:
+                    progress.add_task(
+                        "coverage build",
+                        lambda p: self._build_coverage(
+                            target,
+                            target_base_image,
+                            build_id,
+                            sanitizer,
+                            p,
+                            target_source_path=resolved_source_path,
+                        ),
+                    )
+                    if not progress.run_added_tasks().success:
+                        return 1
 
         # Collect POV files from --pov and --pov-dir
         pov_files: list[Path] = []
@@ -880,6 +1031,7 @@ class CRSCompose:
             bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
             early_exit=early_exit,
             incremental_build=incremental_build,
+            web_ui=web_ui,
         )
 
     def _validate_required_inputs(
@@ -1076,6 +1228,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -1090,6 +1243,7 @@ class CRSCompose:
                 bug_candidate=bug_candidate,
                 early_exit=early_exit,
                 incremental_build=incremental_build,
+                web_ui=web_ui,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -1108,6 +1262,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -1199,6 +1354,7 @@ class CRSCompose:
                             cgroup_parents=cgroup_parents,
                             bug_candidate=bug_candidate,
                             incremental_build=incremental_build,
+                            web_ui=web_ui,
                         ),
                     ),
                     (
@@ -1557,6 +1713,7 @@ class CRSCompose:
         cgroup_parents: Optional[dict[str, str]] = None,
         bug_candidate: Optional[Path] = None,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
@@ -1605,6 +1762,7 @@ class CRSCompose:
                 cgroup_parents=cgroup_parents,
                 incremental_build=incremental_build,
                 sidecar_env=sidecar_env,
+                web_ui=web_ui,
             )
             for warning in warnings:
                 progress.add_note(warning)
@@ -1694,6 +1852,11 @@ class CRSCompose:
 
         progress.add_task("Clean up exchange directory", cleanup_exchange_dir)
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
+
+        if web_ui:
+            webui_log_dir = self.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"
+            webui_log_dir.mkdir(parents=True, exist_ok=True)
+            log_success("Publishing metrics to WebUI service")
 
         if pov_files:
             progress.add_task("Copy POV files to exchange dir", copy_povs)
