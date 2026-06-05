@@ -12,6 +12,12 @@ import fcntl
 from contextlib import contextmanager
 
 from .config.target import FuzzingEngine, TargetConfig, TargetSanitizer
+from .constants import (
+    BASE_RUNNER_IMAGE,
+    DEFAULT_BASE_RUNNER_TAG,
+    KNOWN_BASE_OS_VERSIONS,
+    LEGACY_BASE_OS_VERSION,
+)
 from .ui import MultiTaskProgress, TaskResult
 from .utils import generate_random_name, log_warning
 from . import ui
@@ -129,6 +135,7 @@ class Target:
         self.engine = self.DEFAULT_ENGINE
         self.sanitizer = self.DEFAULT_SANITIZER
         self.architecture = self.DEFAULT_ARCHITECTURE
+        self.base_os_version = LEGACY_BASE_OS_VERSION
         self._load_project_yaml_defaults()
 
         self.work_dir = work_dir / "targets" / self.name
@@ -162,6 +169,14 @@ class Target:
             return
 
         self.main_repo = cfg.main_repo
+        self.base_os_version = cfg.base_os_version
+        if self.base_os_version not in KNOWN_BASE_OS_VERSIONS:
+            log_warning(
+                f"Unknown base_os_version '{self.base_os_version}' in {project_yaml}; "
+                f"using it as the base-runner image tag verbatim "
+                f"(known values: {', '.join(sorted(KNOWN_BASE_OS_VERSIONS))}). "
+                f"The runner image pull will fail if that tag does not exist."
+            )
         self.language = cfg.language.value
         if cfg.fuzzing_engines:
             # Prefer "libfuzzer" if listed; otherwise use first entry
@@ -191,6 +206,22 @@ class Target:
     def get_docker_image_name(self) -> str:
         repo_hash = self.__get_repo_hash()
         return f"{self.name}:{repo_hash}"
+
+    @property
+    def base_runner_image(self) -> str:
+        """Full base-runner image reference whose OS matches the build toolchain.
+
+        Mirrors OSS-Fuzz ``infra/helper.py:_get_base_runner_image``: a non-legacy
+        ``base_os_version`` (e.g. ``ubuntu-24-04``) becomes the runner tag,
+        otherwise the floating ``:latest`` tag is used. Passed to CRS run-phase
+        runner Dockerfiles so harness binaries execute under a matching glibc/ABI.
+        """
+        tag = (
+            DEFAULT_BASE_RUNNER_TAG
+            if self.base_os_version == LEGACY_BASE_OS_VERSION
+            else self.base_os_version
+        )
+        return f"{BASE_RUNNER_IMAGE}:{tag}"
 
     def build_docker_image(self) -> str | None:
         if self._has_repo and not self.init_repo():

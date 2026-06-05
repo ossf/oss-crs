@@ -108,6 +108,7 @@ def _make_target(
     return SimpleNamespace(
         get_target_env=lambda: {"harness": harness},
         get_docker_image_name=lambda: image_name,
+        base_runner_image="gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04",
         proj_path=tmp_path / "proj",
         repo_path=tmp_path / "repo",
         _has_repo=has_repo,
@@ -123,6 +124,28 @@ def _render(crs_compose, target, tmp_path: Path):
         run_id="run-1",
         build_id="build-1",
         sanitizer="address",
+    )
+
+
+def test_runner_module_receives_base_runner_image_build_arg(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Runner build args carry the OS-matched base-runner image (issue #101)."""
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-libfuzzer")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path, image_name="memcached:abc123", has_repo=False)
+
+    rendered, _ = _render(crs_compose, target, tmp_path)
+
+    build_args = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"][
+        "build"
+    ]["args"]
+    assert "target_base_image=memcached:abc123" in build_args
+    assert (
+        "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+        in build_args
     )
 
 

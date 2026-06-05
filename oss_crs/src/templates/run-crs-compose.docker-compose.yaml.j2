@@ -30,6 +30,7 @@ services:
         libcrs: {{ libCRS_path }}
       args:
         - target_base_image={{target.get_docker_image_name()}}
+        - base_runner_image={{ target.base_runner_image }}
         - crs_version={{ crs.config.version }}
     environment:
 {%- for env_key, env_value in module_envs[crs.name + "_" + module_name].items() %}

@@ -14,3 +14,20 @@ POSTGRES_HOST = "postgres.oss-crs-infra-only"
 # Docker repository name for preserved builder images (tagged copies of
 # compose-built images kept for the sidecar and snapshot workflows).
 PRESERVED_BUILDER_REPO = "oss-crs-builder"
+
+# OSS-Fuzz base-runner image. CRS run-phase runners (that execute harness
+# binaries) should start FROM this, tagged to match the OS the harness was
+# built on, so the runtime glibc/ABI matches the build toolchain.
+BASE_RUNNER_IMAGE = "gcr.io/oss-fuzz-base/base-runner"
+
+# Sentinel project.yaml base_os_version meaning "unspecified": OSS-Fuzz maps it
+# to the floating ":latest" runner tag. Mirrors infra/helper.py semantics.
+LEGACY_BASE_OS_VERSION = "legacy"
+DEFAULT_BASE_RUNNER_TAG = "latest"
+
+# base_os_version values that map to a known base-runner OS tag. Unknown values
+# are still passed through as the runner tag verbatim (OSS-Fuzz may add new OS
+# lines over time), but warned about since a non-existent tag fails at pull.
+KNOWN_BASE_OS_VERSIONS = frozenset(
+    {LEGACY_BASE_OS_VERSION, "ubuntu-20-04", "ubuntu-24-04"}
+)
