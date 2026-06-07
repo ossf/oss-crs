@@ -37,6 +37,9 @@ SUBMIT_ROOT = Path("/submit")
 EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
 COVERAGE_BUILD_DIR = Path("/coverage_build")
 LOG_DIR = Path("/webui_logs")
+# LiteLLM spend report (mounted read-only when an LLM proxy is in the run).
+# Written periodically by the litellm-key-gen sidecar; absent for LLM-free runs.
+SPEND_REPORT_PATH = Path("/litellm-spend-report.json")
 
 POLL_INTERVAL = 5  # seconds
 COVERAGE_INTERVAL = 30  # seconds
@@ -80,6 +83,29 @@ def _scan_dir(root: Path) -> dict[str, int]:
     return counts
 
 
+def read_cost() -> dict | None:
+    """Read LLM spend from the litellm-key-gen spend report, if present.
+
+    Returns ``{"total": float, "per_crs": {crs_name: float}}`` or ``None`` when
+    no spend report exists yet (e.g. LLM-free runs or before the first write).
+    """
+    if not SPEND_REPORT_PATH.is_file():
+        return None
+    try:
+        data = json.loads(SPEND_REPORT_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    total = data.get("totals", {}).get("credits_used")
+    per_crs = {
+        name: entry.get("credits_used", 0.0)
+        for name, entry in data.get("crs", {}).items()
+        if isinstance(entry, dict)
+    }
+    if total is None and not per_crs:
+        return None
+    return {"total": total, "per_crs": per_crs}
+
+
 def build_snapshot() -> dict:
     now = datetime.now(timezone.utc).isoformat()
     elapsed = time.monotonic() - _start_time
@@ -99,6 +125,7 @@ def build_snapshot() -> dict:
         "per_crs": per_crs,
         "exchange": exchange,
         "coverage": cov,
+        "cost": read_cost(),
     }
 
 
@@ -404,6 +431,19 @@ def main():
     coverage_thread.start()
 
     publisher_loop()
+
+    # The loop exited because we were signalled to stop, which (under
+    # docker compose down) means the run is ending. Push one final snapshot
+    # flagged done=True so the dashboard marks the run finished instead of
+    # leaving it to time out into "stale".
+    try:
+        final = build_snapshot()
+        final["done"] = True
+        push_snapshot(final)
+        _log_snapshot(final)
+        log.info("pushed final snapshot for run %s", RUN_ID)
+    except Exception:
+        log.exception("failed to push final snapshot")
 
 
 if __name__ == "__main__":

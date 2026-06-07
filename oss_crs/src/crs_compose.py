@@ -1374,6 +1374,8 @@ class CRSCompose:
                         log_dim(f"Note: Cgroup cleanup deferred: {msg}")
 
                 self._write_run_meta(target, actual_run_id, sanitizer)
+                if web_ui:
+                    self._publish_final_snapshot(target, actual_run_id, sanitizer)
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
@@ -1682,6 +1684,87 @@ class CRSCompose:
             log_dim(
                 "Note: Failed to write run metadata "
                 f"for run '{run_id}': {type(exc).__name__}: {exc}"
+            )
+
+    def _publish_final_snapshot(
+        self, target: Target, run_id: str, sanitizer: str
+    ) -> None:
+        """Push authoritative final artifact counts to the WebUI after teardown.
+
+        The publisher sidecar stops with the run, so artifacts harvested during
+        the final teardown (a late libFuzzer crash, the exchange merge, etc.)
+        never reach the dashboard — its last live snapshot can read 0 while the
+        on-disk results read 1. Here, on the host and after harvest, we re-read
+        the final SUBMIT_DIR/EXCHANGE_DIR counts and post them to the WebUI's
+        /finalize endpoint so the finished run reflects the true results.
+
+        Mirrors the publisher's snapshot schema. Best-effort: any failure (WebUI
+        not running, network) is swallowed so it never affects the run outcome.
+        The default port matches ``ensure_web_ui_running`` (9090); a WebUI on a
+        custom port simply won't receive this reconciliation.
+        """
+        data_types = ("povs", "seeds", "bug-candidates", "patches", "diffs")
+
+        def scan(root: Path) -> dict[str, int]:
+            return {d: self.work_dir.count_data_files(root / d) for d in data_types}
+
+        try:
+            per_crs = {
+                crs.name: scan(
+                    self.work_dir.get_submit_dir(
+                        crs.name, target, run_id, sanitizer, create=False
+                    )
+                )
+                for crs in self.crs_list
+            }
+            exchange = scan(
+                self.work_dir.get_exchange_dir(
+                    target, run_id, sanitizer, create=False
+                )
+            )
+
+            spend_path = self.work_dir.get_litellm_spend_report_file(
+                run_id, sanitizer, create_parent=False
+            )
+            cost = None
+            if spend_path.exists() and spend_path.stat().st_size > 0:
+                spend = self._read_litellm_spend_summary(run_id, sanitizer)
+                cost = {
+                    "total": spend.get("totals", {}).get("credits_used"),
+                    "per_crs": {
+                        name: entry.get("credits_used", 0.0)
+                        for name, entry in spend.get("crs", {}).items()
+                    },
+                }
+
+            payload = {
+                "per_crs": per_crs,
+                "exchange": exchange,
+                "cost": cost,
+                "_meta": {
+                    "target": target.name,
+                    "crs_names": [crs.name for crs in self.crs_list],
+                    "crs_resources": {
+                        crs.name: {
+                            "cpuset": crs.resource.cpuset,
+                            "memory": crs.resource.memory,
+                        }
+                        for crs in self.crs_list
+                        if crs.resource
+                    },
+                    "harness": target.target_harness,
+                },
+            }
+            requests.post(
+                f"http://localhost:9090/api/runs/{run_id}/finalize",
+                json=payload,
+                timeout=5,
+            )
+            log_dim("Published final run totals to WebUI")
+        except Exception as exc:
+            log_dim(
+                "Note: could not publish final WebUI snapshot: "
+                f"{type(exc).__name__}: {exc}"
             )
 
     def __show_result_local(

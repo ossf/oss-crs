@@ -125,6 +125,23 @@
     background: var(--green); margin-right: 6px; vertical-align: middle;
   }
   .status-dot.error { background: var(--red); }
+
+  .badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px; margin-left: 0;
+  }
+  .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); margin-right: 5px; vertical-align: middle;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .metric.cost .value { color: var(--orange); }
+  .crs-cost { font-size: 0.75rem; color: var(--orange); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -132,10 +149,11 @@
 <div class="back"><a href="/">&larr; All Runs</a></div>
 
 <header>
-  <h1>{{ run_id }}</h1>
+  <h1>{{ run_id }} <span id="status-badge"></span></h1>
   <div class="meta">
     <span>Target: {{ target }}</span>
     <span id="elapsed"></span>
+    <span id="total-cost"></span>
   </div>
 </header>
 
@@ -164,6 +182,7 @@
       <canvas id="spark-{{ name }}-{{ dtype }}" title="{{ dtype }}"></canvas>
       {% endfor %}
     </div>
+    <div class="crs-cost" data-crs-cost="{{ name }}"></div>
   </div>
   {% endfor %}
 </div>
@@ -255,6 +274,19 @@ function formatElapsed(s) {
   return sec+"s";
 }
 
+function formatCost(c) {
+  if(c==null) return null;
+  return "$"+(c<1 ? c.toFixed(4) : c.toFixed(2));
+}
+
+function renderStatus(status) {
+  var s=status||"live";
+  var dot=s==="live" ? '<span class="pulse"></span>' : '';
+  var label=s==="stale" ? "stale" : (s==="finished" ? "done" : "live");
+  var el=document.getElementById("status-badge");
+  if(el) el.innerHTML='<span class="badge '+s+'">'+dot+label+'</span>';
+}
+
 function drawSparkline(id, values, color) {
   var c=document.getElementById(id); if(!c) return;
   var ctx=c.getContext("2d"), dpr=window.devicePixelRatio||1, r=c.getBoundingClientRect();
@@ -329,6 +361,13 @@ function updateDashboard(data) {
   if(data.per_crs){for(var crs in data.per_crs){var counts=data.per_crs[crs];for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-crs="'+crs+'"][data-type="'+dtype+'"]');if(el){var nv=counts[dtype]||0;if(el.textContent!==String(nv)){el.textContent=nv;el.style.transition="none";el.style.transform="scale(1.2)";(function(e){setTimeout(function(){e.style.transition="transform 0.3s";e.style.transform="scale(1)";},50);})(el);}}}}}
   if(data.exchange){for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');if(el)el.textContent=data.exchange[dtype]||0;}}
   if(data.elapsed_seconds!=null) document.getElementById("elapsed").textContent="Elapsed: "+formatElapsed(data.elapsed_seconds);
+  renderStatus(data.status);
+  if(data.cost){
+    var tc=formatCost(data.cost.total);
+    document.getElementById("total-cost").textContent=tc!=null ? "LLM cost: "+tc : "";
+    var pc=data.cost.per_crs||{};
+    for(var crs in pc){var ce=document.querySelector('[data-crs-cost="'+crs+'"]');if(ce){var v=formatCost(pc[crs]);ce.textContent=v!=null ? "LLM: "+v : "";}}
+  }
   if(data.coverage){
     document.getElementById("cov-waiting").style.display="none";document.getElementById("cov-metrics").style.display="block";
     var lp=data.coverage.lines.pct.toFixed(1);document.getElementById("cov-lines-pct").textContent=lp+"%";document.getElementById("cov-lines-bar").style.width=lp+"%";document.getElementById("cov-lines-detail").textContent=data.coverage.lines.covered+" / "+data.coverage.lines.total;

@@ -377,63 +377,73 @@ def _get_webui_port() -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def handle_web_ui(args) -> bool:
+def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
+    """Build (if needed) and start the standalone WebUI container.
+
+    Idempotent: if the container is already running it is left untouched.
+    Shared by the ``web-ui start`` command and the ``run --web-ui`` path so a
+    dashboard is reachable as soon as a CRS run begins. Returns True on success.
+    """
+    console = get_console()
     oss_crs_root = (Path(__file__).parent / "../../../").resolve()
     webui_context = oss_crs_root / "oss-crs-infra" / "webui"
     image_name = f"{WEBUI_CONTAINER_NAME}:latest"
+
+    if _is_webui_running():
+        log_success(f"WebUI is already running at http://localhost:{port}")
+        return True
+
+    # Remove stopped container if exists
+    subprocess.run(
+        ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
+        capture_output=True,
+    )
+
+    # Build image with spinner
+    with console.status("[bold blue]Building WebUI image...", spinner="dots"):
+        build_result = subprocess.run(
+            ["docker", "build", "-t", image_name, str(webui_context)],
+            capture_output=True,
+            text=True,
+        )
+    if build_result.returncode != 0:
+        log_error(f"Failed to build WebUI image:\n{build_result.stderr}")
+        return False
+    log_dim("Image built")
+
+    # Start container with spinner
+    with console.status("[bold blue]Starting WebUI container...", spinner="dots"):
+        run_result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                WEBUI_CONTAINER_NAME,
+                "--network",
+                "host",
+                "-e",
+                f"WEBUI_PORT={port}",
+                "--restart",
+                "unless-stopped",
+                image_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+    if run_result.returncode != 0:
+        log_error(f"Failed to start WebUI:\n{run_result.stderr}")
+        return False
+
+    log_success(f"WebUI started at [bold]http://localhost:{port}[/bold]")
+    return True
+
+
+def handle_web_ui(args) -> bool:
     console = get_console()
 
     if args.web_ui_action == "start":
-        port = args.port
-
-        if _is_webui_running():
-            log_success(f"WebUI is already running at http://localhost:{port}")
-            return True
-
-        # Remove stopped container if exists
-        subprocess.run(
-            ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
-            capture_output=True,
-        )
-
-        # Build image with spinner
-        with console.status("[bold blue]Building WebUI image...", spinner="dots"):
-            build_result = subprocess.run(
-                ["docker", "build", "-t", image_name, str(webui_context)],
-                capture_output=True,
-                text=True,
-            )
-        if build_result.returncode != 0:
-            log_error(f"Failed to build WebUI image:\n{build_result.stderr}")
-            return False
-        log_dim("Image built")
-
-        # Start container with spinner
-        with console.status("[bold blue]Starting WebUI container...", spinner="dots"):
-            run_result = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    WEBUI_CONTAINER_NAME,
-                    "--network",
-                    "host",
-                    "-e",
-                    f"WEBUI_PORT={port}",
-                    "--restart",
-                    "unless-stopped",
-                    image_name,
-                ],
-                capture_output=True,
-                text=True,
-            )
-        if run_result.returncode != 0:
-            log_error(f"Failed to start WebUI:\n{run_result.stderr}")
-            return False
-
-        log_success(f"WebUI started at [bold]http://localhost:{port}[/bold]")
-        return True
+        return ensure_web_ui_running(args.port)
 
     elif args.web_ui_action == "stop":
         if not _is_webui_running():
@@ -816,6 +826,16 @@ def cli() -> bool | int:
         bug_candidate_dir = (
             args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
         )
+        if args.web_ui:
+            # Bring up the dashboard server before the run starts so it is
+            # reachable as soon as the publisher sidecar begins pushing metrics.
+            # A failure here is non-fatal: the publisher falls back to writing
+            # JSONL metrics under the run's webui_logs dir, so the run proceeds.
+            if not ensure_web_ui_running():
+                log_warning(
+                    "Could not start WebUI server; run will continue and metrics "
+                    "will be logged to the run's webui_logs directory."
+                )
         run_rc = crs_compose.run(
             target,
             run_id=args.run_id,

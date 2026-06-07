@@ -27,6 +27,9 @@ from jinja2 import Environment, FileSystemLoader
 WEBUI_PORT = int(os.environ.get("WEBUI_PORT", "9090"))
 LOG_DIR = Path(os.environ.get("WEBUI_LOG_DIR", "/webui_logs"))
 HISTORY_SIZE = 720  # ~1 hour at 5s intervals
+# A run with no snapshot for this long is considered "stale" (publisher gone /
+# unreachable). Publishers push every ~5s, so this tolerates a few missed polls.
+STALE_AFTER_SECONDS = 25
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,8 +53,24 @@ class RunState:
     crs_resources: dict = field(default_factory=dict)
     harness: str = ""
     registered_at: float = field(default_factory=time.time)
+    last_snapshot_at: float = field(default_factory=time.time)
+    done: bool = False
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
     latest: dict = field(default_factory=dict)
+
+    def status(self) -> str:
+        """Lifecycle status derived from the publisher's done flag and recency.
+
+        - ``finished``: the publisher reported the run ended (final snapshot).
+        - ``stale``: no snapshot for a while; the publisher likely went away
+          (run torn down, container killed, or network lost).
+        - ``live``: receiving fresh snapshots.
+        """
+        if self.done:
+            return "finished"
+        if time.time() - self.last_snapshot_at > STALE_AFTER_SECONDS:
+            return "stale"
+        return "live"
 
 
 _lock = threading.Lock()
@@ -62,6 +81,18 @@ def _get_or_create_run(run_id: str) -> RunState:
     if run_id not in _runs:
         _runs[run_id] = RunState(run_id=run_id)
     return _runs[run_id]
+
+
+def _headline_count(per_crs: dict, exchange: dict, dtype: str) -> int:
+    """Authoritative artifact count for a run summary.
+
+    Prefer the sum of per-CRS SUBMIT_DIR counts (the source of truth that
+    ``meta.json`` also uses); fall back to the shared EXCHANGE_DIR count when
+    no per-CRS data is present.
+    """
+    if per_crs:
+        return sum(c.get(dtype, 0) for c in per_crs.values())
+    return exchange.get(dtype, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +152,7 @@ async def register_run(run_id: str, request: Request):
 async def receive_snapshot(run_id: str, request: Request):
     body = await request.json()
     meta = body.pop("_meta", None)
+    is_final = bool(body.pop("done", False))
     with _lock:
         run = _get_or_create_run(run_id)
         # Fill in metadata from snapshot if register was missed
@@ -131,7 +163,44 @@ async def receive_snapshot(run_id: str, request: Request):
             run.harness = meta.get("harness", "")
         run.latest = body
         run.history.append(body)
+        run.last_snapshot_at = time.time()
+        if is_final:
+            run.done = True
     _log_snapshot(run_id, body)
+    return {"status": "ok"}
+
+
+@app.post("/api/runs/{run_id}/finalize")
+async def finalize_run(run_id: str, request: Request):
+    """Authoritative end-of-run update, pushed by the host after teardown.
+
+    The publisher sidecar dies with the run, so artifacts harvested during the
+    final teardown (e.g. a late libFuzzer crash, or the exchange merge) never
+    reach it. The host re-reads the final on-disk counts and posts them here.
+
+    Unlike /snapshot this MERGES onto the latest snapshot — only the provided
+    keys are overwritten — so live-only fields such as coverage are preserved.
+    The run is then marked finished.
+    """
+    body = await request.json()
+    meta = body.pop("_meta", None)
+    with _lock:
+        run = _get_or_create_run(run_id)
+        if meta and not run.target:
+            run.target = meta.get("target", "")
+            run.crs_names = meta.get("crs_names", [])
+            run.crs_resources = meta.get("crs_resources", {})
+            run.harness = meta.get("harness", "")
+        merged = dict(run.latest) if run.latest else {}
+        for key in ("per_crs", "exchange", "cost", "elapsed_seconds", "coverage"):
+            if body.get(key) is not None:
+                merged[key] = body[key]
+        run.latest = merged
+        run.history.append(merged)
+        run.last_snapshot_at = time.time()
+        run.done = True
+    log.info("finalized run %s", run_id)
+    _log_snapshot(run_id, {**merged, "done": True})
     return {"status": "ok"}
 
 
@@ -144,23 +213,35 @@ def list_runs():
         result = []
         for run in _runs.values():
             latest = run.latest
+            per_crs = latest.get("per_crs", {}) if latest else {}
             exchange = latest.get("exchange", {}) if latest else {}
             coverage = latest.get("coverage")
+            cost = latest.get("cost") if latest else None
+
+            # Headline counts come from the per-CRS SUBMIT_DIR totals (what each
+            # CRS actually produced) rather than the shared EXCHANGE_DIR. The
+            # exchange is a deduped pool the exchange sidecar fills on its own
+            # cycle, so it lags SUBMIT and undercounts near teardown. Summing
+            # per-CRS matches what `meta.json` reports as the run's results.
             result.append(
                 {
                     "run_id": run.run_id,
                     "target": run.target,
+                    "status": run.status(),
                     "crs_count": len(run.crs_names),
                     "crs_names": run.crs_names,
                     "elapsed_seconds": latest.get("elapsed_seconds", 0)
                     if latest
                     else 0,
-                    "povs": exchange.get("povs", 0),
-                    "seeds": exchange.get("seeds", 0),
-                    "patches": exchange.get("patches", 0),
+                    "povs": _headline_count(per_crs, exchange, "povs"),
+                    "seeds": _headline_count(per_crs, exchange, "seeds"),
+                    "patches": _headline_count(per_crs, exchange, "patches"),
                     "snapshots": len(run.history),
                     "coverage_pct": round(coverage["lines"]["pct"], 1)
                     if coverage
+                    else None,
+                    "cost": round(cost["total"], 4)
+                    if cost and cost.get("total") is not None
                     else None,
                 }
             )
@@ -174,6 +255,7 @@ def run_status(run_id: str):
         if not run:
             return JSONResponse(status_code=404, content={"error": "run not found"})
         snapshot = run.latest.copy() if run.latest else {}
+        snapshot["status"] = run.status()
     snapshot["run_id"] = run.run_id
     snapshot["target"] = run.target
     snapshot["crs_resources"] = run.crs_resources

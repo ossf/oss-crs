@@ -81,7 +81,23 @@
   .num.seeds { color: var(--green); }
   .num.patches { color: var(--accent); }
   .num.cov { color: var(--green); }
+  .num.cost { color: var(--orange); }
   .elapsed { color: var(--text-dim); }
+
+  .badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px;
+  }
+  .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); margin-right: 5px; vertical-align: middle;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   .status-bar {
     position: fixed;
@@ -123,6 +139,7 @@
     <thead>
       <tr>
         <th>Run ID</th>
+        <th>Status</th>
         <th>Target</th>
         <th>CRSs</th>
         <th class="num">Elapsed</th>
@@ -130,6 +147,7 @@
         <th class="num">Seeds</th>
         <th class="num">Patches</th>
         <th class="num">Coverage</th>
+        <th class="num">LLM Cost</th>
       </tr>
     </thead>
     <tbody id="run-tbody"></tbody>
@@ -151,6 +169,18 @@ function formatElapsed(seconds) {
   if (h > 0) return h + "h " + m + "m " + s + "s";
   if (m > 0) return m + "m " + s + "s";
   return s + "s";
+}
+
+function statusBadge(status) {
+  var s = status || "live";
+  var dot = s === "live" ? '<span class="pulse"></span>' : '';
+  var label = s === "stale" ? "stale" : (s === "finished" ? "done" : "live");
+  return '<span class="badge ' + s + '">' + dot + label + '</span>';
+}
+
+function formatCost(cost) {
+  if (cost == null) return "-";
+  return "$" + cost.toFixed(cost < 1 ? 4 : 2);
 }
 
 function updateTable(runs) {
@@ -185,13 +215,15 @@ function updateTable(runs) {
 
     tr.innerHTML =
       '<td class="run-id">' + r.run_id + '</td>' +
+      '<td>' + statusBadge(r.status) + '</td>' +
       '<td class="target">' + (r.target || "-") + '</td>' +
       '<td>' + r.crs_count + '</td>' +
       '<td class="num elapsed">' + formatElapsed(r.elapsed_seconds) + '</td>' +
       '<td class="num povs">' + r.povs + '</td>' +
       '<td class="num seeds">' + r.seeds + '</td>' +
       '<td class="num patches">' + r.patches + '</td>' +
-      '<td class="num cov">' + (r.coverage_pct != null ? r.coverage_pct + "%" : "-") + '</td>';
+      '<td class="num cov">' + (r.coverage_pct != null ? r.coverage_pct + "%" : "-") + '</td>' +
+      '<td class="num cost">' + formatCost(r.cost) + '</td>';
     tbody.appendChild(tr);
   }
 

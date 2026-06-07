@@ -260,6 +260,9 @@ services:
 {%- endfor %}
       - {{ webui_log_dir }}:/webui_logs:rw
       - {{ work_dir.get_build_output_dir("oss-crs-coverage", target, build_id, sanitizer) }}:/coverage_build:ro
+{%- if llm_context is defined and llm_context.mode == "internal" %}
+      - {{ litellm_spend_report_path }}:/litellm-spend-report.json:ro
+{%- endif %}
     networks:
       {{ crs_compose_name }}-infra-only-network:
 {%- endif %}
