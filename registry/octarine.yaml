@@ -1,0 +1,7 @@
+name: octarine
+description: "Octarine — OSS-Fuzz harness-generation CRS (Claude Code generator + libFuzzer verifier)"
+type:
+  - harness-gen
+source:
+  url: https://github.com/occia/octarine
+  ref: main
