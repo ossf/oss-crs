@@ -411,6 +411,12 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
         return False
     log_dim("Image built")
 
+    # Persist run logs on the host so the dashboard survives container
+    # restart/recreation. The webui rehydrates its in-memory runs from this
+    # directory on startup (see oss-crs-infra/webui/main.py:_rehydrate).
+    webui_log_dir = DEFAULT_WORK_DIR / "webui_logs"
+    webui_log_dir.mkdir(parents=True, exist_ok=True)
+
     # Start container with spinner
     with console.status("[bold blue]Starting WebUI container...", spinner="dots"):
         run_result = subprocess.run(
@@ -424,6 +430,8 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
                 "host",
                 "-e",
                 f"WEBUI_PORT={port}",
+                "-v",
+                f"{webui_log_dir}:/webui_logs",
                 "--restart",
                 "unless-stopped",
                 image_name,

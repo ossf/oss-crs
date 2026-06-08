@@ -115,6 +115,91 @@ def _log_snapshot(run_id: str, snapshot: dict) -> None:
         pass
 
 
+def _persist_run_meta(run: "RunState") -> None:
+    """Persist the small per-run record needed to rehydrate after a restart.
+
+    The ``{run_id}.jsonl`` stream carries the snapshot history but not the
+    run's identity (target / CRS list / resources) or terminal status — those
+    are stripped before logging. This sidecar holds exactly those fields, so a
+    restarted webui can rebuild the run list from disk. Written atomically and
+    overwritten in place; cheap enough to rewrite on every metadata change.
+    """
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "run_id": run.run_id,
+            "target": run.target,
+            "crs_names": run.crs_names,
+            "crs_resources": run.crs_resources,
+            "harness": run.harness,
+            "registered_at": run.registered_at,
+            "last_snapshot_at": run.last_snapshot_at,
+            "done": run.done,
+            "outcome": run.outcome,
+        }
+        tmp = LOG_DIR / f"{run.run_id}.meta.json.tmp"
+        tmp.write_text(json.dumps(meta))
+        tmp.replace(LOG_DIR / f"{run.run_id}.meta.json")
+    except OSError:
+        pass
+
+
+def _rehydrate() -> None:
+    """Reload persisted runs from LOG_DIR so the dashboard survives restarts.
+
+    For each ``{run_id}.meta.json`` we rebuild the RunState identity + terminal
+    status, then replay the matching ``{run_id}.jsonl`` to restore the snapshot
+    history and latest counts (the deque caps history to HISTORY_SIZE on its
+    own). ``last_snapshot_at`` is restored as-is: a run that was live before the
+    restart will read as ``stale`` until its publisher (if any) pushes again,
+    which is the truthful state. Called once at startup, before serving.
+    """
+    if not LOG_DIR.exists():
+        return
+    count = 0
+    for meta_path in sorted(LOG_DIR.glob("*.meta.json")):
+        run_id = meta_path.name[: -len(".meta.json")]
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, ValueError):
+            continue
+        run = RunState(run_id=run_id)
+        run.target = meta.get("target", "")
+        run.crs_names = meta.get("crs_names", [])
+        run.crs_resources = meta.get("crs_resources", {})
+        run.harness = meta.get("harness", "")
+        run.registered_at = meta.get("registered_at", run.registered_at)
+        run.last_snapshot_at = meta.get("last_snapshot_at", run.registered_at)
+        run.done = bool(meta.get("done", False))
+        run.outcome = meta.get("outcome")
+
+        log_path = LOG_DIR / f"{run_id}.jsonl"
+        if log_path.exists():
+            try:
+                with open(log_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            snap = json.loads(line)
+                        except ValueError:
+                            continue
+                        # done/outcome are run-level, tracked via meta — keep
+                        # them out of the per-snapshot history payloads.
+                        snap.pop("done", None)
+                        snap.pop("outcome", None)
+                        run.history.append(snap)
+                        run.latest = snap
+            except OSError:
+                pass
+
+        _runs[run_id] = run
+        count += 1
+    if count:
+        log.info("rehydrated %d run(s) from %s", count, LOG_DIR)
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -149,6 +234,7 @@ async def register_run(run_id: str, request: Request):
     log.info(
         "registered run %s (target=%s, %d CRSs)", run_id, run.target, len(run.crs_names)
     )
+    _persist_run_meta(run)
     return {"status": "ok"}
 
 
@@ -160,17 +246,23 @@ async def receive_snapshot(run_id: str, request: Request):
     with _lock:
         run = _get_or_create_run(run_id)
         # Fill in metadata from snapshot if register was missed
+        learned_meta = False
         if meta and not run.target:
             run.target = meta.get("target", "")
             run.crs_names = meta.get("crs_names", [])
             run.crs_resources = meta.get("crs_resources", {})
             run.harness = meta.get("harness", "")
+            learned_meta = True
         run.latest = body
         run.history.append(body)
         run.last_snapshot_at = time.time()
         if is_final:
             run.done = True
     _log_snapshot(run_id, body)
+    # The meta sidecar only changes on identity/terminal transitions, so we
+    # rewrite it then rather than on every 5s snapshot.
+    if learned_meta or is_final:
+        _persist_run_meta(run)
     return {"status": "ok"}
 
 
@@ -208,6 +300,7 @@ async def finalize_run(run_id: str, request: Request):
             run.outcome = outcome
     log.info("finalized run %s (outcome=%s)", run_id, outcome)
     _log_snapshot(run_id, {**merged, "done": True, "outcome": outcome})
+    _persist_run_meta(run)
     return {"status": "ok"}
 
 
@@ -312,6 +405,7 @@ def run_detail(run_id: str):
 
 def main():
     log.info("webui server starting on port %d", WEBUI_PORT)
+    _rehydrate()
 
     def _handle_signal(signum, _frame):
         log.info("received signal %d, shutting down", signum)
