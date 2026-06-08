@@ -134,6 +134,9 @@
   .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
   .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
   .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge.success { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.timeout { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.error { color: var(--red); background: rgba(248,113,113,0.14); }
   .badge .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: var(--green); margin-right: 5px; vertical-align: middle;
@@ -279,12 +282,19 @@ function formatCost(c) {
   return "$"+(c<1 ? c.toFixed(4) : c.toFixed(2));
 }
 
-function renderStatus(status) {
+function renderStatus(status, outcome) {
+  var el=document.getElementById("status-badge");
+  if(!el) return;
+  if(status==="finished"){
+    var map={success:["success","done ✓"],timeout:["timeout","timed out"],error:["error","error ✗"]};
+    var e=map[outcome]||["finished","done"];
+    el.innerHTML='<span class="badge '+e[0]+'">'+e[1]+'</span>';
+    return;
+  }
   var s=status||"live";
   var dot=s==="live" ? '<span class="pulse"></span>' : '';
-  var label=s==="stale" ? "stale" : (s==="finished" ? "done" : "live");
-  var el=document.getElementById("status-badge");
-  if(el) el.innerHTML='<span class="badge '+s+'">'+dot+label+'</span>';
+  var label=s==="stale" ? "stale" : "live";
+  el.innerHTML='<span class="badge '+s+'">'+dot+label+'</span>';
 }
 
 function drawSparkline(id, values, color) {
@@ -361,7 +371,7 @@ function updateDashboard(data) {
   if(data.per_crs){for(var crs in data.per_crs){var counts=data.per_crs[crs];for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-crs="'+crs+'"][data-type="'+dtype+'"]');if(el){var nv=counts[dtype]||0;if(el.textContent!==String(nv)){el.textContent=nv;el.style.transition="none";el.style.transform="scale(1.2)";(function(e){setTimeout(function(){e.style.transition="transform 0.3s";e.style.transform="scale(1)";},50);})(el);}}}}}
   if(data.exchange){for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');if(el)el.textContent=data.exchange[dtype]||0;}}
   if(data.elapsed_seconds!=null) document.getElementById("elapsed").textContent="Elapsed: "+formatElapsed(data.elapsed_seconds);
-  renderStatus(data.status);
+  renderStatus(data.status, data.outcome);
   if(data.cost){
     var tc=formatCost(data.cost.total);
     document.getElementById("total-cost").textContent=tc!=null ? "LLM cost: "+tc : "";

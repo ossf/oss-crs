@@ -92,6 +92,9 @@
   .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
   .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
   .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge.success { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.timeout { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.error { color: var(--red); background: rgba(248,113,113,0.14); }
   .badge .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: var(--green); margin-right: 5px; vertical-align: middle;
@@ -171,10 +174,21 @@ function formatElapsed(seconds) {
   return s + "s";
 }
 
-function statusBadge(status) {
+function statusBadge(status, outcome) {
+  // A finished run shows how it ended (success / timed out / error);
+  // an active run shows its liveness (live / stale).
+  if (status === "finished") {
+    var map = {
+      success: ["success", "done ✓"],
+      timeout: ["timeout", "timed out"],
+      error: ["error", "error ✗"]
+    };
+    var e = map[outcome] || ["finished", "done"];
+    return '<span class="badge ' + e[0] + '">' + e[1] + '</span>';
+  }
   var s = status || "live";
   var dot = s === "live" ? '<span class="pulse"></span>' : '';
-  var label = s === "stale" ? "stale" : (s === "finished" ? "done" : "live");
+  var label = s === "stale" ? "stale" : "live";
   return '<span class="badge ' + s + '">' + dot + label + '</span>';
 }
 
@@ -215,7 +229,7 @@ function updateTable(runs) {
 
     tr.innerHTML =
       '<td class="run-id">' + r.run_id + '</td>' +
-      '<td>' + statusBadge(r.status) + '</td>' +
+      '<td>' + statusBadge(r.status, r.outcome) + '</td>' +
       '<td class="target">' + (r.target || "-") + '</td>' +
       '<td>' + r.crs_count + '</td>' +
       '<td class="num elapsed">' + formatElapsed(r.elapsed_seconds) + '</td>' +

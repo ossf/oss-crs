@@ -1375,7 +1375,18 @@ class CRSCompose:
 
                 self._write_run_meta(target, actual_run_id, sanitizer)
                 if web_ui:
-                    self._publish_final_snapshot(target, actual_run_id, sanitizer)
+                    # Mirror the exit-code semantics below: success -> graceful,
+                    # interrupted -> timed out / early-exited (also graceful for
+                    # a time-boxed run), otherwise a task failed -> error.
+                    if ret.success:
+                        outcome = "success"
+                    elif ret.interrupted:
+                        outcome = "timeout"
+                    else:
+                        outcome = "error"
+                    self._publish_final_snapshot(
+                        target, actual_run_id, sanitizer, outcome=outcome
+                    )
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
@@ -1687,7 +1698,7 @@ class CRSCompose:
             )
 
     def _publish_final_snapshot(
-        self, target: Target, run_id: str, sanitizer: str
+        self, target: Target, run_id: str, sanitizer: str, outcome: str = "success"
     ) -> None:
         """Push authoritative final artifact counts to the WebUI after teardown.
 
@@ -1741,6 +1752,7 @@ class CRSCompose:
                 "per_crs": per_crs,
                 "exchange": exchange,
                 "cost": cost,
+                "outcome": outcome,
                 "_meta": {
                     "target": target.name,
                     "crs_names": [crs.name for crs in self.crs_list],

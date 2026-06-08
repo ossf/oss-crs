@@ -55,6 +55,10 @@ class RunState:
     registered_at: float = field(default_factory=time.time)
     last_snapshot_at: float = field(default_factory=time.time)
     done: bool = False
+    # How the run ended, reported by the host at teardown: "success",
+    # "timeout" (time-boxed run hit its deadline / early-exit — a graceful
+    # end), or "error" (a task failed). None until the run finishes.
+    outcome: str | None = None
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
     latest: dict = field(default_factory=dict)
 
@@ -184,6 +188,7 @@ async def finalize_run(run_id: str, request: Request):
     """
     body = await request.json()
     meta = body.pop("_meta", None)
+    outcome = body.pop("outcome", None)
     with _lock:
         run = _get_or_create_run(run_id)
         if meta and not run.target:
@@ -199,8 +204,10 @@ async def finalize_run(run_id: str, request: Request):
         run.history.append(merged)
         run.last_snapshot_at = time.time()
         run.done = True
-    log.info("finalized run %s", run_id)
-    _log_snapshot(run_id, {**merged, "done": True})
+        if outcome:
+            run.outcome = outcome
+    log.info("finalized run %s (outcome=%s)", run_id, outcome)
+    _log_snapshot(run_id, {**merged, "done": True, "outcome": outcome})
     return {"status": "ok"}
 
 
@@ -228,6 +235,7 @@ def list_runs():
                     "run_id": run.run_id,
                     "target": run.target,
                     "status": run.status(),
+                    "outcome": run.outcome,
                     "crs_count": len(run.crs_names),
                     "crs_names": run.crs_names,
                     "elapsed_seconds": latest.get("elapsed_seconds", 0)
@@ -256,6 +264,7 @@ def run_status(run_id: str):
             return JSONResponse(status_code=404, content={"error": "run not found"})
         snapshot = run.latest.copy() if run.latest else {}
         snapshot["status"] = run.status()
+        snapshot["outcome"] = run.outcome
     snapshot["run_id"] = run.run_id
     snapshot["target"] = run.target
     snapshot["crs_resources"] = run.crs_resources
