@@ -253,8 +253,14 @@ services:
       - TARGET_NAME={{ target.name }}
       - HARNESS_NAME={{ target.target_harness }}
       - WEBUI_URL={{ webui_url }}
+{%- if processed_exchange_dir %}
+      - PROCESSED_EXCHANGE_TYPES={{ processed_data_types | join(',') }}
+{%- endif %}
     volumes:
       - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:ro
+{%- if processed_exchange_dir %}
+      - {{ processed_exchange_dir }}:/OSS_CRS_PROCESSED_EXCHANGE_DIR:ro
+{%- endif %}
 {%- for crs in crs_list %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/submit/{{ crs.name }}:ro
 {%- endfor %}

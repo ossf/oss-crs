@@ -35,6 +35,15 @@ WEBUI_URL = os.environ.get("WEBUI_URL", "http://host.docker.internal:9090").rstr
 
 SUBMIT_ROOT = Path("/submit")
 EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
+# Post-processed (triaged / filtered) artifacts, mounted only when the run
+# includes a post-processor CRS. PROCESSED_EXCHANGE_TYPES lists the data types
+# whose net count should come from here instead of the raw exchange.
+PROCESSED_EXCHANGE_ROOT = Path("/OSS_CRS_PROCESSED_EXCHANGE_DIR")
+PROCESSED_EXCHANGE_TYPES = tuple(
+    t.strip()
+    for t in os.environ.get("PROCESSED_EXCHANGE_TYPES", "").split(",")
+    if t.strip()
+)
 COVERAGE_BUILD_DIR = Path("/coverage_build")
 LOG_DIR = Path("/webui_logs")
 # LiteLLM spend report (mounted read-only when an LLM proxy is in the run).
@@ -116,6 +125,23 @@ def build_snapshot() -> dict:
 
     exchange = _scan_dir(EXCHANGE_ROOT)
 
+    # Net counts: per data type, prefer the post-processed (triaged/filtered)
+    # count when a processor handles that type (e.g. triage -> povs, seed-filter
+    # -> seeds); all other types fall back to the raw exchange count. With no
+    # post-processor in the run, net is just the raw exchange.
+    if PROCESSED_EXCHANGE_TYPES:
+        processed = _scan_dir(PROCESSED_EXCHANGE_ROOT)
+        net = {
+            dtype: (
+                processed[dtype]
+                if dtype in PROCESSED_EXCHANGE_TYPES
+                else exchange[dtype]
+            )
+            for dtype in ALLOWED_DATA_TYPES
+        }
+    else:
+        net = dict(exchange)
+
     with _coverage_lock:
         cov = _coverage_data.copy() if _coverage_data else None
 
@@ -124,6 +150,7 @@ def build_snapshot() -> dict:
         "elapsed_seconds": round(elapsed, 1),
         "per_crs": per_crs,
         "exchange": exchange,
+        "net": net,
         "coverage": cov,
         "cost": read_cost(),
     }

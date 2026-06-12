@@ -267,6 +267,25 @@ def _has_post_processor(crs_list: list) -> bool:
     return any(crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list)
 
 
+def _processed_data_types(
+    crs_list: list, processed_exchange_dir: str | None
+) -> list[str]:
+    """Data types whose net count should come from PROCESSED_EXCHANGE_DIR.
+
+    A type is "processed" when its post-processor CRS is present in the run
+    (triage for povs, seed-filter for seeds). The webui publisher uses this to
+    report net (filtered/triaged) counts for those types instead of the raw
+    exchange counts; all other types fall back to the raw exchange.
+    """
+    if not processed_exchange_dir:
+        return []
+    return [
+        dtype
+        for dtype, attr in _DATA_TYPE_PROCESSOR.items()
+        if any(getattr(crs.config, attr, False) for crs in crs_list)
+    ]
+
+
 def _get_fetch_dir_mounts(
     crs_list: list,
     exchange_dir: str,
@@ -365,6 +384,9 @@ def render_run_crs_compose_docker_compose(
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,
+        "processed_data_types": _processed_data_types(
+            crs_compose.crs_list, processed_exchange_dir
+        ),
         "fetch_dir_mounts": fetch_dir_mounts,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,

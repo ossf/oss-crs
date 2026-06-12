@@ -243,10 +243,10 @@
   </div>
 </div>
 
-<div class="section-title">Exchange (Global)</div>
+<div class="section-title">Net (Global)</div>
 <div class="grid">
   <div class="card exchange-card">
-    <div class="card-header"><h2>Shared Artifacts</h2></div>
+    <div class="card-header"><h2>Net Artifacts</h2><div class="resources"><span id="net-source"></span></div></div>
     <div class="metrics" id="metrics-exchange">
       <div class="metric povs"><div class="value" data-type="povs" data-exchange>0</div><div class="label">POVs</div></div>
       <div class="metric seeds"><div class="value" data-type="seeds" data-exchange>0</div><div class="label">Seeds</div></div>
@@ -369,7 +369,11 @@ function drawCoverageChart(canvasId, history) {
 
 function updateDashboard(data) {
   if(data.per_crs){for(var crs in data.per_crs){var counts=data.per_crs[crs];for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-crs="'+crs+'"][data-type="'+dtype+'"]');if(el){var nv=counts[dtype]||0;if(el.textContent!==String(nv)){el.textContent=nv;el.style.transition="none";el.style.transform="scale(1.2)";(function(e){setTimeout(function(){e.style.transition="transform 0.3s";e.style.transform="scale(1)";},50);})(el);}}}}}
-  if(data.exchange){for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');if(el)el.textContent=data.exchange[dtype]||0;}}
+  // Bottom "Net" card: prefer post-processed (triaged/filtered) counts when the
+  // publisher reports them; fall back to the raw exchange for older snapshots.
+  var net=data.net||data.exchange;
+  if(net){for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');if(el)el.textContent=net[dtype]||0;}}
+  var ns=document.getElementById("net-source");if(ns)ns.textContent=data.net?"filtered/exchange":"exchange";
   if(data.elapsed_seconds!=null) document.getElementById("elapsed").textContent="Elapsed: "+formatElapsed(data.elapsed_seconds);
   renderStatus(data.status, data.outcome);
   if(data.cost){
