@@ -1,0 +1,33 @@
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- LLM Configuration (internal LiteLLM proxy) ----------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: example/crs-bug-finding-template/litellm-config.yaml
+
+# --- CRS (crs-bug-finding-template) ----------------------------------------
+crs-bug-finding-template:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10                                             # USD budget enforced by LiteLLM
+  additional_env:
+    CRS_AGENT: claude_code
+    ANTHROPIC_MODEL: claude-opus-4-8
+    # entrypoint.sh multiplexer: run_crs | run_crs_langgraph | run_crs_subagents | test_{gdb,lsp,codeql,fuzz,coverage} | idle
+    # idle = boot then sleep forever, so you can `docker exec` in and run the crs-* tools by hand.
+    CRS_ENTRYPOINT: "${CRS_ENTRYPOINT:-run_crs}"
+    # AGENT_TIMEOUT: "0"   # seconds, 0 = no limit (default)
+    # run_crs_langgraph (coverage-guided loop) tunables:
+    CRS_GRAPH_MAX_ROUNDS: "${CRS_GRAPH_MAX_ROUNDS:-0}"      # 0 = unlimited
+    CRS_GRAPH_WARMUP: "${CRS_GRAPH_WARMUP:-60}"             # fuzzer warm-up seconds
+    CRS_GRAPH_ROUND_TIMEOUT: "${CRS_GRAPH_ROUND_TIMEOUT:-1800}"  # per explore/dispatch node
+    CRS_GRAPH_BUDGET: "${CRS_GRAPH_BUDGET:-0}"              # whole-loop seconds, 0 = until killed
