@@ -358,14 +358,18 @@ def coverage_loop():
 
 def _post(path: str, data: dict) -> bool:
     url = f"{WEBUI_URL}{path}"
+    # Publishing metrics is best-effort: an unreachable or erroring WebUI must
+    # never disrupt the run, and (since it's polled every few seconds) must not
+    # spam the log. Failures are swallowed silently — demoted to debug so they
+    # are still recoverable with verbose logging, but invisible by default.
     try:
         resp = requests.post(url, json=data, timeout=5)
         if resp.status_code >= 400:
-            log.warning("POST %s returned %d", path, resp.status_code)
+            log.debug("POST %s returned %d", path, resp.status_code)
             return False
         return True
     except requests.RequestException as e:
-        log.warning("POST %s failed: %s", path, e)
+        log.debug("POST %s failed: %s", path, e)
         return False
 
 

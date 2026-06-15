@@ -616,6 +616,78 @@ class CRSCompose:
 
         return True
 
+    def _build_coverage_best_effort(
+        self,
+        target: Target,
+        target_base_image: str,
+        build_id: str,
+        sanitizer: str,
+        target_source_path: Optional[Path] = None,
+    ) -> None:
+        """Run the coverage build as a best-effort step — never fails the run,
+        and never surfaces a build error to the console.
+
+        The coverage-report build feeds only the webui's coverage panel. Some
+        targets cannot produce it — e.g. nginx, whose custom ``auto/configure``
+        rejects the ``-fprofile-instr-generate -fcoverage-mapping`` instrumentation
+        on its ``--with-ld-opt`` feature test. Such a failure must neither abort
+        the run nor spam a red error panel: coverage-guided fuzzing still works
+        (that instrumentation lives in the main build), and the publisher handles
+        a missing coverage build gracefully (the dashboard just omits the
+        coverage panel). We render the build to a throwaway console so its
+        progress and any error panel stay hidden, then emit a single outcome line.
+        """
+        import io
+        from rich.console import Console
+
+        log_dim("Building coverage instrumentation (best-effort)...")
+        # Capture the build's output to a buffer (instead of the real console) so
+        # the noisy progress/error panel stays hidden. On failure we DON'T discard
+        # it: it's written to a log so an unexpected coverage failure remains fully
+        # diagnosable — only the visible panel is suppressed, not the evidence.
+        buf = io.StringIO()
+        try:
+            with MultiTaskProgress(
+                tasks=[], title="Coverage Build", console=Console(file=buf)
+            ) as progress:
+                progress.add_task(
+                    "coverage build",
+                    lambda p: self._build_coverage(
+                        target,
+                        target_base_image,
+                        build_id,
+                        sanitizer,
+                        p,
+                        target_source_path=target_source_path,
+                    ),
+                )
+                success = progress.run_added_tasks().success
+        except Exception:  # unexpected crash in the coverage build itself
+            success = False
+
+        if success:
+            log_dim("Coverage build complete.")
+            return
+
+        # Non-fatal: preserve the captured output so the failure is recoverable.
+        log_path = None
+        try:
+            cov_dir = self.work_dir.get_build_output_dir(
+                "oss-crs-coverage", target, build_id, sanitizer
+            )
+            cov_dir.mkdir(parents=True, exist_ok=True)
+            log_path = cov_dir / "coverage-build.log"
+            log_path.write_text(buf.getvalue())
+        except OSError:
+            log_path = None
+        msg = (
+            "Coverage build unavailable for this target; continuing without the "
+            "dashboard coverage panel (fuzzing is unaffected)."
+        )
+        if log_path is not None:
+            msg += f" See {log_path} for details."
+        log_warning(msg)
+
     def _build_coverage(
         self,
         target: Target,
@@ -818,20 +890,9 @@ class CRSCompose:
                 )
             )
 
-        if coverage:
-            tasks.append(
-                (
-                    "coverage build",
-                    lambda progress: self._build_coverage(
-                        target,
-                        target_base_image,
-                        build_id,
-                        sanitizer,
-                        progress,
-                        target_source_path=resolved_source_path,
-                    ),
-                )
-            )
+        # NOTE: the coverage build is intentionally NOT added to `tasks` — it is
+        # best-effort and runs after the critical builds (below), so its failure
+        # can never fail build_target.
 
         with MultiTaskProgress(
             tasks=tasks,
@@ -860,9 +921,17 @@ class CRSCompose:
                     bug_candidate_sha256=bug_candidate_sha256,
                     input_sha256=input_sha256,
                 )
-            return ret.success
 
-        return True
+        # Best-effort coverage build (post-critical so it can't fail the build).
+        if ret.success and coverage:
+            self._build_coverage_best_effort(
+                target,
+                target_base_image,
+                build_id,
+                sanitizer,
+                target_source_path=resolved_source_path,
+            )
+        return ret.success
 
     def run(
         self,
@@ -981,23 +1050,13 @@ class CRSCompose:
                         target, build_id, sanitizer, create=False
                     )
                 )
-                with MultiTaskProgress(
-                    tasks=[],
-                    title="Coverage Build",
-                ) as progress:
-                    progress.add_task(
-                        "coverage build",
-                        lambda p: self._build_coverage(
-                            target,
-                            target_base_image,
-                            build_id,
-                            sanitizer,
-                            p,
-                            target_source_path=resolved_source_path,
-                        ),
-                    )
-                    if not progress.run_added_tasks().success:
-                        return 1
+                self._build_coverage_best_effort(
+                    target,
+                    target_base_image,
+                    build_id,
+                    sanitizer,
+                    target_source_path=resolved_source_path,
+                )
 
         # Collect POV files from --pov and --pov-dir
         pov_files: list[Path] = []
@@ -1773,11 +1832,10 @@ class CRSCompose:
                 timeout=5,
             )
             log_dim("Published final run totals to WebUI")
-        except Exception as exc:
-            log_dim(
-                "Note: could not publish final WebUI snapshot: "
-                f"{type(exc).__name__}: {exc}"
-            )
+        except Exception:
+            # Best-effort: a missing/unreachable WebUI must never surface as an
+            # error or even a note at teardown — swallow it silently.
+            pass
 
     def __show_result_local(
         self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress
