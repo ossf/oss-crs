@@ -1,0 +1,37 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#                    Example for octarine (harness-gen)                       #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (octarine) ---------------------------------------------------------
+# Source is resolved from registry/octarine.yaml (github.com/occia/octarine).
+# Builder sidecars are declared in crs.yaml and handled automatically.
+octarine:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    ANTHROPIC_MODEL: claude-sonnet-4-6
+    # --- Exploration budget (override CRS defaults; see the octarine README) ---
+    # HARNESS_GEN_MAX_WALLTIME_SEC: "0"      # whole-run wall cap, seconds (0 = unbounded)
+    # HARNESS_GEN_MAX_COST_USD: "0"          # cumulative LLM-cost cap, USD (0 = none)
+    # HARNESS_GEN_FUZZ_SEC: "900"            # libFuzzer -max_total_time per harness
+    # HARNESS_GEN_MAX_SURFACE_ATTEMPTS: "3"
+
+# --- LLM Configuration ------------------------------------------------------
+# OSS-CRS stands up an internal LiteLLM proxy; the API key is read from your
+# environment (ANTHROPIC_API_KEY) — no secret is stored in this file.
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/octarine/litellm-config.yaml

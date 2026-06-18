@@ -15,6 +15,11 @@ POSTGRES_HOST = "postgres.oss-crs-infra-only"
 # compose-built images kept for the sidecar and snapshot workflows).
 PRESERVED_BUILDER_REPO = "oss-crs-builder"
 
+# Sentinel used as the harness directory component when no --target-harness is
+# specified (e.g. harness-gen CRSs that produce harnesses rather than consume them).
+# OSS_CRS_TARGET_HARNESS is NOT set in the container environment in this case.
+UNHARNESSED = "OSS_CRS_UNHARNESSED"
+
 # OSS-Fuzz base-runner image. CRS run-phase runners (that execute harness
 # binaries) should start FROM this, tagged to match the OS the harness was
 # built on, so the runtime glibc/ABI matches the build toolchain.

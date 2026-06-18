@@ -1,0 +1,20 @@
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -6,3 +6,4 @@
+ 
+ COPY fuzz $SRC/fuzz
+ COPY build.sh $SRC/
++COPY fuzz_proj_sentinel /fuzz_proj_sentinel
+--- a/build.sh
++++ b/build.sh
+@@ -1,5 +1,6 @@
+ #!/bin/bash -eu
+ 
++cat /fuzz_proj_sentinel
+ $CC $CFLAGS -c $SRC/mock-c/mock.c -o $SRC/mock-c/mock.o
+ for fuzzer in $(find $SRC/fuzz -name 'fuzz*.c'); do
+     fname=$(basename $fuzzer)
+--- /dev/null
++++ b/fuzz_proj_sentinel
+@@ -0,0 +1 @@
++fuzz_proj_patched_sentinel

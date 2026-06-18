@@ -1,0 +1,16 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#       Example for dummy-harness-gen (harness-gen integration fixture)      #
+##############################################################################
+
+run_env: local
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "4G"
+
+# Source auto-resolved from registry/dummy-harness-gen.yaml
+dummy-harness-gen:
+  cpuset: "2-3"
+  memory: "4G"

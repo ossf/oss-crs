@@ -246,7 +246,14 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - {{ rebuild_out_dir }}:/rebuild_out:rw
+      - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
+      # Build contexts for rebuilding the CRS builder image on a patched project
+      # image. Mounted at identical host paths so the BUILD_CONTEXT_*/
+      # BUILDER_DOCKERFILE_*/LIBCRS_PATH env values resolve inside the sidecar.
+      - {{ libCRS_path }}:{{ libCRS_path }}:ro
+      - {{ oss_crs_infra_root_path }}:{{ oss_crs_infra_root_path }}:ro
 {%- for crs in crs_list %}
+      - {{ crs.crs_path }}:{{ crs.crs_path }}:ro
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/sidecar-logs/{{ crs.name }}:rw
 {%- endfor %}
     environment:
@@ -257,9 +264,15 @@ services:
 {%- if crs.config.target_build_phase and crs.config.target_build_phase.builds %}
 {%- for build_config in crs.config.target_build_phase.builds %}
       - BASE_IMAGE_{{ build_config.name.upper().replace('-', '_') }}={{ preserved_builder_image_name(crs.name, build_config.name, build_id) }}
+      # Wiring for rebuilding the CRS builder image on a patched project image
+      # (fuzz-proj diff path); mirrors build-target.docker-compose.yaml.j2.
+      - BUILD_CONTEXT_{{ build_config.name.upper().replace('-', '_') }}={{ crs.crs_path }}
+      - BUILDER_DOCKERFILE_{{ build_config.name.upper().replace('-', '_') }}={{ resolve_dockerfile(crs.crs_path, build_config.dockerfile) }}
+      - CRS_VERSION_{{ build_config.name.upper().replace('-', '_') }}={{ crs.config.version }}
 {%- endfor %}
 {%- endif %}
 {%- endfor %}
+      - LIBCRS_PATH={{ libCRS_path }}
       - BASE_IMAGE={{ target.get_docker_image_name() }}
       - PROJECT_BASE_IMAGE={{ target.get_docker_image_name() }}
       - HANDLER_SCRIPT_PATH={{ oss_crs_infra_root_path }}/builder-sidecar/oss_crs_handler.sh

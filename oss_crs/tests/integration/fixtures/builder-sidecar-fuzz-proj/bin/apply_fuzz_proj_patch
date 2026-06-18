@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Fuzz-proj patching integration test CRS:
+  1. build_project with a modified fuzz-proj dir only; verify sentinel in stdout.log.
+  2. build_project with modified fuzz-proj dir + modified target source dir; verify again.
+
+The modified directories are materialized by copying the base mounts
+(/OSS_CRS_FUZZ_PROJ, /OSS_CRS_TARGET_SOURCE) and git-applying the bundled diffs.
+build_project then diffs them back against the base mounts under the hood.
+"""
+
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+from libCRS.local import LocalCRSUtils
+
+FUZZ_PROJ_MOUNT = Path("/OSS_CRS_FUZZ_PROJ")
+TARGET_SOURCE_MOUNT = Path("/OSS_CRS_TARGET_SOURCE")
+
+FUZZ_PROJ_DIFF = Path("/usr/local/bin/fuzz_proj_patch.diff")
+TARGET_SOURCE_DIFF = Path("/usr/local/bin/target_source_patch.diff")
+
+SENTINEL = "fuzz_proj_patched_sentinel"
+
+# Harness binary produced by mock-c-project/build.sh from fuzz/fuzz_parse_buffer.c.
+# Its presence in the downloaded build output proves the CRS *builder* image (with
+# libCRS + compile_target submitting build artifacts) was used for the rebuild —
+# not the bare patched project image, which lacks submit-build-output.
+HARNESS_NAME = "fuzz_parse_buffer"
+HARNESS_BUILD_OUTPUT = "build"
+
+
+def log(msg: str) -> None:
+    print(f"[apply-fuzz-proj-patch] {msg}", flush=True)
+
+
+def _materialize(base_mount: Path, diff_path: Path, label: str) -> Path:
+    """Copy a base mount and git-apply a diff to produce a modified source dir."""
+    dst = Path(tempfile.mkdtemp(prefix=f"modified-{label}-"))
+    subprocess.run(["rsync", "-a", "--exclude=.git", f"{base_mount}/", f"{dst}/"], check=True)
+    subprocess.run(["git", "apply", str(diff_path)], cwd=str(dst), check=True)
+    return dst
+
+
+def _check_sentinel(response_dir: Path, sentinel: str, label: str) -> bool:
+    stdout_path = response_dir / "stdout.log"
+    if not stdout_path.exists():
+        log(f"FAIL ({label}): stdout.log missing from response dir")
+        return False
+    stdout_text = stdout_path.read_text(errors="replace")
+    if sentinel not in stdout_text:
+        log(f"FAIL ({label}): sentinel '{sentinel}' not found in stdout.log — patched image was NOT used")
+        log(f"stdout.log contents:\n{stdout_text[:500]}")
+        return False
+    log(f"PASS ({label}): sentinel '{sentinel}' found in stdout.log")
+    return True
+
+
+def _build_and_check(crs: "LocalCRSUtils", response_dir: Path, label: str, **kwargs) -> bool:
+    response_dir.mkdir(parents=True, exist_ok=True)
+    rc = crs.build_project(response_dir, **kwargs)
+    if rc != 0:
+        stdout = (response_dir / "stdout.log").read_text(errors="replace") if (response_dir / "stdout.log").exists() else ""
+        stderr = (response_dir / "stderr.log").read_text(errors="replace") if (response_dir / "stderr.log").exists() else ""
+        log(f"FAIL ({label}): build_project failed (exit={rc}):\nstdout:\n{stdout}\nstderr:\n{stderr}")
+        return False
+    rid_file = response_dir / "rebuild_id"
+    if not rid_file.exists():
+        log(f"FAIL ({label}): rebuild_id missing from response dir")
+        return False
+    log(f"({label}) rebuild_id={rid_file.read_text().strip()}")
+    return True
+
+def _check_harness(crs: "LocalCRSUtils", response_dir: Path, harness_name: str, label: str) -> bool:
+    """Download the build output by rebuild_id and assert the harness binary exists.
+
+    This verifies the rebuild ran the CRS builder image (which compiles the target
+    and submits build artifacts), not merely the patched project image.
+    """
+    rid_file = response_dir / "rebuild_id"
+    if not rid_file.exists():
+        log(f"FAIL ({label}): rebuild_id missing from response dir; cannot download build output")
+        return False
+    rebuild_id = int(rid_file.read_text().strip())
+
+    dst = Path(tempfile.mkdtemp(prefix=f"build-out-{label}-"))
+    try:
+        crs.download_build_output(HARNESS_BUILD_OUTPUT, dst, rebuild_id=rebuild_id)
+        harness_path = dst / harness_name
+        if not harness_path.exists():
+            present = ", ".join(sorted(p.name for p in dst.iterdir())) if dst.exists() else "(none)"
+            log(
+                f"FAIL ({label}): harness '{harness_name}' not found in build output "
+                f"— CRS builder image was NOT used. Present: {present}"
+            )
+            return False
+        log(f"PASS ({label}): harness '{harness_name}' present in build output")
+        return True
+    except Exception as exc:  # noqa: BLE001 - surface any download failure as a test failure
+        log(f"FAIL ({label}): download_build_output failed: {exc}")
+        return False
+    finally:
+        shutil.rmtree(dst, ignore_errors=True)
+
+
+def main() -> int:
+    crs = LocalCRSUtils()
+
+    fuzz_proj_dir = _materialize(FUZZ_PROJ_MOUNT, FUZZ_PROJ_DIFF, "fuzz-proj")
+
+    # --- Test 1: modified fuzz-proj dir only ---
+    log("Test 1: modified fuzz-proj dir only")
+    resp1 = Path("/tmp/response-fuzz-proj-only")
+    if not _build_and_check(crs, resp1, "fuzz-proj-only", fuzz_proj_dir=fuzz_proj_dir):
+        return 1
+    if not _check_sentinel(resp1, SENTINEL, "fuzz-proj-only"):
+        return 1
+    if not _check_harness(crs, resp1, HARNESS_NAME, "fuzz-proj-only"):
+        return 1
+    log("Test 1 PASSED")
+
+    # --- Test 2: modified fuzz-proj dir + modified target source dir ---
+    log("Test 2: modified fuzz-proj dir + modified target source dir")
+    target_source_dir = _materialize(TARGET_SOURCE_MOUNT, TARGET_SOURCE_DIFF, "target-source")
+    resp2 = Path("/tmp/response-combined")
+    if not _build_and_check(
+        crs, resp2, "combined",
+        fuzz_proj_dir=fuzz_proj_dir,
+        target_source_dir=target_source_dir,
+    ):
+        return 1
+    if not _check_sentinel(resp2, SENTINEL, "combined"):
+        return 1
+    if not _check_harness(crs, resp2, HARNESS_NAME, "combined"):
+        return 1
+    log("Test 2 PASSED")
+
+    shutil.rmtree(fuzz_proj_dir, ignore_errors=True)
+    shutil.rmtree(target_source_dir, ignore_errors=True)
+
+    log("ALL TESTS PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

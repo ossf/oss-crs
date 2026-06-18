@@ -2,6 +2,7 @@
 import logging
 import os
 import socket
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ import requests as http_requests
 from .base import CRSUtils, DataType, SourceType
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
+from .sync import DirSyncHelper
 from .submit import SubmitHelper
 
 logger = logging.getLogger(__name__)
@@ -102,6 +104,34 @@ class LocalCRSUtils(CRSUtils):
     def submit(self, data_type: DataType, src: Path) -> None:
         helper = self.__init_submit_helper(data_type)
         helper.submit_file(src)
+
+    def submit_harness(
+        self,
+        fuzz_proj_dir: Path,
+        target_source_dir: "Path | None" = None,
+        name: "str | None" = None,
+    ) -> None:
+        fuzz_proj_dir = Path(fuzz_proj_dir)
+        if not fuzz_proj_dir.is_dir():
+            raise ValueError(
+                f"submit_harness: fuzz_proj_dir does not exist or is not a "
+                f"directory: {fuzz_proj_dir}"
+            )
+        name = name or fuzz_proj_dir.name
+        if "/" in name or name in ("", ".", ".."):
+            raise ValueError(f"Invalid harness name: {name!r}")
+
+        base = Path(get_env("OSS_CRS_SUBMIT_DIR")) / "harnesses" / name
+        DirSyncHelper(fuzz_proj_dir, base / "fuzz-proj").sync_once()
+
+        if target_source_dir is not None:
+            target_source_dir = Path(target_source_dir)
+            if not target_source_dir.is_dir():
+                raise ValueError(
+                    f"submit_harness: target_source_dir is not a directory: "
+                    f"{target_source_dir}"
+                )
+            DirSyncHelper(target_source_dir, base / "target-source").sync_once()
 
     def fetch(self, data_type: DataType, dst: Path) -> list[str]:
         helper = self.__init_fetch_helper(data_type)
@@ -268,13 +298,170 @@ class LocalCRSUtils(CRSUtils):
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
-        """Apply a patch and rebuild via the builder sidecar."""
+        """Apply a target-source patch and rebuild via the builder sidecar."""
+        return self._submit_build(
+            response_dir,
+            target_source_patch_path=patch_path,
+            fuzz_proj_patch_path=None,
+            builder=builder,
+            builder_name=builder_name,
+            rebuild_id=rebuild_id,
+        )
+
+    def build_project(
+        self,
+        response_dir: Path,
+        fuzz_proj_dir: "Path | None" = None,
+        target_source_dir: "Path | None" = None,
+        builder: "str | None" = None,
+        builder_name: "str | None" = None,
+        rebuild_id: "int | None" = None,
+    ) -> int:
+        """Rebuild the project image from a modified fuzz-proj and/or target source.
+
+        The directories are diffed against their base mounts to reproduce the
+        patches that _submit_build applies via the builder sidecar.
+        """
+        if not fuzz_proj_dir and not target_source_dir:
+            raise ValueError(
+                "At least one of fuzz_proj_dir or target_source_dir must be provided"
+            )
+
+        tmp_patches: list[Path] = []
+
+        def _stage_patch(base_mount: Path, src_dir: Path, label: str) -> Path:
+            diff = self._diff_against_base(base_mount, Path(src_dir))
+            fd, name = tempfile.mkstemp(prefix=f"oss-crs-{label}-", suffix=".diff")
+            patch_path = Path(name)
+            with os.fdopen(fd, "wb") as f:
+                f.write(diff)
+            tmp_patches.append(patch_path)
+            return patch_path
+
+        try:
+            fuzz_proj_patch_path = (
+                _stage_patch(_FUZZ_PROJ_MOUNT, fuzz_proj_dir, "fuzz-proj")
+                if fuzz_proj_dir
+                else None
+            )
+            target_source_patch_path = (
+                _stage_patch(_TARGET_SOURCE_MOUNT, target_source_dir, "target-source")
+                if target_source_dir
+                else None
+            )
+            return self._submit_build(
+                response_dir,
+                target_source_patch_path=target_source_patch_path,
+                fuzz_proj_patch_path=fuzz_proj_patch_path,
+                builder=builder,
+                builder_name=builder_name,
+                rebuild_id=rebuild_id,
+            )
+        finally:
+            for p in tmp_patches:
+                p.unlink(missing_ok=True)
+
+    @staticmethod
+    def _diff_against_base(base_dir: Path, new_dir: Path) -> bytes:
+        """Produce a root-relative `git diff` turning base_dir into new_dir.
+
+        Reproduces the diff a harness author would get from `git diff` inside a
+        modified checkout, so the builder sidecar can `git apply` it at the
+        project root. `.git` is excluded from both sides.
+        """
+        base_dir = Path(base_dir)
+        new_dir = Path(new_dir)
+        if not base_dir.is_dir():
+            raise RuntimeError(f"build_project: base source not found: {base_dir}")
+        if not new_dir.is_dir():
+            raise RuntimeError(f"build_project: directory not found: {new_dir}")
+
+        def git(*args: str) -> subprocess.CompletedProcess:
+            proc = subprocess.run(
+                ["git", "-C", str(work), *args],
+                capture_output=True,
+                env=env,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"git {' '.join(args)} failed (exit {proc.returncode}): "
+                    f"{proc.stderr.decode(errors='replace').strip()}"
+                )
+            return proc
+
+        with tempfile.TemporaryDirectory(prefix="oss-crs-diff-") as td:
+            tdp = Path(td)
+            work = tdp / "work"
+            work.mkdir()
+            # Isolate from the host's user/system git config, but supply our own
+            # identity AND safe.directory=*: the rsynced base files keep their
+            # source ownership, which would otherwise trip git's dubious-ownership
+            # guard. safe.directory is only honored from system/global config
+            # (never -c or local), so it must live in this global config file.
+            gitconfig = tdp / "gitconfig"
+            gitconfig.write_text(
+                "[safe]\n\tdirectory = *\n"
+                "[user]\n\tname = crs\n\temail = crs@local\n"
+                "[commit]\n\tgpgsign = false\n"
+            )
+            env = {
+                **os.environ,
+                "GIT_CONFIG_GLOBAL": str(gitconfig),
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
+            # 1. Seed the work tree with the pristine base and commit it.
+            subprocess.run(
+                ["rsync", "-a", "--exclude=.git", f"{base_dir}/", f"{work}/"],
+                check=True,
+            )
+            # Pin the base mtimes to the epoch so that the modified files copied
+            # in below always look newer. Otherwise git's racy-clean optimization
+            # skips re-hashing a same-size edit made within the same second.
+            for p in work.rglob("*"):
+                try:
+                    os.utime(p, (1, 1), follow_symlinks=False)
+                except (OSError, NotImplementedError):
+                    pass
+            git("init", "-q")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base", "--allow-empty")
+            # 2. Mirror the modified tree over the base (captures add/del/modify).
+            subprocess.run(
+                [
+                    "rsync",
+                    "-a",
+                    "--delete",
+                    "--exclude=.git",
+                    f"{new_dir}/",
+                    f"{work}/",
+                ],
+                check=True,
+            )
+            git("add", "-A")
+            return git("diff", "--cached", "--binary").stdout
+
+    def _submit_build(
+        self,
+        response_dir: Path,
+        target_source_patch_path: "Path | None",
+        fuzz_proj_patch_path: "Path | None",
+        builder: "str | None",
+        builder_name: "str | None",
+        rebuild_id: "int | None",
+    ) -> int:
+        """Shared /build submission for apply_patch_build and build_project."""
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")
         mem_limit = os.environ.get("OSS_CRS_MEMORY_LIMIT", "")
-        with open(patch_path, "rb") as patch_file:
-            files = {"patch": patch_file}
+
+        files = {}
+        if target_source_patch_path:
+            files["patch"] = open(target_source_patch_path, "rb")
+        if fuzz_proj_patch_path:
+            files["fuzz_proj_patch"] = open(fuzz_proj_patch_path, "rb")
+
+        try:
             data = {
                 "crs_name": crs_name,
                 "builder_name": builder_name or "",
@@ -284,6 +471,9 @@ class LocalCRSUtils(CRSUtils):
             if rebuild_id is not None:
                 data["rebuild_id"] = str(rebuild_id)
             result = self._submit_and_poll("/build", builder, files, data)
+        finally:
+            for f in files.values():
+                f.close()
 
         response_dir.mkdir(parents=True, exist_ok=True)
         if result is None:
@@ -292,6 +482,7 @@ class LocalCRSUtils(CRSUtils):
             return 1
 
         inner = result.get("result") or {}
+        server_error = result.get("error") or ""
         exit_code = inner.get("exit_code", 1)
         rid = inner.get("rebuild_id")
 
@@ -305,6 +496,9 @@ class LocalCRSUtils(CRSUtils):
                 src = log_src / log_file
                 if src.exists():
                     rsync_copy(src, response_dir / log_file)
+        elif server_error:
+            # Server-side exception before any rebuild_id was assigned — surface it.
+            (response_dir / "stderr.log").write_text(server_error)
 
         (response_dir / "retcode").write_text(str(exit_code))
         if exit_code == 0 and rid is not None:
@@ -383,7 +577,7 @@ class LocalCRSUtils(CRSUtils):
         response_dir: Path,
         builder: "str | None" = None,
     ) -> int:
-        """Apply a patch and run the project's bundled test.sh via the builder sidecar."""
+        """Apply a target-source patch and run the project's bundled test.sh."""
         builder = self._resolve_builder(builder)
         crs_name = os.environ.get("OSS_CRS_NAME", "unknown")
         cpuset = os.environ.get("OSS_CRS_CPUSET", "")

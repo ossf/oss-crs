@@ -1,0 +1,6 @@
+name: dummy-harness-gen
+type:
+  - harness-gen
+source:
+  url: https://github.com/occia/dummy-harness-gen.git
+  ref: main

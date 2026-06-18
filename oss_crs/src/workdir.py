@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .target import Target
 from .utils import normalize_run_id
+from .constants import UNHARNESSED
 
 
 @dataclass
@@ -194,14 +195,9 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/logs/<target_key>/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for run logs dir"
+        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
-        path = (
-            self.get_run_dir(run_id, sanitizer)
-            / "logs"
-            / target_key
-            / target.target_harness
-        )
+        path = self.get_run_dir(run_id, sanitizer) / "logs" / target_key / harness
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
@@ -282,11 +278,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SUBMIT_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for submit dir"
+        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SUBMIT_DIR"
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -304,11 +300,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SHARED_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for shared dir"
+        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SHARED_DIR"
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -326,11 +322,11 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/LOG_DIR/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for log dir"
+        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "LOG_DIR"
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -351,13 +347,10 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/EXCHANGE_DIR/<target_key>/<harness>/
         """
-        assert target.target_harness, "target_harness must be set for exchange dir"
+        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
         path = (
-            self.get_run_dir(run_id, sanitizer)
-            / "EXCHANGE_DIR"
-            / target_key
-            / target.target_harness
+            self.get_run_dir(run_id, sanitizer) / "EXCHANGE_DIR" / target_key / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -377,15 +370,13 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/PROCESSED_EXCHANGE_DIR/<target_key>/<harness>/
         """
-        assert target.target_harness, (
-            "target_harness must be set for processed exchange dir"
-        )
+        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
         path = (
             self.get_run_dir(run_id, sanitizer)
             / "PROCESSED_EXCHANGE_DIR"
             / target_key
-            / target.target_harness
+            / harness
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
