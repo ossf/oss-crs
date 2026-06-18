@@ -20,6 +20,7 @@ logic for the CRS Compose work directory structure:
                     └── LOG_DIR/<harness>/
 """
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +64,19 @@ class WorkDir:
     def _get_target_key(target: Target) -> str:
         """Compute target_key from a Target."""
         return target.get_docker_image_name().replace(":", "_")
+
+    @staticmethod
+    def count_data_files(dir_path: Path) -> int:
+        """Count non-hidden files in a directory."""
+        if not dir_path.exists() or not dir_path.is_dir():
+            return 0
+        return len(
+            [
+                f
+                for f in dir_path.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # Base directory helpers
@@ -454,6 +468,53 @@ class WorkDir:
         """Get the BUILD_ID file path for a run."""
         return self.get_run_dir(run_id, sanitizer) / "BUILD_ID"
 
+    def get_run_meta_file(self, run_id: str, sanitizer: str) -> Path:
+        """Get the run metadata file path for a run."""
+        return self.get_run_dir(run_id, sanitizer) / "meta.json"
+
+    def get_litellm_spend_report_file(
+        self, run_id: str, sanitizer: str, create_parent: bool = True
+    ) -> Path:
+        """Get run-level LiteLLM spend report file path."""
+        run_dir = self.get_run_dir(run_id, sanitizer)
+        if create_parent:
+            run_dir.mkdir(parents=True, exist_ok=True)
+        path = run_dir / "litellm-spend-report.json"
+        if create_parent:
+            path.touch(exist_ok=True)
+        return path
+
+    def get_sidecar_metrics_file(
+        self,
+        crs_name: str,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+    ) -> Path:
+        """Get per-CRS sidecar metrics file path under LOG_DIR."""
+        return (
+            self.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
+            / "libcrs-sidecar-metrics.jsonl"
+        )
+
+    def get_submit_artifact_counts(
+        self,
+        crs_name: str,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+    ) -> dict[str, int]:
+        """Count run artifacts for one CRS from SUBMIT_DIR."""
+        submit_dir = self.get_submit_dir(
+            crs_name, target, run_id, sanitizer, create=False
+        )
+        return {
+            "povs": self.count_data_files(submit_dir / "povs"),
+            "seeds": self.count_data_files(submit_dir / "seeds"),
+            "patches": self.count_data_files(submit_dir / "patches"),
+            "bug_candidates": self.count_data_files(submit_dir / "bug-candidates"),
+        }
+
     def read_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:
         """Read the build-id that was used for a specific run."""
         build_id_file = self.get_build_id_file(run_id, sanitizer)
@@ -468,3 +529,13 @@ class WorkDir:
         run_dir = self.get_run_dir(run_id, sanitizer)
         run_dir.mkdir(parents=True, exist_ok=True)
         self.get_build_id_file(run_id, sanitizer).write_text(build_id)
+
+    def write_run_meta_for_run(
+        self, run_id: str, sanitizer: str, metadata: dict
+    ) -> None:
+        """Write run metadata to meta.json for a specific run."""
+        run_dir = self.get_run_dir(run_id, sanitizer)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        self.get_run_meta_file(run_id, sanitizer).write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+        )

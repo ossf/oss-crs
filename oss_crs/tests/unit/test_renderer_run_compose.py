@@ -108,6 +108,7 @@ def _make_target(
     return SimpleNamespace(
         get_target_env=lambda: {"harness": harness},
         get_docker_image_name=lambda: image_name,
+        base_runner_image="gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04",
         proj_path=tmp_path / "proj",
         repo_path=tmp_path / "repo",
         _has_repo=has_repo,
@@ -123,6 +124,27 @@ def _render(crs_compose, target, tmp_path: Path):
         run_id="run-1",
         build_id="build-1",
         sanitizer="address",
+    )
+
+
+def test_runner_module_receives_base_runner_image_build_arg(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Runner build args carry the OS-matched base-runner image (issue #101)."""
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-libfuzzer")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path, image_name="memcached:abc123", has_repo=False)
+
+    rendered, _ = _render(crs_compose, target, tmp_path)
+
+    build_args = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]["build"][
+        "args"
+    ]
+    assert "target_base_image=memcached:abc123" in build_args
+    assert (
+        "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04" in build_args
     )
 
 
@@ -151,8 +173,11 @@ def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
 
     services = yaml.safe_load(rendered)["services"]
     patcher_service = services["crs-codex_patcher"]
-    assert (
-        f"{tmp_path / 'exchange'}:/OSS_CRS_FETCH_DIR:ro" in patcher_service["volumes"]
+    assert any(
+        str(tmp_path / "exchange") + "/" in v
+        and ":/OSS_CRS_FETCH_DIR/" in v
+        and ":ro" in v
+        for v in patcher_service["volumes"]
     )
     # Exchange sidecar is always present (gated on exchange_dir, always truthy).
     assert "oss-crs-exchange" in services
@@ -258,6 +283,30 @@ def test_sidecar_emits_project_base_image_env_var(monkeypatch, tmp_path: Path) -
         "environment"
     ]
     assert "PROJECT_BASE_IMAGE=project-image:latest" in env_list
+
+
+def test_sidecars_mount_per_crs_log_dir_for_api_logging(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Both sidecars mount each CRS's LOG_DIR and point SIDECAR_LOG_DIR at it.
+
+    This is what lets the servers write libcrs-sidecar-metrics.jsonl into the
+    same per-CRS LOG_DIR that run-meta aggregation reads.
+    """
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-plain")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    services = yaml.safe_load(rendered)["services"]
+    log_mount = f"{tmp_path / 'log'}:/sidecar-logs/crs-plain:rw"
+    for svc in ("oss-crs-builder-sidecar", "oss-crs-runner-sidecar"):
+        assert "SIDECAR_LOG_DIR=/sidecar-logs" in services[svc]["environment"]
+        assert log_mount in services[svc]["volumes"]
 
 
 # ---------------------------------------------------------------------------
@@ -585,3 +634,38 @@ def test_compose05_builder_and_runner_sidecars_present_with_triage(
     assert "oss-crs-runner-sidecar" in services, (
         "oss-crs-runner-sidecar must be present for triage-only compose"
     )
+
+
+# ---------------------------------------------------------------------------
+# COMPOSE-06: Per-type FETCH_DIR routing for regular CRS
+# ---------------------------------------------------------------------------
+
+
+def test_compose06_fetch_dir_per_type_routing_with_triage_only(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """When triage is present without seed-filter, regular CRS mounts:
+    - processed_exchange_dir/povs  (triage output)
+    - exchange_dir/seeds           (no seed-filter, raw exchange)
+    """
+    _patch_renderer(monkeypatch)
+    finder = _make_bug_finding_crs(tmp_path, "crs-finder")
+    triage = _make_triage_crs(tmp_path, "crs-triage")
+    crs_compose = _make_crs_compose(tmp_path, [finder, triage])
+    target = _make_target(tmp_path)
+
+    rendered, _ = _render(crs_compose, target, tmp_path)
+    services = yaml.safe_load(rendered)["services"]
+
+    finder_volumes = services["crs-finder_finder"].get("volumes", [])
+    processed = str(tmp_path / "processed-exchange")
+    exchange = str(tmp_path / "exchange")
+
+    # POVs come from processed_exchange_dir (triage handles them)
+    assert any(
+        f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro" == v for v in finder_volumes
+    ), f"finder must mount processed povs; got: {finder_volumes}"
+    # Seeds come from exchange_dir (no seed-filter present)
+    assert any(
+        f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro" == v for v in finder_volumes
+    ), f"finder must mount raw seeds; got: {finder_volumes}"

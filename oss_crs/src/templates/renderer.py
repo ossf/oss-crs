@@ -251,6 +251,47 @@ def prepare_llm_context(
     raise RuntimeError(f"Unsupported LLM mode: {crs_compose.llm.mode}")
 
 
+# Maps each exchange data type to the post-processor CRS attribute that handles it.
+# Types not listed here (or whose processor is absent) pass through from exchange_dir.
+_DATA_TYPE_PROCESSOR: dict[str, str] = {
+    "povs": "is_triage",
+    "seeds": "is_seed_filter",
+}
+
+# All data types that can appear in the exchange.
+_ALL_EXCHANGE_TYPES = {"povs", "seeds", "diffs", "bug-candidates"}
+
+
+def _has_post_processor(crs_list: list) -> bool:
+    """Return True if any CRS in the list is a post-processor."""
+    return any(crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list)
+
+
+def _get_fetch_dir_mounts(
+    crs_list: list,
+    exchange_dir: str,
+    processed_exchange_dir: str | None,
+) -> dict[str, str]:
+    """Return per-type source host paths for FETCH_DIR mounts in regular CRS containers.
+
+    Each data type maps to the host directory it should be mounted from:
+    - types with a present processor use processed_exchange_dir
+    - all other types use exchange_dir
+    """
+    result = {}
+    for dtype in sorted(_ALL_EXCHANGE_TYPES):
+        processor_attr = _DATA_TYPE_PROCESSOR.get(dtype)
+        if (
+            processor_attr
+            and processed_exchange_dir
+            and any(getattr(crs.config, processor_attr, False) for crs in crs_list)
+        ):
+            result[dtype] = processed_exchange_dir
+        else:
+            result[dtype] = exchange_dir
+    return result
+
+
 def render_run_crs_compose_docker_compose(
     crs_compose: "CRSCompose",
     tmp_docker_compose: "TmpDockerCompose",
@@ -277,20 +318,18 @@ def render_run_crs_compose_docker_compose(
     fetch_dir = str(crs_compose.work_dir.get_exchange_dir(target, run_id, sanitizer))
     exchange_dir = fetch_dir
 
-    # When triage CRS(s) are present, non-triage CRS should fetch from the
-    # triage exchange dir (triaged POVs) instead of the main exchange dir
-    # (raw POVs). A second exchange sidecar collects triage outputs there.
-    # Post-processor CRS (triage, seed-filter) read from exchange_dir and write
-    # processed results to their submit dirs.  A dedicated sidecar collects those
-    # into processed_exchange_dir, which non-processor CRS mount as FETCH_DIR.
-    has_post_processor = any(
-        crs.config.is_triage or crs.config.is_seed_filter
-        for crs in crs_compose.crs_list
-    )
+    # Each data type in the exchange has an optional post-processor CRS type.
+    # When present, the processor's submit dir feeds processed_exchange_dir;
+    # when absent, the data type passes through from exchange_dir directly.
+    # Regular (non-processor) CRS always mount processed_exchange_dir as FETCH_DIR.
+    has_post_processor = _has_post_processor(crs_compose.crs_list)
     processed_exchange_dir = (
         str(crs_compose.work_dir.get_processed_exchange_dir(target, run_id, sanitizer))
         if has_post_processor
         else None
+    )
+    fetch_dir_mounts = _get_fetch_dir_mounts(
+        crs_compose.crs_list, exchange_dir, processed_exchange_dir
     )
 
     # Sidecar services are always injected as infrastructure (per D-04: single parent mount)
@@ -301,6 +340,14 @@ def render_run_crs_compose_docker_compose(
     )
 
     target_env = target.get_target_env()
+    if hasattr(crs_compose.work_dir, "get_litellm_spend_report_file"):
+        litellm_spend_report_path = str(
+            crs_compose.work_dir.get_litellm_spend_report_file(run_id, sanitizer)
+        )
+    else:
+        tmp_dir = tmp_docker_compose.dir if tmp_docker_compose.dir else Path("/tmp")
+        litellm_spend_report_path = str(tmp_dir / "litellm-spend-report.json")
+
     context = {
         "libCRS_path": str(LIBCRS_PATH),
         "crs_compose_name": crs_compose_name,
@@ -317,6 +364,7 @@ def render_run_crs_compose_docker_compose(
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,
+        "fetch_dir_mounts": fetch_dir_mounts,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
@@ -330,6 +378,7 @@ def render_run_crs_compose_docker_compose(
         ),
         "litellm_image": LITELLM_IMAGE,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
+        "litellm_spend_report_path": litellm_spend_report_path,
         "postgres_image": POSTGRES_IMAGE,
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,

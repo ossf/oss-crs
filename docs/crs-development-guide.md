@@ -118,6 +118,11 @@ required_llms:
 required_inputs:
   - diff
   - bug-candidate
+
+# Only needed if your CRS requires environment variables to function.
+# OSS-CRS will fail fast before spawning containers if these are missing.
+required_envs:
+  - COPILOT_GITHUB_TOKEN
 ```
 
 ### Configuration Fields
@@ -134,6 +139,7 @@ required_inputs:
 | `supported_target` | Languages, sanitizers, architectures, and modes your CRS supports |
 | `required_llms` | *(Optional)* Minimum required LLM model names your CRS needs (validation baseline) |
 | `required_inputs` | *(Optional)* Input channels the CRS requires (`diff`, `pov`, `seed`, `bug-candidate`). Validated before run. |
+| `required_envs` | *(Optional)* Environment variable names the CRS requires. Validated before run against the host environment and compose `additional_env`. |
 
 For the complete schema reference, see [config/crs.md](config/crs.md).
 
@@ -233,6 +239,15 @@ fi
 
 Each module in `crs_run_phase` becomes a container at runtime. Modules share a private Docker network (for intra-CRS communication) and have access to shared infrastructure.
 
+Your run-phase module Dockerfile receives these build args and contexts:
+
+- **`target_base_image`** — The target's built image (source code + build environment). Build `FROM` this when your module needs the build toolchain or to run harnesses in the exact environment they were compiled in.
+- **`base_runner_image`** — The OSS-Fuzz `base-runner` image whose OS matches the target's `base_os_version` from `project.yaml` (e.g. `gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04`, or `:latest` when unspecified). Build `FROM` this when your module only needs a clean runtime to execute prebuilt harness binaries.
+- **`crs_version`** — Your CRS version string.
+- **`libcrs`** — An additional build context containing the libCRS library.
+
+> **Choosing a base image (avoiding GLIBC errors):** harness binaries are linked against the glibc/ABI of the OS they were built on. A runner that executes them must use a matching OS, or loading fails with `version 'GLIBC_2.xx' not found`. Use `FROM ${base_runner_image}` (not a hardcoded `base-runner` tag) so the runtime OS always matches the builder — the framework resolves the right tag from `base_os_version`.
+
 ### Example Run-Phase Dockerfile
 
 ```dockerfile
@@ -254,6 +269,26 @@ RUN chmod +x /opt/run-fuzzer.sh
 
 CMD ["/opt/run-fuzzer.sh"]
 ```
+
+### Variant: clean runner for prebuilt harnesses
+
+A module that only executes harness binaries from the build phase should start from `base_runner_image` so its OS matches the build toolchain:
+
+```dockerfile
+# oss-crs/dockerfiles/runner.Dockerfile
+
+ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest
+FROM ${base_runner_image}
+
+# Install libCRS
+COPY --from=libcrs . /libCRS
+RUN /libCRS/install.sh
+
+COPY ./run_fuzzer_wrapper.sh /usr/local/bin/run_fuzzer_wrapper.sh
+ENTRYPOINT ["/usr/local/bin/run_fuzzer_wrapper.sh"]
+```
+
+The `ARG` default keeps the Dockerfile buildable standalone; under `oss-crs run` the framework overrides it with the OS-matched tag.
 
 ### Example Entry Script
 
@@ -822,6 +857,7 @@ Before publishing your CRS, verify:
 - [ ] `supported_target` accurately reflects your CRS capabilities
 - [ ] `required_llms` lists all models used (if any)
 - [ ] `required_inputs` lists inputs the CRS depends on (if any)
+- [ ] `required_envs` lists environment variables the CRS depends on (if any)
 - [ ] The CRS runs successfully against at least one OSS-Fuzz project
 
 **Additional checks for bug-fixing CRSs (builder sidecar):**

@@ -22,12 +22,15 @@ Environment variables:
     MAX_PARALLEL_JOBS       - Thread pool size (default: "4")
 """
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import copy
 import hashlib
+import json
 import os
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -43,6 +46,8 @@ app = FastAPI(
     title="Builder Sidecar",
     description="Host-side ephemeral container build orchestrator",
 )
+
+_SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 class BuildResult(BaseModel):
@@ -64,6 +69,87 @@ _executor = ThreadPoolExecutor(
 )
 
 
+# ---------------------------------------------------------------------------
+# API call logging — one JSONL line per API call, written per-CRS to the
+# host-mounted LOG_DIR (SIDECAR_LOG_DIR/{crs_name}/libcrs-sidecar-metrics.jsonl)
+# so CRS evaluation/monitoring can see every build/test invocation.
+# Best-effort: logging never blocks or fails an API call.
+# ---------------------------------------------------------------------------
+
+_API_LOG_DIR = Path(os.environ.get("SIDECAR_LOG_DIR", "/sidecar-logs"))
+_API_LOG_NAME = "libcrs-sidecar-metrics.jsonl"
+_SERVICE = "builder-sidecar"
+
+# Maps the internal job action to the canonical event name consumed by the
+# run-meta aggregation (oss_crs/src/crs_compose.py:_read_sidecar_counts_for_crs).
+_ACTION_TO_EVENT = {
+    "build": "apply-patch-build",
+    "test": "apply-patch-test",
+}
+
+
+def _init_api_log() -> None:
+    """Ensure the base API log directory exists (best-effort)."""
+    try:
+        _API_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _make_log_entry(
+    event: str,
+    job_id: str,
+    result: dict,
+    duration_ms: int,
+    ts_start: float,
+    crs_name: str,
+    service: str,
+) -> dict:
+    """Build a structured log entry for one sidecar API call.
+
+    ``exit_code`` defaults to the ``-1`` sentinel when the handler raised before
+    producing one, so derived ``crash``/``build_success`` flags stay correct.
+    """
+    exit_code = result.get("exit_code", -1)
+    entry: dict = {
+        "ts": ts_start,
+        "crs": crs_name,
+        "event": event,
+        "service": service,
+        "job_id": job_id,
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+    }
+    # Pass through request/identity params returned by handlers.
+    for key in ("harness", "build_id", "rebuild_id"):
+        if key in result:
+            entry[key] = result[key]
+    if "error" in result:
+        entry["error"] = result["error"]
+    # Derived fields for consumer convenience. The ``> 0`` guard on crash keeps
+    # the ``-1`` exception sentinel from being classified as a crash.
+    if event == "apply-patch-build":
+        entry["build_success"] = exit_code == 0
+    elif event == "run-pov":
+        entry["crash"] = exit_code > 0 and exit_code != 124
+        entry["timeout"] = exit_code == 124
+    elif event == "apply-patch-test":
+        entry["test_passed"] = exit_code == 0
+        entry["skipped"] = bool(result.get("test_skipped"))
+    return entry
+
+
+def _log_api_call(crs_name: str, entry: dict) -> None:
+    """Append one compact JSON line to the per-CRS metrics file (best-effort)."""
+    try:
+        crs_dir = _API_LOG_DIR / crs_name
+        crs_dir.mkdir(parents=True, exist_ok=True)
+        with (crs_dir / _API_LOG_NAME).open("a") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+    except Exception:
+        pass  # best-effort logging
+
+
 def _make_job_id(
     patch_content: bytes, builder_name: str = "", fuzz_proj_patch_content: bytes = b""
 ) -> str:
@@ -77,6 +163,12 @@ def _make_job_id(
         hasher.update(b":fuzz-proj:")
         hasher.update(fuzz_proj_patch_content)
     return hasher.hexdigest()[:12]
+
+
+def _validate_path_component(value: str, field_name: str) -> None:
+    """Reject path separators and traversal components from API path fields."""
+    if not _SAFE_PATH_COMPONENT_RE.fullmatch(value) or value == "." or value == "..":
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
 
 
 def _cached_response_for_rebuild_id(
@@ -130,6 +222,7 @@ async def submit_build(
 
     At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
     """
+    _validate_path_component(crs_name, "crs_name")
     patch_content = await patch.read() if patch else b""
     fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
     if not patch_content and not fuzz_proj_patch_content:
@@ -200,6 +293,7 @@ async def run_test(
 
     At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
     """
+    _validate_path_component(crs_name, "crs_name")
     patch_content = await patch.read() if patch else b""
     fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
     if not patch_content and not fuzz_proj_patch_content:
@@ -341,12 +435,18 @@ def _handle_test(
 def _run_job(action: str, job_id: str, *args):
     """Execute a job in the thread pool."""
     job_results[job_id]["status"] = "running"
+    # crs_name is the second positional arg for both build and test jobs.
+    crs_name = args[1] if len(args) > 1 else "unknown"
+    ts_start = time.time()
+    t0 = time.monotonic()
+    result: dict = {}
     try:
         if action == "build":
             result = _handle_build(job_id, *args)
         elif action == "test":
             result = _handle_test(job_id, *args)
         else:
+            result = {"error": f"Unknown action: {action}"}
             job_results[job_id] = {
                 "id": job_id,
                 "status": "done",
@@ -355,15 +455,27 @@ def _run_job(action: str, job_id: str, *args):
             return
         job_results[job_id] = {"id": job_id, "status": "done", "result": result}
     except Exception as e:
+        result = {"error": str(e)}
         job_results[job_id] = {
             "id": job_id,
             "status": "done",
             "result": None,
             "error": str(e),
         }
+    finally:
+        event = _ACTION_TO_EVENT.get(action)
+        if event is not None:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            _log_api_call(
+                crs_name,
+                _make_log_entry(
+                    event, job_id, result, duration_ms, ts_start, crs_name, _SERVICE
+                ),
+            )
 
 
 if __name__ == "__main__":
     import uvicorn
 
+    _init_api_log()
     uvicorn.run(app, host="0.0.0.0", port=8080)

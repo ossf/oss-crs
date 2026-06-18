@@ -59,6 +59,16 @@ class TargetConfig(BaseModel):
         description="Path to source code repository hosting the code, e.g. https://path/to/main/repo.git",
     )
 
+    base_os_version: str = Field(
+        default="legacy",
+        description=(
+            "OS the project's base-builder image is pinned to (e.g. "
+            "'ubuntu-24-04'). Used to select a matching base-runner image so "
+            "the runtime glibc/ABI matches the build toolchain. 'legacy' means "
+            "unspecified and maps to the floating ':latest' runner tag."
+        ),
+    )
+
     # Optional fields with defaults based on OSS-Fuzz documentation
     sanitizers: list[TargetSanitizer] = Field(
         default=[TargetSanitizer.ASAN, TargetSanitizer.UBSAN],

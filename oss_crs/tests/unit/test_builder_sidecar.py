@@ -452,6 +452,22 @@ class TestBuildEndpoint:
         assert isinstance(body["builds"], list)
         assert len(body["builds"]) >= 1
 
+    @pytest.mark.parametrize("bad_crs_name", ["../other-crs", "other/crs", ".", ".."])
+    def test_rejects_path_traversal_crs_name(self, bad_crs_name):
+        """Path-like CRS names are rejected before a build job is queued."""
+        import server
+
+        client = _make_test_client()
+        files, data = self._patch_bytes()
+        data["crs_name"] = bad_crs_name
+
+        with patch.object(server._executor, "submit") as mock_submit:
+            response = client.post("/build", files=files, data=data)
+
+        assert response.status_code == 400
+        assert "crs_name" in response.json()["detail"]
+        mock_submit.assert_not_called()
+
 
 # ===========================================================================
 # TestBuildCacheRebuildId
@@ -938,6 +954,22 @@ class TestTestEndpoint:
             data=data,
         )
         assert resp1.json()["id"] == resp2.json()["id"]
+
+    @pytest.mark.parametrize("bad_crs_name", ["../other-crs", "other/crs", ".", ".."])
+    def test_rejects_path_traversal_crs_name(self, bad_crs_name):
+        """Path-like CRS names are rejected before a test job is queued."""
+        import server
+
+        client = _make_test_client()
+        files, data = self._patch_bytes()
+        data["crs_name"] = bad_crs_name
+
+        with patch.object(server._executor, "submit") as mock_submit:
+            response = client.post("/test", files=files, data=data)
+
+        assert response.status_code == 400
+        assert "crs_name" in response.json()["detail"]
+        mock_submit.assert_not_called()
 
 
 # ===========================================================================

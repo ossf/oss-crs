@@ -12,6 +12,12 @@ import fcntl
 from contextlib import contextmanager
 
 from .config.target import FuzzingEngine, TargetConfig, TargetSanitizer
+from .constants import (
+    BASE_RUNNER_IMAGE,
+    DEFAULT_BASE_RUNNER_TAG,
+    KNOWN_BASE_OS_VERSIONS,
+    LEGACY_BASE_OS_VERSION,
+)
 from .ui import MultiTaskProgress, TaskResult
 from .utils import generate_random_name, log_warning
 from . import ui
@@ -33,6 +39,9 @@ OSS_FUZZ_SCRIPTS = {
 # Custom scripts from our templates directory.
 CUSTOM_SCRIPTS = ["oss_crs_handler.sh", "oss_crs_builder_server.py"]
 
+SHARED_LOCK_DIR_MODE = 0o1777
+SHARED_LOCK_FILE_MODE = 0o666
+
 
 def _ensure_third_party_oss_fuzz() -> bool:
     """Auto-fetch oss-fuzz third-party scripts if not present."""
@@ -51,17 +60,48 @@ def _ensure_third_party_oss_fuzz() -> bool:
 
 
 @contextmanager
-def file_lock(lock_path: Path):
+def file_lock(lock_path: Path, *, shared_permissions: bool = False):
     """
     Context manager for file-based locking to prevent race conditions.
 
     Args:
         lock_path: Path to the lock file
+        shared_permissions: Create/open the lock for cross-user reuse. This is
+            intended for machine-wide coordination points such as snapshot locks.
     """
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if shared_permissions:
+        lock_path.parent.mkdir(mode=SHARED_LOCK_DIR_MODE, parents=True, exist_ok=True)
+        try:
+            lock_path.parent.chmod(SHARED_LOCK_DIR_MODE)
+        except PermissionError:
+            pass
+    else:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+
     lock_file = None
     try:
-        lock_file = open(lock_path, "w")
+        if shared_permissions:
+            nofollow = getattr(os, "O_NOFOLLOW", 0)
+            try:
+                fd = os.open(
+                    lock_path,
+                    os.O_RDWR | os.O_CREAT | nofollow,
+                    SHARED_LOCK_FILE_MODE,
+                )
+            except PermissionError:
+                # Existing lock files may have been created by older versions
+                # with owner-only write permission. flock works on a read-only
+                # descriptor, so keep the global coordination point usable.
+                fd = os.open(lock_path, os.O_RDONLY | nofollow)
+                lock_file = os.fdopen(fd, "r")
+            else:
+                try:
+                    os.fchmod(fd, SHARED_LOCK_FILE_MODE)
+                except PermissionError:
+                    pass
+                lock_file = os.fdopen(fd, "r+")
+        else:
+            lock_file = open(lock_path, "w")
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         yield
     finally:
@@ -124,6 +164,7 @@ class Target:
         self.engine = self.DEFAULT_ENGINE
         self.sanitizer = self.DEFAULT_SANITIZER
         self.architecture = self.DEFAULT_ARCHITECTURE
+        self.base_os_version = LEGACY_BASE_OS_VERSION
         self._load_project_yaml_defaults()
 
         self.work_dir = work_dir / "targets" / self.name
@@ -157,6 +198,14 @@ class Target:
             return
 
         self.main_repo = cfg.main_repo
+        self.base_os_version = cfg.base_os_version
+        if self.base_os_version not in KNOWN_BASE_OS_VERSIONS:
+            log_warning(
+                f"Unknown base_os_version '{self.base_os_version}' in {project_yaml}; "
+                f"using it as the base-runner image tag verbatim "
+                f"(known values: {', '.join(sorted(KNOWN_BASE_OS_VERSIONS))}). "
+                f"The runner image pull will fail if that tag does not exist."
+            )
         self.language = cfg.language.value
         if cfg.fuzzing_engines:
             # Prefer "libfuzzer" if listed; otherwise use first entry
@@ -186,6 +235,22 @@ class Target:
     def get_docker_image_name(self) -> str:
         repo_hash = self.__get_repo_hash()
         return f"{self.name}:{repo_hash}"
+
+    @property
+    def base_runner_image(self) -> str:
+        """Full base-runner image reference whose OS matches the build toolchain.
+
+        Mirrors OSS-Fuzz ``infra/helper.py:_get_base_runner_image``: a non-legacy
+        ``base_os_version`` (e.g. ``ubuntu-24-04``) becomes the runner tag,
+        otherwise the floating ``:latest`` tag is used. Passed to CRS run-phase
+        runner Dockerfiles so harness binaries execute under a matching glibc/ABI.
+        """
+        tag = (
+            DEFAULT_BASE_RUNNER_TAG
+            if self.base_os_version == LEGACY_BASE_OS_VERSION
+            else self.base_os_version
+        )
+        return f"{BASE_RUNNER_IMAGE}:{tag}"
 
     def build_docker_image(self) -> str | None:
         if self._has_repo and not self.init_repo():

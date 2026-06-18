@@ -18,6 +18,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import subprocess
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # Module loading: load runner-sidecar server.py under alias "runner_server"
@@ -142,6 +144,32 @@ class TestRunPOVEndpoint:
         )
         assert response.status_code == 404
         assert "error" in response.json()
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("crs_name", "../other-crs"),
+            ("crs_name", "other/crs"),
+            ("harness_name", "../secret"),
+            ("harness_name", "nested/harness"),
+            ("rebuild_id", "../1"),
+            ("rebuild_id", "abc/1"),
+        ],
+    )
+    @patch("runner_server.subprocess.run")
+    @patch("runner_server.os.path.exists")
+    def test_rejects_path_traversal_inputs(self, mock_exists, mock_run, field, value):
+        """Path-like form values are rejected before filesystem or subprocess use."""
+        client = _make_test_client()
+        upload = _pov_upload()
+        upload["data"][field] = value
+
+        response = client.post("/run-pov", **upload)
+
+        assert response.status_code == 400
+        assert field in response.json()["detail"]
+        mock_exists.assert_not_called()
+        mock_run.assert_not_called()
 
 
 # ===========================================================================

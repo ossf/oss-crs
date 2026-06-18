@@ -13,6 +13,9 @@ stricter subset of Keep a Changelog).
 ### Added
 - `libCRS build-project --response-dir <dir> [--fuzz-proj-dir <dir>] [--target-source-dir <dir>]` — rebuild the project image from a modified fuzz-proj and/or target-source **directory** (Python: `build_project(response_dir, fuzz_proj_dir=None, target_source_dir=None, builder=None, builder_name=None, rebuild_id=None)`). libCRS diffs each directory against its base mount (`/OSS_CRS_FUZZ_PROJ`, `/OSS_CRS_TARGET_SOURCE`) and applies the resulting patch via the builder sidecar's `/build` endpoint; at least one directory is required. Used by harness-gen CRSs to validate generated harnesses without hand-writing diffs.
 - `libCRS submit-harness --fuzz-proj-dir <dir> [--target-source-dir <dir>] [--name <name>]` — submit a generated harness project as directories (Python: `submit_harness(fuzz_proj_dir, target_source_dir=None, name=None)`). Syncs them to `OSS_CRS_SUBMIT_DIR/harnesses/<name>/{fuzz-proj,target-source}/`. `target-source` is omitted when the harness needs no source-level changes.
+- `base_runner_image` build arg provided to CRS run-phase module Dockerfiles: the OSS-Fuzz `base-runner` image whose OS matches the target's `base_os_version` from `project.yaml`
+- `required_envs` in CRS configuration — declares environment variables a CRS needs and fails fast before `oss-crs run` when they are missing from the host environment and compose `additional_env`.
+- `additional_env` preflight warnings for optional env placeholders that reference unset host environment variables.
 - `oss-crs archive` command — packages submitted artifacts (POVs, seeds, patches, bug-candidates) from a run into a `.tar.gz`. When a triage CRS is present, POVs are sourced from its submit dir instead of individual CRS submit dirs. Use `--all` to also include exchange dir, logs, and shared dirs. Supports `--run-id`, `--latest`, and `--sanitizer` for run selection.
 - `--latest` flag for `oss-crs artifacts` and `oss-crs archive` — automatically selects the most recent run instead of prompting interactively.
 - `oss-crs gen-compose --litellm-proxy KEY_ENV PROVIDERS [BASE_URL_ENV]` — override litellm config env vars to route selected providers through a proxy. Only rewrites entries that use known default provider keys; custom keys (e.g. `VLLM_KEY`) are never touched.
@@ -86,6 +89,9 @@ stricter subset of Keep a Changelog).
   `_relative_repo_hint`).
 
 ### Fixed
+- Runner/builder OS mismatch for targets pinned to a newer base image. Fixes glibc symbol mismatch errors
+- Builder and runner sidecar APIs now reject path-like CRS, harness, and
+  rebuild identifiers before using them to resolve artifact paths.
 - The local run path now passes a `Path` compose-file object consistently into
   `docker_compose_up()`, so helper-sidecar teardown classification applies on
   the main local run path.

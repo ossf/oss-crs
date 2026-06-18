@@ -1,14 +1,19 @@
 # SPDX-License-Identifier: MIT
-import shutil
-import subprocess
-import re
+import hashlib
 import json
 import os
-import hashlib
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
-from .env_policy import OSS_FUZZ_TARGET_ENV, build_target_builder_env
+from .env_policy import (
+    OSS_FUZZ_TARGET_ENV,
+    additional_env_value_is_resolved,
+    build_target_builder_env,
+    unresolved_env_references,
+)
 from .llm import LLM
 from .crs import CRS
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
@@ -205,7 +210,7 @@ class CRSCompose:
         lock_dir = Path("/tmp/oss-crs-snapshot-locks")
         lock_path = lock_dir / f"snapshot-{content_key}.lock"
 
-        with file_lock(lock_path):
+        with file_lock(lock_path, shared_permissions=True):
             # Re-check after acquiring lock — another process may have built it.
             try:
                 img = client.images.get(content_tag)
@@ -915,6 +920,76 @@ class CRSCompose:
             return TaskResult(success=False, error="\n".join(errors))
         return TaskResult(success=True)
 
+    def _validate_required_envs(self) -> TaskResult:
+        """Validate that all CRS-declared required_envs are available."""
+        errors: list[str] = []
+        warnings: list[str] = []
+        host_envs = set(os.environ)
+
+        for crs in self.crs_list:
+            required_envs = getattr(crs.config, "required_envs", None)
+            required_env_set = set(required_envs or [])
+
+            additional_envs: set[str] = set()
+
+            def inspect_additional_env(
+                env_map: dict[str, object], *, source: str
+            ) -> None:
+                for key, value in env_map.items():
+                    if additional_env_value_is_resolved(value, host_envs):
+                        additional_envs.add(key)
+                        continue
+                    if key in required_env_set:
+                        continue
+                    missing_refs = ", ".join(
+                        sorted(unresolved_env_references(value, host_envs))
+                    )
+                    warnings.append(
+                        f"CRS '{crs.name}' optional {source} additional_env "
+                        f"'{key}' references unset host environment variable(s): "
+                        f"{missing_refs}. Set them to enable this optional env, "
+                        f"or add '{key}' to required_envs if it is mandatory."
+                    )
+
+            resource = getattr(crs, "resource", None)
+            if resource is not None and getattr(resource, "additional_env", None):
+                inspect_additional_env(
+                    resource.additional_env,
+                    source="CRS entry",
+                )
+            target_build_phase = getattr(crs.config, "target_build_phase", None)
+            if target_build_phase is not None:
+                for build in target_build_phase.builds:
+                    inspect_additional_env(
+                        build.additional_env,
+                        source="build",
+                    )
+            crs_run_phase = getattr(crs.config, "crs_run_phase", None)
+            if crs_run_phase is not None:
+                for module in crs_run_phase.modules.values():
+                    inspect_additional_env(
+                        module.additional_env,
+                        source="run module",
+                    )
+
+            available = host_envs | additional_envs
+            missing = required_env_set - available
+            if missing:
+                env_list = ", ".join(sorted(missing))
+                errors.append(
+                    f"CRS '{crs.name}' requires environment variables "
+                    f"{env_list} but they were not provided. "
+                    f"Please set them in the host environment or provide them "
+                    "through additional_env."
+                )
+
+        for warning in warnings:
+            log_warning(warning)
+
+        if errors:
+            return TaskResult(success=False, error="\n".join(errors))
+        return TaskResult(success=True)
+
     def __validate_before_run(
         self,
         target: Target,
@@ -937,6 +1012,10 @@ class CRSCompose:
                     bug_candidate=bug_candidate,
                     bug_candidate_dir=bug_candidate_dir,
                 ),
+            ),
+            (
+                "Validate required environment variables for CRS targets",
+                lambda _: self._validate_required_envs(),
             ),
         ]
 
@@ -1139,6 +1218,8 @@ class CRSCompose:
                     if not success:
                         log_dim(f"Note: Cgroup cleanup deferred: {msg}")
 
+                self._write_run_meta(target, actual_run_id, sanitizer)
+
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
                     if ret.success:
@@ -1320,6 +1401,134 @@ class CRSCompose:
             except OSError:
                 shutil.copy2(src, dst)
 
+    @staticmethod
+    def _read_json_file(path: Path) -> dict:
+        try:
+            raw = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _read_litellm_spend_summary(self, run_id: str, sanitizer: str) -> dict:
+        path = self.work_dir.get_litellm_spend_report_file(
+            run_id, sanitizer, create_parent=False
+        )
+        raw = self._read_json_file(path)
+        totals_raw = raw.get("totals")
+        totals = totals_raw if isinstance(totals_raw, dict) else {}
+        crs_raw = raw.get("crs")
+        crs = crs_raw if isinstance(crs_raw, dict) else {}
+        return {
+            "totals": {"credits_used": float(totals.get("credits_used", 0.0) or 0.0)},
+            "crs": {
+                name: {"credits_used": float((entry or {}).get("credits_used", 0.0))}
+                for name, entry in crs.items()
+                if isinstance(name, str)
+            },
+        }
+
+    def _read_sidecar_counts_for_crs(
+        self, crs_name: str, target: Target, run_id: str, sanitizer: str
+    ) -> dict[str, int]:
+        path = self.work_dir.get_sidecar_metrics_file(
+            crs_name, target, run_id, sanitizer
+        )
+        counts = {
+            "patch_builds": 0,
+            "patch_tests": 0,
+            "pov_runs": 0,
+        }
+        if not path.exists() or not path.is_file():
+            return counts
+
+        event_to_field = {
+            "apply-patch-build": "patch_builds",
+            "apply-patch-test": "patch_tests",
+            "run-pov": "pov_runs",
+        }
+        try:
+            for line in path.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event = row.get("event")
+                field = event_to_field.get(event)
+                if field:
+                    counts[field] += 1
+        except OSError:
+            return counts
+        return counts
+
+    def _collect_run_meta(self, target: Target, run_id: str, sanitizer: str) -> dict:
+        llm_summary = self._read_litellm_spend_summary(run_id, sanitizer)
+
+        totals = {
+            "artifacts": {
+                "povs": 0,
+                "seeds": 0,
+                "patches": 0,
+                "bug_candidates": 0,
+            },
+            "llm": {"credits_used": 0.0},
+            "sidecar": {
+                "patch_builds": 0,
+                "patch_tests": 0,
+                "pov_runs": 0,
+            },
+        }
+        crs_meta: dict[str, dict] = {}
+
+        for crs in self.crs_list:
+            artifacts = self.work_dir.get_submit_artifact_counts(
+                crs.name, target, run_id, sanitizer
+            )
+            sidecar = self._read_sidecar_counts_for_crs(
+                crs.name, target, run_id, sanitizer
+            )
+            llm = {
+                "credits_used": float(
+                    llm_summary.get("crs", {})
+                    .get(crs.name, {})
+                    .get("credits_used", 0.0)
+                )
+            }
+
+            crs_meta[crs.name] = {
+                "artifacts": artifacts,
+                "llm": llm,
+                "sidecar": sidecar,
+            }
+
+            for key in totals["artifacts"]:
+                totals["artifacts"][key] += artifacts.get(key, 0)
+            for key in totals["sidecar"]:
+                totals["sidecar"][key] += sidecar.get(key, 0)
+
+        llm_total = float(llm_summary.get("totals", {}).get("credits_used", 0.0))
+        if llm_total == 0.0:
+            llm_total = round(
+                sum(crs_meta[name]["llm"]["credits_used"] for name in crs_meta), 6
+            )
+        totals["llm"]["credits_used"] = llm_total
+
+        return {
+            "totals": totals,
+            "crs": crs_meta,
+        }
+
+    def _write_run_meta(self, target: Target, run_id: str, sanitizer: str) -> None:
+        try:
+            metadata = self._collect_run_meta(target, run_id, sanitizer)
+            self.work_dir.write_run_meta_for_run(run_id, sanitizer, metadata)
+        except Exception as exc:
+            log_dim(
+                "Note: Failed to write run metadata "
+                f"for run '{run_id}': {type(exc).__name__}: {exc}"
+            )
+
     def __show_result_local(
         self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress
     ) -> None:
@@ -1406,6 +1615,25 @@ class CRSCompose:
         def cleanup_exchange_dir(progress: MultiTaskProgress) -> TaskResult:
             exchange_dir = self.work_dir.get_exchange_dir(target, run_id, sanitizer)
             rm_with_docker(exchange_dir)
+            # Pre-create all exchange type subdirs so Docker doesn't create them as
+            # root when CRS containers bind-mount per-type subdirs at container start.
+            from oss_crs.src.templates.renderer import (
+                _ALL_EXCHANGE_TYPES,
+                _DATA_TYPE_PROCESSOR,
+                _has_post_processor,
+            )
+
+            for dtype in _ALL_EXCHANGE_TYPES:
+                (exchange_dir / dtype).mkdir(parents=True, exist_ok=True)
+            if _has_post_processor(self.crs_list):
+                processed_exchange_dir = self.work_dir.get_processed_exchange_dir(
+                    target, run_id, sanitizer
+                )
+                for dtype, attr in _DATA_TYPE_PROCESSOR.items():
+                    if any(getattr(crs.config, attr, False) for crs in self.crs_list):
+                        (processed_exchange_dir / dtype).mkdir(
+                            parents=True, exist_ok=True
+                        )
             return TaskResult(success=True)
 
         def cleanup_shared_dir(
