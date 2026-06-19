@@ -1,6 +1,6 @@
 ---
 name: sync-dependabot-app-deps
-description: Read every open Dependabot PR for an application-code dependency (Python pip and JS npm/yarn/pnpm) and carry each version bump over to the local dependency files (requirements.txt, pyproject.toml, uv.lock, package.json, package-lock.json/yarn.lock/pnpm-lock.yaml) without merging the PRs.
+description: Read every open Dependabot PR for an application-code dependency (Python pip/uv and JS npm/yarn/pnpm) and carry each version bump over to the local dependency files (requirements.txt, pyproject.toml, uv.lock, package.json, package-lock.json/yarn.lock/pnpm-lock.yaml) without merging the PRs.
 allowed-tools: Read, Bash, Edit
 ---
 
@@ -15,8 +15,14 @@ PRs** and applies their changes directly to the local working tree, so the
 bumps land in one local change set instead of N separate merges.
 
 The reliable signal for "this PR is an app-dep bump" is the branch name prefix:
-- Python (pip / uv): `dependabot/pip/`
+- Python (pip): `dependabot/pip/` — used for plain `requirements.txt` directories
+- Python (uv): `dependabot/uv/` — used for the root project that ships a `uv.lock`
 - JS (npm / yarn / pnpm): `dependabot/npm_and_yarn/`
+
+Both Python prefixes must be matched. Dependabot picks `uv/` over `pip/` for any
+directory where it detects a `uv.lock`, regardless of how the directory is
+declared in `.github/dependabot.yml`. Missing `dependabot/uv/` silently drops
+the root project's PRs.
 
 GitHub Actions (`dependabot/github_actions/`) and Docker (`dependabot/docker/`)
 PRs are **excluded** — leave them alone (Docker has its own skill,
@@ -43,7 +49,7 @@ instead: `git checkout "chore/app-deps-dependabot-$(date +%Y-%m-%d)"`.
 ```bash
 gh pr list --author "app/dependabot" --state open --limit 100 \
   --json number,title,headRefName \
-  --jq '.[] | select(.headRefName | startswith("dependabot/pip/") or startswith("dependabot/npm_and_yarn/")) | "\(.number)\t\(.headRefName)\t\(.title)"'
+  --jq '.[] | select(.headRefName | startswith("dependabot/pip/") or startswith("dependabot/uv/") or startswith("dependabot/npm_and_yarn/")) | "\(.number)\t\(.headRefName)\t\(.title)"'
 ```
 
 If this prints nothing, there are no open Python or JS Dependabot PRs — stop
