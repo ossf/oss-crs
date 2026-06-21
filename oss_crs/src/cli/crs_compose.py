@@ -173,8 +173,8 @@ def add_run_command(subparsers):
     run.add_argument(
         "--target-harness",
         type=str,
-        required=True,
-        help="Specify the target harness to use for the run",
+        default=None,
+        help="Specify the target harness to use for the run (omit for harness-gen CRSs)",
     )
     run.add_argument(
         "--timeout",

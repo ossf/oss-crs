@@ -61,7 +61,7 @@ def test_builder_sidecar_full(cli_runner, sidecar_full_compose, mock_repo):
         compose,
         timeout=120,
     )
-    assert result.returncode == 0, f"prepare failed:\n{result.stderr[-2000:]}"
+    assert result.returncode == 0, f"prepare failed:\n{result.stdout[-2000:]}"
 
     result = cli_runner(
         "build-target",
@@ -76,9 +76,7 @@ def test_builder_sidecar_full(cli_runner, sidecar_full_compose, mock_repo):
         "sidecar-full-e2e",
         timeout=600,
     )
-    assert result.returncode == 0, (
-        f"build-target failed:\n{result.stdout[-3000:]}\n{result.stderr[-1000:]}"
-    )
+    assert result.returncode == 0, f"build-target failed:\n{result.stdout[-3000:]}"
 
     result = cli_runner(
         "run",
@@ -102,5 +100,5 @@ def test_builder_sidecar_full(cli_runner, sidecar_full_compose, mock_repo):
         timeout=600,
     )
     assert result.returncode == 0, (
-        f"run failed (sidecar E2E tests did not pass):\n{result.stderr[-3000:]}"
+        f"run failed (sidecar E2E tests did not pass):\n{result.stdout[-3000:]}"
     )

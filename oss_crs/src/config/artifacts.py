@@ -135,6 +135,7 @@ class CRSArtifacts(BaseModel):
     seed: Optional[str] = None
     bug_candidate: Optional[str] = None
     patch: Optional[str] = None
+    harness: Optional[str] = None
     fetch: Optional[str] = None
     shared: Optional[str] = None
     log_dir: Optional[str] = None
@@ -161,37 +162,35 @@ class CRSArtifacts(BaseModel):
             )
             artifacts.build = str(build_path)
 
-        if target.target_harness:
-            submit_path = work_dir.get_submit_dir(
-                crs_name, target, run_id, sanitizer, create=False
-            )
-            artifacts.submit_dir = str(submit_path)
-            artifacts.pov = str(submit_path / "povs")
-            artifacts.seed = str(submit_path / "seeds")
-            artifacts.bug_candidate = str(submit_path / "bug-candidates")
-            artifacts.patch = str(submit_path / "patches")
-            artifacts.fetch = exchange_dir_base
-            artifacts.shared = str(
-                work_dir.get_shared_dir(
-                    crs_name, target, run_id, sanitizer, create=False
-                )
-            )
-            artifacts.log_dir = str(
-                work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
-            )
-            # Per-CRS sidecar API-call log (build/test/pov), written server-side
-            # by the builder/runner sidecars under LOG_DIR. Counts are summarized
-            # in meta.crs[name].sidecar; this points at the raw JSONL trail. Only
-            # advertised when the sidecars actually produced it.
-            sidecar_metrics_path = work_dir.get_sidecar_metrics_file(
-                crs_name, target, run_id, sanitizer
-            )
-            if sidecar_metrics_path.exists():
-                artifacts.sidecar_metrics = str(sidecar_metrics_path)
-            run_logs_root = work_dir.get_run_logs_dir(
-                target, run_id, sanitizer, create=False
-            )
-            artifacts.run_logs = str(run_logs_root / "crs" / crs_name)
+        submit_path = work_dir.get_submit_dir(
+            crs_name, target, run_id, sanitizer, create=False
+        )
+        artifacts.submit_dir = str(submit_path)
+        artifacts.pov = str(submit_path / "povs")
+        artifacts.seed = str(submit_path / "seeds")
+        artifacts.bug_candidate = str(submit_path / "bug-candidates")
+        artifacts.patch = str(submit_path / "patches")
+        artifacts.harness = str(submit_path / "harnesses")
+        artifacts.fetch = exchange_dir_base
+        artifacts.shared = str(
+            work_dir.get_shared_dir(crs_name, target, run_id, sanitizer, create=False)
+        )
+        artifacts.log_dir = str(
+            work_dir.get_log_dir(crs_name, target, run_id, sanitizer, create=False)
+        )
+        # Per-CRS sidecar API-call log (build/test/pov), written server-side
+        # by the builder/runner sidecars under LOG_DIR. Counts are summarized
+        # in meta.crs[name].sidecar; this points at the raw JSONL trail. Only
+        # advertised when the sidecars actually produced it.
+        sidecar_metrics_path = work_dir.get_sidecar_metrics_file(
+            crs_name, target, run_id, sanitizer
+        )
+        if sidecar_metrics_path.exists():
+            artifacts.sidecar_metrics = str(sidecar_metrics_path)
+        run_logs_root = work_dir.get_run_logs_dir(
+            target, run_id, sanitizer, create=False
+        )
+        artifacts.run_logs = str(run_logs_root / "crs" / crs_name)
 
         return artifacts
 

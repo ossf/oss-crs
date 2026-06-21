@@ -1,0 +1,7 @@
+name: crs-harness-gen-claude-code
+description: "Claude Code Harness Generation Agent"
+type:
+  - harness-gen
+source:
+  url: https://github.com/Team-Atlanta/crs-harness-gen-claude-code.git
+  ref: main

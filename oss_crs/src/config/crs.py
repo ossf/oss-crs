@@ -162,6 +162,7 @@ class CRSType(Enum):
     BUG_FIXING_ENSEMBLE = "bug-fixing-ensemble"
     BUG_FINDING_TRIAGE = "bug-finding-triage"
     SEED_FILTER = "seed-filter"
+    HARNESS_GEN = "harness-gen"
 
 
 VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
@@ -201,6 +202,10 @@ class CRSConfig(BaseModel):
     @property
     def is_seed_filter(self) -> bool:
         return CRSType.SEED_FILTER in self.type
+
+    @property
+    def is_harness_gen(self) -> bool:
+        return CRSType.HARNESS_GEN in self.type
 
     @field_validator("version")
     @classmethod

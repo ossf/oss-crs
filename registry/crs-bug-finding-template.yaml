@@ -1,0 +1,7 @@
+name: crs-bug-finding-template
+description: "Template for Bug-Finding CRS"
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-bug-finding-template.git
+  ref: snapshot

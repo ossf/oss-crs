@@ -912,7 +912,7 @@ class CRSCompose:
         # Write build_id to run directory for later retrieval (e.g., by artifacts command)
         self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
 
-        return self.__run(
+        result = self.__run(
             target,
             run_id=run_id,
             build_id=build_id,
@@ -926,6 +926,7 @@ class CRSCompose:
             incremental_build=incremental_build,
             web_ui=web_ui,
         )
+        return result
 
     def _validate_required_inputs(
         self,

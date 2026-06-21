@@ -263,6 +263,39 @@ def main():
     submit_parser.add_argument("path", type=Path, help="File path to submit")
     submit_parser.set_defaults(func=lambda args: crs_utils.submit(args.type, args.path))
 
+    # submit-harness command (harness-gen output: fuzz-proj dir + optional target source dir)
+    submit_harness_parser = subparsers.add_parser(
+        "submit-harness",
+        help="Submit a generated harness project (fuzz-proj dir + optional target source dir)",
+    )
+    submit_harness_parser.add_argument(
+        "--fuzz-proj-dir",
+        type=Path,
+        required=True,
+        dest="fuzz_proj_dir",
+        metavar="DIR",
+        help="OSS-Fuzz project directory (Dockerfile, build.sh, harness source)",
+    )
+    submit_harness_parser.add_argument(
+        "--target-source-dir",
+        type=Path,
+        default=None,
+        dest="target_source_dir",
+        metavar="DIR",
+        help="Modified upstream target source tree (optional)",
+    )
+    submit_harness_parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Subdir name under harnesses (defaults to fuzz-proj dir basename)",
+    )
+    submit_harness_parser.set_defaults(
+        func=lambda args: crs_utils.submit_harness(
+            args.fuzz_proj_dir, args.target_source_dir, args.name
+        )
+    )
+
     # fetch command (manually fetch shared data)
     fetch_parser = subparsers.add_parser(
         "fetch",
@@ -287,7 +320,7 @@ def main():
     # apply-patch-build command
     apply_patch_build_parser = subparsers.add_parser(
         "apply-patch-build",
-        help="Apply a patch to the snapshot image and rebuild",
+        help="Apply a target-source patch to the snapshot image and rebuild",
     )
     apply_patch_build_parser.add_argument(
         "patch_path", type=Path, help="Path to the unified diff file"
@@ -325,6 +358,71 @@ def main():
         sys.exit(exit_code)
 
     apply_patch_build_parser.set_defaults(func=_apply_patch_build)
+
+    # build-project command (harness-gen: rebuild from a modified fuzz-proj and/or target source)
+    build_project_parser = subparsers.add_parser(
+        "build-project",
+        help="Rebuild the project image from a modified fuzz-proj and/or target source dir",
+    )
+    build_project_parser.add_argument(
+        "--response-dir",
+        type=Path,
+        required=True,
+        dest="response_dir",
+        metavar="DIR",
+        help="Directory to receive build results",
+    )
+    build_project_parser.add_argument(
+        "--fuzz-proj-dir",
+        type=Path,
+        default=None,
+        dest="fuzz_proj_dir",
+        metavar="DIR",
+        help="Modified OSS-Fuzz project directory (diffed against the fuzz-proj base)",
+    )
+    build_project_parser.add_argument(
+        "--target-source-dir",
+        type=Path,
+        default=None,
+        dest="target_source_dir",
+        metavar="DIR",
+        help="Modified target source directory (diffed against the target-source base)",
+    )
+    build_project_parser.add_argument(
+        "--builder",
+        type=str,
+        default=None,
+        help="Builder sidecar module name (defaults to BUILDER_MODULE env var)",
+    )
+    build_project_parser.add_argument(
+        "--builder-name",
+        type=str,
+        default=None,
+        help="Builder config name for image resolution (e.g. 'coverage-build'). Defaults to --builder value.",
+    )
+    build_project_parser.add_argument(
+        "--rebuild-id",
+        type=int,
+        default=None,
+        help="Rebuild ID (auto-increments if omitted, overwrites artifacts if provided)",
+    )
+
+    def _build_project(args):
+        if not args.fuzz_proj_dir and not args.target_source_dir:
+            build_project_parser.error(
+                "At least one of --fuzz-proj-dir or --target-source-dir must be provided"
+            )
+        exit_code = crs_utils.build_project(
+            args.response_dir,
+            fuzz_proj_dir=args.fuzz_proj_dir,
+            target_source_dir=args.target_source_dir,
+            builder=args.builder,
+            builder_name=args.builder_name,
+            rebuild_id=args.rebuild_id,
+        )
+        sys.exit(exit_code)
+
+    build_project_parser.set_defaults(func=_build_project)
 
     # run-pov command
     run_pov_parser = subparsers.add_parser(
@@ -371,7 +469,7 @@ def main():
     # apply-patch-test command
     apply_patch_test_parser = subparsers.add_parser(
         "apply-patch-test",
-        help="Apply a patch and run the project's bundled test.sh",
+        help="Apply a target-source patch and run the project's bundled test.sh",
     )
     apply_patch_test_parser.add_argument(
         "patch_path", type=Path, help="Path to the unified diff file"

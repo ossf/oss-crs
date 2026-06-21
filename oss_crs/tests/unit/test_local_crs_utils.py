@@ -684,3 +684,59 @@ class TestResponseDirCompat:
         content = (response_dir / "retcode").read_text()
         assert content == "77"
         int(content)  # Must be parseable as int
+
+
+class TestDiffAgainstBase:
+    """_diff_against_base produces a root-relative, git-apply-able diff."""
+
+    @staticmethod
+    def _git_apply(base_dir, diff_bytes, dst_dir):
+        import shutil
+        import subprocess
+
+        shutil.copytree(base_dir, dst_dir)
+        diff_file = dst_dir.parent / "applied.diff"
+        diff_file.write_bytes(diff_bytes)
+        subprocess.run(["git", "apply", str(diff_file)], cwd=str(dst_dir), check=True)
+
+    def test_roundtrip_modify_add_delete(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        (base / "keep.txt").write_text("unchanged\n")
+        (base / "mod.txt").write_text("original\n")
+        (base / "gone.txt").write_text("to be deleted\n")
+        sub = base / "sub"
+        sub.mkdir()
+        (sub / "nested.c").write_text("int main(){return 0;}\n")
+
+        new = tmp_path / "new"
+        new.mkdir()
+        (new / "keep.txt").write_text("unchanged\n")
+        (new / "mod.txt").write_text("modified\n")  # modify
+        (new / "added.txt").write_text("brand new\n")  # add
+        new_sub = new / "sub"
+        new_sub.mkdir()
+        (new_sub / "nested.c").write_text("int main(){return 0;}\n")
+        # gone.txt deleted
+
+        diff = LocalCRSUtils._diff_against_base(base, new)
+        assert diff, "expected a non-empty diff"
+
+        # Applying the diff to a fresh copy of base must reproduce `new`.
+        applied = tmp_path / "applied"
+        self._git_apply(base, diff, applied)
+
+        assert (applied / "mod.txt").read_text() == "modified\n"
+        assert (applied / "added.txt").read_text() == "brand new\n"
+        assert not (applied / "gone.txt").exists()
+        assert (applied / "keep.txt").read_text() == "unchanged\n"
+
+    def test_identical_dirs_empty_diff(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        (base / "a.txt").write_text("same\n")
+        new = tmp_path / "new"
+        new.mkdir()
+        (new / "a.txt").write_text("same\n")
+
+        assert LocalCRSUtils._diff_against_base(base, new) == b""

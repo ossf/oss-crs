@@ -11,6 +11,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
 
   # Docker — pinned image digests (tracks oss-crs-infra/dependabot-pins.Dockerfile)
   # The actual refs live in oss_crs/src/constants.py; sync manually on update.
@@ -19,27 +22,61 @@ updates:
     directory: "/oss-crs-infra"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
 
   # Python (pip) — builder-sidecar container dependencies
   - package-ecosystem: "pip"
     directory: "/oss-crs-infra/builder-sidecar"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
 
   # Python (pip) — runner-sidecar container dependencies
   - package-ecosystem: "pip"
     directory: "/oss-crs-infra/runner-sidecar"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
 
   # Python (pip) — lifecycle container dependencies
   - package-ecosystem: "pip"
     directory: "/oss-crs-infra/lifecycle"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
 
   # Python (pip) — litellm-key-gen container dependencies
   - package-ecosystem: "pip"
     directory: "/oss-crs-infra/litellm-key-gen"
     schedule:
       interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+
+  # JS (npm) — Docusaurus site dependencies
+  # React + react-dom must bump together (peer dependency); Docusaurus packages
+  # release in lockstep — group each set so one PR carries the coordinated bumps.
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"
+          - "@mdx-js/*"

@@ -109,6 +109,31 @@ class CRSUtils(ABC):
         pass
 
     @abstractmethod
+    def submit_harness(
+        self,
+        fuzz_proj_dir: Path,
+        target_source_dir: "Path | None" = None,
+        name: "str | None" = None,
+    ) -> None:
+        """Submit a generated harness project for downstream rebuilding.
+
+        Used by harness-gen CRSs. Unlike submit(), which handles single files
+        for the generic exchange types, this submits whole directories:
+
+            fuzz_proj_dir: the OSS-Fuzz project directory (Dockerfile, build.sh,
+                harness source) — required.
+            target_source_dir: the modified upstream target source tree — optional,
+                provided when the harness requires source-level changes.
+            name: subdirectory name under the harnesses submit dir; defaults
+                to fuzz_proj_dir's basename.
+
+        The two directories are placed under
+        OSS_CRS_SUBMIT_DIR/harnesses/<name>/{fuzz-proj,target-source}/ so a
+        consumer can reconstruct and rebuild the harness.
+        """
+        pass
+
+    @abstractmethod
     def fetch(self, data_type: DataType, dst: Path) -> list[str]:
         """Download shared data from oss-crs-infra to a local directory.
 
@@ -131,12 +156,49 @@ class CRSUtils(ABC):
         builder_name: "str | None" = None,
         rebuild_id: "int | None" = None,
     ) -> int:
-        """Apply a patch and rebuild via the builder sidecar.
+        """Apply a target-source patch and rebuild via the builder sidecar.
 
         Args:
-            patch_path: Path to a unified diff file.
+            patch_path: Path to a unified diff file (applied against the target source tree).
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log, rebuild_id
+            builder: Builder sidecar service name for DNS. Defaults to BUILDER_MODULE env var.
+            builder_name: Builder config name for image resolution (e.g. "coverage-build").
+                          Defaults to builder if not specified.
+            rebuild_id: Optional rebuild ID. Auto-increments if None, overwrites if provided.
+
+        Returns:
+            Build exit code (0 = success).
+        """
+        pass
+
+    @abstractmethod
+    def build_project(
+        self,
+        response_dir: Path,
+        fuzz_proj_dir: "Path | None" = None,
+        target_source_dir: "Path | None" = None,
+        builder: "str | None" = None,
+        builder_name: "str | None" = None,
+        rebuild_id: "int | None" = None,
+    ) -> int:
+        """Rebuild the project image from a modified fuzz-proj and/or target source.
+
+        Used by harness-gen CRSs to validate generated harnesses. Unlike
+        apply_patch_build (which applies a single source patch against the
+        existing build), this performs a full image rebuild and accepts modified
+        directories rather than patches: the implementation diffs each directory
+        against its base mount (the fuzz-proj / target-source the CRS downloaded)
+        to produce the patches it applies under the hood. At least one directory
+        must be provided.
+
+        Args:
+            response_dir: Directory to receive results:
+                - retcode, stdout.log, stderr.log, rebuild_id
+            fuzz_proj_dir: Modified OSS-Fuzz project directory; diffed against the
+                fuzz-proj base to trigger a full image rebuild from the patched project.
+            target_source_dir: Modified upstream target source tree; diffed against
+                the target-source base and applied during the rebuild.
             builder: Builder sidecar service name for DNS. Defaults to BUILDER_MODULE env var.
             builder_name: Builder config name for image resolution (e.g. "coverage-build").
                           Defaults to builder if not specified.
@@ -178,7 +240,7 @@ class CRSUtils(ABC):
         response_dir: Path,
         builder: "str | None" = None,
     ) -> int:
-        """Apply a patch and run the project's bundled test.sh via the builder sidecar.
+        """Apply a target-source patch and run the project's bundled test.sh.
 
         Args:
             patch_path: Path to the unified diff file to apply before testing.
