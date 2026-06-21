@@ -1788,9 +1788,7 @@ class CRSCompose:
                 for crs in self.crs_list
             }
             exchange = scan(
-                self.work_dir.get_exchange_dir(
-                    target, run_id, sanitizer, create=False
-                )
+                self.work_dir.get_exchange_dir(target, run_id, sanitizer, create=False)
             )
 
             spend_path = self.work_dir.get_litellm_spend_report_file(

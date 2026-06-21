@@ -289,7 +289,14 @@ async def finalize_run(run_id: str, request: Request):
             run.crs_resources = meta.get("crs_resources", {})
             run.harness = meta.get("harness", "")
         merged = dict(run.latest) if run.latest else {}
-        for key in ("per_crs", "exchange", "net", "cost", "elapsed_seconds", "coverage"):
+        for key in (
+            "per_crs",
+            "exchange",
+            "net",
+            "cost",
+            "elapsed_seconds",
+            "coverage",
+        ):
             if body.get(key) is not None:
                 merged[key] = body[key]
         run.latest = merged
