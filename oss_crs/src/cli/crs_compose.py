@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from ..crs_compose import CRSCompose
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
+from ..constants import WEBUI_CONTAINER_NAME, WEBUI_DEFAULT_PORT
 from ..utils import get_console, log_success, log_error, log_warning, log_dim
 from .artifacts import handle_artifacts
 from .archive import handle_archive
@@ -239,7 +240,10 @@ def add_run_command(subparsers):
         "--web-ui",
         action="store_true",
         default=False,
-        help="Launch a WebUI dashboard to monitor CRS run status (served on port 9090).",
+        help=(
+            "Launch a WebUI dashboard to monitor CRS run status "
+            f"(served on port {WEBUI_DEFAULT_PORT})."
+        ),
     )
 
 
@@ -337,10 +341,6 @@ def add_archive_command(subparsers):
 
 def add_check_command(subparsers):
     pass
-
-
-WEBUI_CONTAINER_NAME = "oss-crs-webui"
-WEBUI_DEFAULT_PORT = 9090
 
 
 def add_web_ui_command(subparsers):
