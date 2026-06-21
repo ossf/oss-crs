@@ -40,8 +40,8 @@ For a quick introduction and setup instructions, see the [project README](../REA
 Every CRS campaign follows three phases managed by `oss-crs`:
 
 1. **Prepare** — Pull CRS source repositories and build Docker images (`oss-crs prepare`)
-2. **Build Target** — Compile the target project and run each CRS's target build pipeline (`oss-crs build-target`). Pass `--incremental-build` to create Docker snapshots for faster rebuilds.
-3. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`oss-crs run`). Pass `--incremental-build` to use snapshot images for ephemeral rebuild containers.
+2. **Build Target** — Compile the target project and run each CRS's target build pipeline (`oss-crs build-target`). Pass `--incremental-build` to create Docker snapshots for faster rebuilds. Pass `--coverage` to additionally build a coverage-instrumented binary for the [Web Dashboard](#web-dashboard).
+3. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`oss-crs run`). Pass `--incremental-build` to use snapshot images for ephemeral rebuild containers. Pass `--web-ui` to monitor the run live in the [Web Dashboard](#web-dashboard).
 4. **Clean** — Remove Docker images and workdir artifacts from previous phases (`oss-crs clean`). Target a specific phase with `clean prepare`, `clean build-target`, or `clean run`, or clean everything at once. Add `--artifacts` to also remove workdir build/run directories.
 
 ### CRS Isolation
@@ -58,6 +58,14 @@ Run `oss-crs setup` to enable [cgroup-parent mode](setup.md) for flexible resour
 ### Ensemble Campaigns
 
 Multiple CRSs can be composed in a single `crs-compose.yaml` to run simultaneously. Each CRS operates independently with its own resource allocation, and results are aggregated automatically.
+
+### Web Dashboard
+
+An optional WebUI dashboard visualizes live run status — per-CRS and exchange artifact counts (POVs, seeds, bug-candidates, patches, diffs), LLM cost, and a coverage panel.
+
+- **Start the service** — `oss-crs web-ui start` (add `--port <N>` to override the default port `9090`). Use `oss-crs web-ui status` to check it and `oss-crs web-ui stop` to tear it down.
+- **Monitor a run** — pass `--web-ui` to `oss-crs run`. This starts the service if it isn't already running and publishes final artifact and cost totals after teardown so the finished run reflects the true results.
+- **Coverage panel** — build the target with `oss-crs build-target --coverage` (or rely on `--web-ui`, which builds it on demand) to populate the coverage panel. The coverage build is best-effort: targets that can't be instrumented simply omit the panel without affecting fuzzing or failing the build.
 
 ## Contributing
 

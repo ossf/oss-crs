@@ -7,6 +7,9 @@ stricter subset of Keep a Changelog).
 ## [Unreleased]
 
 ### Added
+- `oss-crs web-ui {start,stop,status}` command — manages a standalone WebUI dashboard for monitoring CRS run status (served on port 9090; `start` accepts `--port`).
+- `--web-ui` flag for `oss-crs run` — launches the WebUI dashboard to monitor the run live and publishes authoritative final artifact and cost totals to it after teardown.
+- `--coverage` flag for `oss-crs build-target` — builds an additional coverage-instrumented binary (best-effort; never fails the build) used by the WebUI coverage panel at run time.
 - `base_runner_image` build arg provided to CRS run-phase module Dockerfiles: the OSS-Fuzz `base-runner` image whose OS matches the target's `base_os_version` from `project.yaml`
 - `required_envs` in CRS configuration — declares environment variables a CRS needs and fails fast before `oss-crs run` when they are missing from the host environment and compose `additional_env`.
 - `additional_env` preflight warnings for optional env placeholders that reference unset host environment variables.
