@@ -1,0 +1,6 @@
+name: crs-sample-hybrid
+type:
+  - bug-finding
+source:
+  url: https://github.com/Team-Atlanta/crs-sample-hybrid.git
+  ref: main
