@@ -31,7 +31,6 @@ from .utils import (
     log_dim,
 )
 from .workdir import WorkDir
-from . import constants
 from . import webui
 from .cgroup import (
     check_cgroup_parent_available,
@@ -867,30 +866,9 @@ class CRSCompose:
             ):
                 return 1
         elif web_ui:
-            # CRS builds exist but coverage build may be missing
-            assert build_id is not None
-            cov_build_dir = self.work_dir.get_build_output_dir(
-                constants.COVERAGE_CRS_NAME, target, build_id, sanitizer, create=False
-            )
-            if not (cov_build_dir / "coverage-build").is_dir():
-                target_base_image = target.build_docker_image()
-                if target_base_image is None:
-                    return 1
-                resolved_source_path = (
-                    target.repo_path.resolve()
-                    if target._has_repo
-                    else self.work_dir.get_target_source_dir(
-                        target, build_id, sanitizer, create=False
-                    )
-                )
-                webui.build_coverage_best_effort(
-                    self,
-                    target,
-                    target_base_image,
-                    build_id,
-                    sanitizer,
-                    target_source_path=resolved_source_path,
-                )
+            # CRS builds exist but the best-effort coverage build may be missing.
+            if not webui.ensure_coverage_build(self, target, build_id, sanitizer):
+                return 1
 
         # Collect POV files from --pov and --pov-dir
         pov_files: list[Path] = []

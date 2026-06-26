@@ -100,6 +100,51 @@ def build_coverage_best_effort(
     log_warning(msg)
 
 
+def ensure_coverage_build(
+    compose: "CRSCompose",
+    target: "Target",
+    build_id: Optional[str],
+    sanitizer: str,
+) -> bool:
+    """Build the coverage binary on demand when CRS builds already exist.
+
+    Used on the ``run --web-ui`` path when the target was built previously
+    (so the main build is skipped) but the best-effort coverage build is
+    missing. If the coverage build already exists this is a no-op.
+
+    Returns ``False`` only on a fatal error — the target's base image cannot be
+    resolved — signalling the caller to abort the run. Returns ``True``
+    otherwise (coverage already present, freshly built, or best-effort skipped).
+    """
+    assert build_id is not None
+    cov_build_dir = compose.work_dir.get_build_output_dir(
+        constants.COVERAGE_CRS_NAME, target, build_id, sanitizer, create=False
+    )
+    if (cov_build_dir / "coverage-build").is_dir():
+        return True
+
+    target_base_image = target.build_docker_image()
+    if target_base_image is None:
+        return False
+
+    resolved_source_path = (
+        target.repo_path.resolve()
+        if target._has_repo
+        else compose.work_dir.get_target_source_dir(
+            target, build_id, sanitizer, create=False
+        )
+    )
+    build_coverage_best_effort(
+        compose,
+        target,
+        target_base_image,
+        build_id,
+        sanitizer,
+        target_source_path=resolved_source_path,
+    )
+    return True
+
+
 def build_coverage(
     compose: "CRSCompose",
     target: "Target",
