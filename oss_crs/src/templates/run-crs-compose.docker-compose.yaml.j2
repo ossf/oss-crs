@@ -242,6 +242,9 @@ services:
   oss-crs-publisher:
     build:
       context: {{ oss_crs_infra_root_path }}/webui-publisher
+    # Run as the host user (the image defaults to a non-root user) so the
+    # sidecar can write to the host-owned /webui_logs bind mount.
+    user: "{{ webui_uid }}:{{ webui_gid }}"
     attach: false
     restart: on-failure:3
     extra_hosts:

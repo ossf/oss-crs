@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import os
 import subprocess
 import sys
 import time
@@ -426,6 +427,11 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
                 "-d",
                 "--name",
                 WEBUI_CONTAINER_NAME,
+                # Run as the host user (the image defaults to a non-root user)
+                # so the container can write to the host-owned /webui_logs bind
+                # mount regardless of the image's default UID.
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
                 "--network",
                 "host",
                 "-e",
