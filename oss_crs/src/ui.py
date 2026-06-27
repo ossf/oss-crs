@@ -47,11 +47,17 @@ class TaskResult:
         output: Optional[str] = None,
         error: Optional[str] = None,
         interrupted: bool = False,
+        interrupt_reason: Optional[str] = None,
     ):
         self.success = success
         self.output = output
         self.error = error
         self.interrupted = interrupted
+        # Why the task was interrupted, when known: "user" (Ctrl-C), "timeout"
+        # (deadline reached), or "early_exit" (artifact found). None otherwise.
+        # Distinguishes a graceful user stop from a timeout — both set
+        # ``interrupted`` but mean different things to the run outcome.
+        self.interrupt_reason = interrupt_reason
 
 
 class MultiTaskProgress:
@@ -479,6 +485,7 @@ class MultiTaskProgress:
                                 success=True,
                                 output=result.output,
                                 interrupted=True,
+                                interrupt_reason=result.interrupt_reason,
                             )
                             break  # Stop on early exit, continue to cleanup
                     elif result.interrupted:
@@ -493,6 +500,7 @@ class MultiTaskProgress:
                             success=False,
                             error=result.error,
                             interrupted=result.interrupted,
+                            interrupt_reason=result.interrupt_reason,
                         )
                         break  # Stop regular tasks on failure, but continue to cleanup
                 except Exception as e:
@@ -704,7 +712,12 @@ class MultiTaskProgress:
                 _graceful_terminate(process)
                 error = "\n".join(output_lines)
                 error += "\n\n📝 Process interrupted by user"
-                return TaskResult(success=False, error=error, interrupted=True)
+                return TaskResult(
+                    success=False,
+                    error=error,
+                    interrupted=True,
+                    interrupt_reason="user",
+                )
             finally:
                 if timer is not None:
                     timer.cancel()
@@ -714,12 +727,22 @@ class MultiTaskProgress:
                 error_msg += "\n".join(output_lines)
                 if task_name:
                     self.set_error_info(task_name, error_msg)
-                return TaskResult(success=False, error=error_msg, interrupted=True)
+                return TaskResult(
+                    success=False,
+                    error=error_msg,
+                    interrupted=True,
+                    interrupt_reason="timeout",
+                )
 
             if early_exited.is_set():
                 output = "\n".join(output_lines)
                 output += "\n\n■ Early exit: artifact discovered. Containers gracefully stopped."
-                return TaskResult(success=True, output=output, interrupted=True)
+                return TaskResult(
+                    success=True,
+                    output=output,
+                    interrupted=True,
+                    interrupt_reason="early_exit",
+                )
 
             if process.returncode == 0:
                 return TaskResult(success=True, output="\n".join(output_lines))

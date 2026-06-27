@@ -1247,11 +1247,13 @@ class CRSCompose:
 
                 self._write_run_meta(target, actual_run_id, sanitizer)
                 if web_ui:
-                    # Mirror the exit-code semantics below: success -> graceful,
-                    # interrupted -> timed out / early-exited (also graceful for
-                    # a time-boxed run), otherwise a task failed -> error.
+                    # Map the run result to a dashboard outcome. A user Ctrl-C is
+                    # a graceful stop distinct from both a timeout deadline and a
+                    # task failure; early-exit lands in the success branch.
                     if ret.success:
                         outcome = "success"
+                    elif ret.interrupt_reason == "user":
+                        outcome = "interrupted"
                     elif ret.interrupted:
                         outcome = "timeout"
                     else:

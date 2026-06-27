@@ -94,6 +94,7 @@
   .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
   .badge.success { color: var(--green); background: rgba(52,211,153,0.12); }
   .badge.timeout { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.interrupted { color: var(--accent); background: rgba(79,140,255,0.12); }
   .badge.error { color: var(--red); background: rgba(248,113,113,0.14); }
   .badge .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
@@ -181,6 +182,7 @@ function statusBadge(status, outcome) {
     var map = {
       success: ["success", "done ✓"],
       timeout: ["timeout", "timed out"],
+      interrupted: ["interrupted", "interrupted ◼"],
       error: ["error", "error ✗"]
     };
     var e = map[outcome] || ["finished", "done"];

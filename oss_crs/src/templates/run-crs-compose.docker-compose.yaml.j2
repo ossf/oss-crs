@@ -242,6 +242,10 @@ services:
   oss-crs-publisher:
     build:
       context: {{ oss_crs_infra_root_path }}/webui-publisher
+      args:
+        # base-runner tagged to the target's base_os_version: the publisher runs
+        # the target's coverage binaries, so it needs their runtime libraries.
+        - base_runner_image={{ target.base_runner_image }}
     # Run as the host user (the image defaults to a non-root user) so the
     # sidecar can write to the host-owned /webui_logs bind mount.
     user: "{{ webui_uid }}:{{ webui_gid }}"

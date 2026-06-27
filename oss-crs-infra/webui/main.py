@@ -57,7 +57,8 @@ class RunState:
     done: bool = False
     # How the run ended, reported by the host at teardown: "success",
     # "timeout" (time-boxed run hit its deadline / early-exit — a graceful
-    # end), or "error" (a task failed). None until the run finishes.
+    # end), "interrupted" (user stopped it with Ctrl-C — also graceful), or
+    # "error" (a task failed). None until the run finishes.
     outcome: str | None = None
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
     latest: dict = field(default_factory=dict)
