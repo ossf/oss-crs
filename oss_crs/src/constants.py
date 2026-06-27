@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Container images used by the infrastructure sidecar stack.
-LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:7a8cd7e903a9087808422bd9d6dc945a0ed719f6eac2a011bc3313d81db24b07"  # v1.89.2
+LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:b398150d008dd36a57fa094314b6cd428d832c5264094fd3cd455b93d640ab11"  # v1.89.3
 POSTGRES_IMAGE = "postgres@sha256:29ee7bb30d804447dc9a91fd0d74322ae1dc3a4072cc6346f70a5ed6e783b565"  # 18.4
 
 # Internal LiteLLM proxy URL exposed inside the Docker network.
