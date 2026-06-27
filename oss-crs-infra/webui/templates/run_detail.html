@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run {{ run_id }} - OSS-CRS</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #4f8cff;
+    --green: #34d399;
+    --red: #f87171;
+    --orange: #fbbf24;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+    padding-bottom: 40px;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  header h1 { font-size: 1.3rem; color: var(--accent); }
+  .meta { font-size: 0.8rem; color: var(--text-dim); }
+  .meta span { margin-left: 16px; }
+  .back { font-size: 0.85rem; margin-bottom: 12px; }
+
+  .section-title {
+    font-size: 0.9rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px; margin-bottom: 32px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .card-header {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 12px;
+  }
+  .card-header h2 { font-size: 1rem; font-weight: 600; }
+  .resources { font-size: 0.75rem; color: var(--text-dim); }
+  .resources span { margin-left: 8px; }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px; margin-bottom: 12px;
+  }
+  .metric {
+    text-align: center; padding: 8px 4px;
+    border-radius: 6px; background: rgba(255,255,255,0.03);
+  }
+  .metric .value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+  .metric .label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-top: 2px; }
+  .metric.povs .value { color: var(--red); }
+  .metric.seeds .value { color: var(--green); }
+  .metric.patches .value { color: var(--accent); }
+  .metric.diffs .value { color: var(--purple); }
+  .metric.bug-candidates .value { color: var(--orange); }
+
+  .sparkline-row {
+    display: flex; gap: 6px; height: 48px; overflow: hidden;
+  }
+  .sparkline-row canvas {
+    flex: 1 1 0; min-width: 0; height: 100%;
+    border-radius: 4px; background: rgba(0,0,0,0.2);
+  }
+
+  .chart-card { grid-column: 1 / -1; }
+  .chart-container { position: relative; height: 220px; }
+  .chart-container canvas { width: 100%; height: 100%; }
+  .chart-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 0.75rem; }
+  .chart-legend .swatch {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; margin-right: 4px; vertical-align: middle;
+  }
+
+  .exchange-card { border-color: var(--accent); border-width: 2px; }
+  .coverage-card { border-color: var(--green); border-width: 2px; }
+
+  .cov-bars { display: flex; gap: 16px; margin-bottom: 12px; }
+  .cov-bar-item { flex: 1; }
+  .cov-bar-item .cov-label {
+    font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px;
+    display: flex; justify-content: space-between;
+  }
+  .cov-bar-track { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .cov-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .cov-bar-fill.lines { background: var(--green); }
+  .cov-bar-fill.functions { background: var(--accent); }
+  .cov-bar-fill.branches { background: var(--orange); }
+  .cov-detail { font-size: 0.75rem; color: var(--text-dim); }
+  .cov-waiting { color: var(--text-dim); font-size: 0.85rem; padding: 16px 0; }
+
+  .status-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 6px 20px; font-size: 0.75rem; color: var(--text-dim);
+    display: flex; justify-content: space-between;
+  }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); margin-right: 6px; vertical-align: middle;
+  }
+  .status-dot.error { background: var(--red); }
+
+  .badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px; margin-left: 0;
+  }
+  .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge.success { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.timeout { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.interrupted { color: var(--accent); background: rgba(79,140,255,0.12); }
+  .badge.error { color: var(--red); background: rgba(248,113,113,0.14); }
+  .badge .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); margin-right: 5px; vertical-align: middle;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .metric.cost .value { color: var(--orange); }
+  .crs-cost { font-size: 0.75rem; color: var(--orange); margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="back"><a href="/">&larr; All Runs</a></div>
+
+<header>
+  <h1>{{ run_id }} <span id="status-badge"></span></h1>
+  <div class="meta">
+    <span>Target: {{ target }}</span>
+    <span id="elapsed"></span>
+    <span id="total-cost"></span>
+  </div>
+</header>
+
+<div class="section-title">CRS Instances</div>
+<div class="grid" id="crs-grid">
+  {% for name in crs_names %}
+  <div class="card" id="card-{{ name }}">
+    <div class="card-header">
+      <h2>{{ name }}</h2>
+      <div class="resources">
+        {% if crs_resources.get(name) %}
+        <span>CPU: {{ crs_resources[name].cpuset }}</span>
+        <span>MEM: {{ crs_resources[name].memory }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric povs"><div class="value" data-crs="{{ name }}" data-type="povs">0</div><div class="label">POVs</div></div>
+      <div class="metric seeds"><div class="value" data-crs="{{ name }}" data-type="seeds">0</div><div class="label">Seeds</div></div>
+      <div class="metric patches"><div class="value" data-crs="{{ name }}" data-type="patches">0</div><div class="label">Patches</div></div>
+      <div class="metric diffs"><div class="value" data-crs="{{ name }}" data-type="diffs">0</div><div class="label">Diffs</div></div>
+      <div class="metric bug-candidates"><div class="value" data-crs="{{ name }}" data-type="bug-candidates">0</div><div class="label">Bugs</div></div>
+    </div>
+    <div class="sparkline-row">
+      {% for dtype in ["povs", "seeds", "patches", "diffs", "bug-candidates"] %}
+      <canvas id="spark-{{ name }}-{{ dtype }}" title="{{ dtype }}"></canvas>
+      {% endfor %}
+    </div>
+    <div class="crs-cost" data-crs-cost="{{ name }}"></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="section-title">Code Coverage</div>
+<div class="grid">
+  <div class="card coverage-card">
+    <div class="card-header"><h2>Coverage</h2><div class="resources"><span id="cov-corpus"></span></div></div>
+    <div id="cov-content">
+      <div class="cov-waiting" id="cov-waiting">Waiting for coverage data...</div>
+      <div id="cov-metrics" style="display:none">
+        <div class="cov-bars">
+          <div class="cov-bar-item">
+            <div class="cov-label"><span>Lines</span><span id="cov-lines-pct">0%</span></div>
+            <div class="cov-bar-track"><div class="cov-bar-fill lines" id="cov-lines-bar" style="width:0%"></div></div>
+            <div class="cov-detail" id="cov-lines-detail"></div>
+          </div>
+          <div class="cov-bar-item">
+            <div class="cov-label"><span>Functions</span><span id="cov-funcs-pct">0%</span></div>
+            <div class="cov-bar-track"><div class="cov-bar-fill functions" id="cov-funcs-bar" style="width:0%"></div></div>
+            <div class="cov-detail" id="cov-funcs-detail"></div>
+          </div>
+          <div class="cov-bar-item">
+            <div class="cov-label"><span>Branches</span><span id="cov-branches-pct">0%</span></div>
+            <div class="cov-bar-track"><div class="cov-bar-fill branches" id="cov-branches-bar" style="width:0%"></div></div>
+            <div class="cov-detail" id="cov-branches-detail"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header"><h2>Coverage Over Time</h2></div>
+    <div class="chart-container"><canvas id="coverage-chart"></canvas></div>
+    <div class="chart-legend">
+      <span><span class="swatch" style="background:var(--green)"></span>Lines</span>
+      <span><span class="swatch" style="background:var(--accent)"></span>Functions</span>
+      <span><span class="swatch" style="background:var(--orange)"></span>Branches</span>
+    </div>
+  </div>
+</div>
+
+<div class="section-title">Artifacts Over Time</div>
+<div class="grid">
+  <div class="card chart-card">
+    <div class="card-header"><h2>Exchange Timeline</h2></div>
+    <div class="chart-container"><canvas id="timeline-chart"></canvas></div>
+    <div class="chart-legend">
+      <span><span class="swatch" style="background:var(--red)"></span>POVs</span>
+      <span><span class="swatch" style="background:var(--green)"></span>Seeds</span>
+      <span><span class="swatch" style="background:var(--accent)"></span>Patches</span>
+      <span><span class="swatch" style="background:var(--purple)"></span>Diffs</span>
+      <span><span class="swatch" style="background:var(--orange)"></span>Bugs</span>
+    </div>
+  </div>
+</div>
+
+<div class="section-title">Net (Global)</div>
+<div class="grid">
+  <div class="card exchange-card">
+    <div class="card-header"><h2>Net Artifacts</h2><div class="resources"><span id="net-source"></span></div></div>
+    <div class="metrics" id="metrics-exchange">
+      <div class="metric povs"><div class="value" data-type="povs" data-exchange>0</div><div class="label">POVs</div></div>
+      <div class="metric seeds"><div class="value" data-type="seeds" data-exchange>0</div><div class="label">Seeds</div></div>
+      <div class="metric patches"><div class="value" data-type="patches" data-exchange>0</div><div class="label">Patches</div></div>
+      <div class="metric diffs"><div class="value" data-type="diffs" data-exchange>0</div><div class="label">Diffs</div></div>
+      <div class="metric bug-candidates"><div class="value" data-type="bug-candidates" data-exchange>0</div><div class="label">Bugs</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div><span class="status-dot" id="status-dot"></span><span id="status-text">Connecting...</span></div>
+  <div id="last-update"></div>
+</div>
+
+<script>
+var RUN_ID = {{ run_id | tojson }};
+var POLL_MS = 5000;
+var DATA_TYPES = ["povs", "seeds", "bug-candidates", "patches", "diffs"];
+var TYPE_COLORS = {"povs":"#f87171","seeds":"#34d399","patches":"#4f8cff","diffs":"#a78bfa","bug-candidates":"#fbbf24"};
+var CRS_NAMES = {{ crs_names | tojson }};
+var historyData = [];
+
+function formatElapsed(s) {
+  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
+  if(h>0) return h+"h "+m+"m "+sec+"s";
+  if(m>0) return m+"m "+sec+"s";
+  return sec+"s";
+}
+
+function formatCost(c) {
+  if(c==null) return null;
+  return "$"+(c<1 ? c.toFixed(4) : c.toFixed(2));
+}
+
+function renderStatus(status, outcome) {
+  var el=document.getElementById("status-badge");
+  if(!el) return;
+  if(status==="finished"){
+    var map={success:["success","done ✓"],timeout:["timeout","timed out"],interrupted:["interrupted","interrupted ◼"],error:["error","error ✗"]};
+    var e=map[outcome]||["finished","done"];
+    el.innerHTML='<span class="badge '+e[0]+'">'+e[1]+'</span>';
+    return;
+  }
+  var s=status||"live";
+  var dot=s==="live" ? '<span class="pulse"></span>' : '';
+  var label=s==="stale" ? "stale" : "live";
+  el.innerHTML='<span class="badge '+s+'">'+dot+label+'</span>';
+}
+
+function drawSparkline(id, values, color) {
+  var c=document.getElementById(id); if(!c) return;
+  var ctx=c.getContext("2d"), dpr=window.devicePixelRatio||1, r=c.getBoundingClientRect();
+  c.width=r.width*dpr; c.height=r.height*dpr; ctx.scale(dpr,dpr);
+  var w=r.width, h=r.height; ctx.clearRect(0,0,w,h);
+  if(values.length<2) return;
+  var max=0; for(var i=0;i<values.length;i++) if(values[i]>max) max=values[i];
+  if(max===0) max=1;
+  var pad=2, pH=h-pad*2, pW=w-pad*2, step=pW/(values.length-1);
+  ctx.beginPath(); ctx.moveTo(pad,h-pad);
+  for(var i=0;i<values.length;i++) ctx.lineTo(pad+i*step, h-pad-(values[i]/max)*pH);
+  ctx.lineTo(pad+(values.length-1)*step, h-pad); ctx.closePath();
+  ctx.fillStyle=color+"20"; ctx.fill();
+  ctx.beginPath();
+  for(var i=0;i<values.length;i++){var x=pad+i*step,y=h-pad-(values[i]/max)*pH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+  ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.stroke();
+}
+
+function drawTimelineChart(canvasId, history, dataKey) {
+  var c=document.getElementById(canvasId); if(!c) return;
+  var ctx=c.getContext("2d"), dpr=window.devicePixelRatio||1, r=c.getBoundingClientRect();
+  c.width=r.width*dpr; c.height=r.height*dpr; ctx.scale(dpr,dpr);
+  var w=r.width, h=r.height; ctx.clearRect(0,0,w,h);
+  if(history.length<2){ctx.fillStyle="#555";ctx.font="12px monospace";ctx.fillText("Waiting for data...",w/2-60,h/2);return;}
+  var padL=45,padR=10,padT=10,padB=30,plotW=w-padL-padR,plotH=h-padT-padB;
+  var gMax=1;
+  for(var i=0;i<history.length;i++){var d=history[i][dataKey];if(!d)continue;for(var t=0;t<DATA_TYPES.length;t++){var v=d[DATA_TYPES[t]]||0;if(v>gMax)gMax=v;}}
+  ctx.strokeStyle="#2a2d3a";ctx.lineWidth=1;ctx.fillStyle="#666";ctx.font="10px monospace";ctx.textAlign="right";
+  for(var g=0;g<=4;g++){var gy=padT+plotH-(g/4)*plotH;ctx.beginPath();ctx.moveTo(padL,gy);ctx.lineTo(w-padR,gy);ctx.stroke();ctx.fillText(String(Math.round((g/4)*gMax)),padL-5,gy+3);}
+  ctx.textAlign="center";ctx.fillStyle="#666";
+  var tc=Math.min(6,history.length);for(var t=0;t<tc;t++){var idx=Math.floor(t*(history.length-1)/(tc-1));var tx=padL+(idx/(history.length-1))*plotW;ctx.fillText(formatElapsed(history[idx].elapsed_seconds||0),tx,h-8);}
+  var step=plotW/(history.length-1);
+  for(var t=0;t<DATA_TYPES.length;t++){
+    var dtype=DATA_TYPES[t],color=TYPE_COLORS[dtype];
+    ctx.beginPath();ctx.moveTo(padL,padT+plotH);
+    for(var i=0;i<history.length;i++){var v=(history[i][dataKey]&&history[i][dataKey][dtype])||0;ctx.lineTo(padL+i*step,padT+plotH-(v/gMax)*plotH);}
+    ctx.lineTo(padL+(history.length-1)*step,padT+plotH);ctx.closePath();ctx.fillStyle=color+"15";ctx.fill();
+    ctx.beginPath();for(var i=0;i<history.length;i++){var v=(history[i][dataKey]&&history[i][dataKey][dtype])||0;var x=padL+i*step,y=padT+plotH-(v/gMax)*plotH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+    var lv=(history[history.length-1][dataKey]&&history[history.length-1][dataKey][dtype])||0;
+    if(lv>0){var lx=padL+(history.length-1)*step,ly=padT+plotH-(lv/gMax)*plotH;ctx.fillStyle=color;ctx.font="bold 10px monospace";ctx.textAlign="left";ctx.fillText(String(lv),lx+4,ly+3);}
+  }
+}
+
+function drawCoverageChart(canvasId, history) {
+  var c=document.getElementById(canvasId); if(!c) return;
+  var ctx=c.getContext("2d"), dpr=window.devicePixelRatio||1, r=c.getBoundingClientRect();
+  c.width=r.width*dpr; c.height=r.height*dpr; ctx.scale(dpr,dpr);
+  var w=r.width, h=r.height; ctx.clearRect(0,0,w,h);
+  var ch=[];for(var i=0;i<history.length;i++) if(history[i].coverage) ch.push(history[i]);
+  if(ch.length<2){ctx.fillStyle="#555";ctx.font="12px monospace";ctx.fillText("Waiting for coverage data...",w/2-90,h/2);return;}
+  var padL=45,padR=10,padT=10,padB=30,plotW=w-padL-padR,plotH=h-padT-padB;
+  ctx.strokeStyle="#2a2d3a";ctx.lineWidth=1;ctx.fillStyle="#666";ctx.font="10px monospace";ctx.textAlign="right";
+  for(var g=0;g<=4;g++){var pct=g*25,gy=padT+plotH-(pct/100)*plotH;ctx.beginPath();ctx.moveTo(padL,gy);ctx.lineTo(w-padR,gy);ctx.stroke();ctx.fillText(pct+"%",padL-5,gy+3);}
+  ctx.textAlign="center";ctx.fillStyle="#666";
+  var tc=Math.min(6,ch.length);for(var t=0;t<tc;t++){var idx=Math.floor(t*(ch.length-1)/(tc-1));ctx.fillText(formatElapsed(ch[idx].elapsed_seconds||0),padL+(idx/(ch.length-1))*plotW,h-8);}
+  var step=plotW/(ch.length-1);
+  var ct=[{key:"lines",color:"#34d399"},{key:"functions",color:"#4f8cff"},{key:"branches",color:"#fbbf24"}];
+  for(var t=0;t<ct.length;t++){
+    var ctype=ct[t],color=ctype.color;
+    ctx.beginPath();ctx.moveTo(padL,padT+plotH);
+    for(var i=0;i<ch.length;i++){var p=ch[i].coverage[ctype.key].pct||0;ctx.lineTo(padL+i*step,padT+plotH-(p/100)*plotH);}
+    ctx.lineTo(padL+(ch.length-1)*step,padT+plotH);ctx.closePath();ctx.fillStyle=color+"15";ctx.fill();
+    ctx.beginPath();for(var i=0;i<ch.length;i++){var p=ch[i].coverage[ctype.key].pct||0;var x=padL+i*step,y=padT+plotH-(p/100)*plotH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+    var lp=ch[ch.length-1].coverage[ctype.key].pct||0;
+    if(lp>0){ctx.fillStyle=color;ctx.font="bold 10px monospace";ctx.textAlign="left";ctx.fillText(lp.toFixed(1)+"%",padL+(ch.length-1)*step+4,padT+plotH-(lp/100)*plotH+3);}
+  }
+}
+
+function updateDashboard(data) {
+  if(data.per_crs){for(var crs in data.per_crs){var counts=data.per_crs[crs];for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-crs="'+crs+'"][data-type="'+dtype+'"]');if(el){var nv=counts[dtype]||0;if(el.textContent!==String(nv)){el.textContent=nv;el.style.transition="none";el.style.transform="scale(1.2)";(function(e){setTimeout(function(){e.style.transition="transform 0.3s";e.style.transform="scale(1)";},50);})(el);}}}}}
+  // Bottom "Net" card: prefer post-processed (triaged/filtered) counts when the
+  // publisher reports them; fall back to the raw exchange for older snapshots.
+  var net=data.net||data.exchange;
+  if(net){for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');if(el)el.textContent=net[dtype]||0;}}
+  var ns=document.getElementById("net-source");if(ns)ns.textContent=data.net?"filtered/exchange":"exchange";
+  if(data.elapsed_seconds!=null) document.getElementById("elapsed").textContent="Elapsed: "+formatElapsed(data.elapsed_seconds);
+  renderStatus(data.status, data.outcome);
+  if(data.cost){
+    var tc=formatCost(data.cost.total);
+    document.getElementById("total-cost").textContent=tc!=null ? "LLM cost: "+tc : "";
+    var pc=data.cost.per_crs||{};
+    for(var crs in pc){var ce=document.querySelector('[data-crs-cost="'+crs+'"]');if(ce){var v=formatCost(pc[crs]);ce.textContent=v!=null ? "LLM: "+v : "";}}
+  }
+  if(data.coverage){
+    document.getElementById("cov-waiting").style.display="none";document.getElementById("cov-metrics").style.display="block";
+    var lp=data.coverage.lines.pct.toFixed(1);document.getElementById("cov-lines-pct").textContent=lp+"%";document.getElementById("cov-lines-bar").style.width=lp+"%";document.getElementById("cov-lines-detail").textContent=data.coverage.lines.covered+" / "+data.coverage.lines.total;
+    var fp=data.coverage.functions.pct.toFixed(1);document.getElementById("cov-funcs-pct").textContent=fp+"%";document.getElementById("cov-funcs-bar").style.width=fp+"%";document.getElementById("cov-funcs-detail").textContent=data.coverage.functions.covered+" / "+data.coverage.functions.total;
+    var bp=data.coverage.branches.pct.toFixed(1);document.getElementById("cov-branches-pct").textContent=bp+"%";document.getElementById("cov-branches-bar").style.width=bp+"%";document.getElementById("cov-branches-detail").textContent=data.coverage.branches.covered+" / "+data.coverage.branches.total;
+    document.getElementById("cov-corpus").textContent=data.coverage.corpus_files+" corpus files";
+  }
+  document.getElementById("status-dot").className="status-dot";document.getElementById("status-text").textContent="Live";document.getElementById("last-update").textContent="Updated: "+new Date().toLocaleTimeString();
+}
+
+function updateCharts(history) {
+  if(!history||history.length===0) return;
+  for(var c=0;c<CRS_NAMES.length;c++){var crs=CRS_NAMES[c];for(var d=0;d<DATA_TYPES.length;d++){var dtype=DATA_TYPES[d];var vals=[];for(var i=0;i<history.length;i++){var pc=history[i].per_crs;vals.push((pc&&pc[crs]&&pc[crs][dtype])||0);}drawSparkline("spark-"+crs+"-"+dtype,vals,TYPE_COLORS[dtype]);}}
+  drawTimelineChart("timeline-chart", history, "exchange");
+  drawCoverageChart("coverage-chart", history);
+}
+
+function poll() {
+  var sp=fetch("/api/runs/"+RUN_ID+"/status").then(function(r){return r.json();});
+  var hp=fetch("/api/runs/"+RUN_ID+"/history?last=360").then(function(r){return r.json();});
+  Promise.all([sp,hp]).then(function(res){updateDashboard(res[0]);historyData=res[1];updateCharts(historyData);}).catch(function(){document.getElementById("status-dot").className="status-dot error";document.getElementById("status-text").textContent="Connection lost";});
+}
+poll(); setInterval(poll,POLL_MS);
+window.addEventListener("resize",function(){updateCharts(historyData);});
+</script>
+</body>
+</html>

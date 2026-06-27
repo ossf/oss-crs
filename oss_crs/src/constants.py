@@ -36,3 +36,14 @@ DEFAULT_BASE_RUNNER_TAG = "latest"
 KNOWN_BASE_OS_VERSIONS = frozenset(
     {LEGACY_BASE_OS_VERSION, "ubuntu-20-04", "ubuntu-24-04"}
 )
+
+# WebUI dashboard service (oss-crs-infra/webui). Default host port the service
+# is served on and the docker container name used by the `crs_compose web-ui`
+# command and by run-time metric publishing.
+WEBUI_DEFAULT_PORT = 9090
+WEBUI_CONTAINER_NAME = "oss-crs-webui"
+
+# Synthetic CRS name for the best-effort coverage-instrumentation build that
+# feeds the WebUI coverage panel (oss-crs-infra/webui). Not a real CRS — it
+# reuses the CRS build/output plumbing under this name.
+COVERAGE_CRS_NAME = "oss-crs-coverage"

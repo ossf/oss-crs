@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: MIT
+import os
+import subprocess
 import sys
 import time
 import signal
@@ -8,6 +10,8 @@ from dotenv import load_dotenv
 from ..crs_compose import CRSCompose
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
+from ..constants import WEBUI_CONTAINER_NAME, WEBUI_DEFAULT_PORT
+from ..utils import get_console, log_success, log_error, log_warning, log_dim
 from .artifacts import handle_artifacts
 from .archive import handle_archive
 from .clean import add_clean_command, handle_clean
@@ -153,6 +157,12 @@ def add_build_target_command(subparsers):
         default=False,
         help="Snapshot all builder images and the project image after build for fast incremental runs.",
     )
+    build_target.add_argument(
+        "--coverage",
+        action="store_true",
+        default=False,
+        help="Build an additional coverage-instrumented binary (used by --web-ui at run time).",
+    )
 
 
 def add_run_command(subparsers):
@@ -226,6 +236,15 @@ def add_run_command(subparsers):
         action="store_true",
         default=False,
         help="Snapshot all builder images and the project image after build for fast incremental runs.",
+    )
+    run.add_argument(
+        "--web-ui",
+        action="store_true",
+        default=False,
+        help=(
+            "Launch a WebUI dashboard to monitor CRS run status "
+            f"(served on port {WEBUI_DEFAULT_PORT})."
+        ),
     )
 
 
@@ -323,6 +342,148 @@ def add_archive_command(subparsers):
 
 def add_check_command(subparsers):
     pass
+
+
+def add_web_ui_command(subparsers):
+    web_ui = subparsers.add_parser(
+        "web-ui", help="Manage the standalone WebUI monitoring service"
+    )
+    web_ui_sub = web_ui.add_subparsers(dest="web_ui_action", required=True)
+    start = web_ui_sub.add_parser("start", help="Start the WebUI service")
+    start.add_argument(
+        "--port",
+        type=int,
+        default=WEBUI_DEFAULT_PORT,
+        help=f"Port to expose the WebUI on (default: {WEBUI_DEFAULT_PORT})",
+    )
+    web_ui_sub.add_parser("stop", help="Stop the WebUI service")
+    web_ui_sub.add_parser("status", help="Check if the WebUI service is running")
+
+
+def _is_webui_running() -> bool:
+    result = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", WEBUI_CONTAINER_NAME],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _get_webui_port() -> str | None:
+    result = subprocess.run(
+        ["docker", "port", WEBUI_CONTAINER_NAME],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
+    """Build (if needed) and start the standalone WebUI container.
+
+    Idempotent: if the container is already running it is left untouched.
+    Shared by the ``web-ui start`` command and the ``run --web-ui`` path so a
+    dashboard is reachable as soon as a CRS run begins. Returns True on success.
+    """
+    console = get_console()
+    oss_crs_root = (Path(__file__).parent / "../../../").resolve()
+    webui_context = oss_crs_root / "oss-crs-infra" / "webui"
+    image_name = f"{WEBUI_CONTAINER_NAME}:latest"
+
+    if _is_webui_running():
+        log_success(f"WebUI is already running at http://localhost:{port}")
+        return True
+
+    # Remove stopped container if exists
+    subprocess.run(
+        ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
+        capture_output=True,
+    )
+
+    # Build image with spinner
+    with console.status("[bold blue]Building WebUI image...", spinner="dots"):
+        build_result = subprocess.run(
+            ["docker", "build", "-t", image_name, str(webui_context)],
+            capture_output=True,
+            text=True,
+        )
+    if build_result.returncode != 0:
+        log_error(f"Failed to build WebUI image:\n{build_result.stderr}")
+        return False
+    log_dim("Image built")
+
+    # Persist run logs on the host so the dashboard survives container
+    # restart/recreation. The webui rehydrates its in-memory runs from this
+    # directory on startup (see oss-crs-infra/webui/main.py:_rehydrate).
+    webui_log_dir = DEFAULT_WORK_DIR / "webui_logs"
+    webui_log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Start container with spinner
+    with console.status("[bold blue]Starting WebUI container...", spinner="dots"):
+        run_result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                WEBUI_CONTAINER_NAME,
+                # Run as the host user (the image defaults to a non-root user)
+                # so the container can write to the host-owned /webui_logs bind
+                # mount regardless of the image's default UID.
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
+                "--network",
+                "host",
+                "-e",
+                f"WEBUI_PORT={port}",
+                "-v",
+                f"{webui_log_dir}:/webui_logs",
+                "--restart",
+                "unless-stopped",
+                image_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+    if run_result.returncode != 0:
+        log_error(f"Failed to start WebUI:\n{run_result.stderr}")
+        return False
+
+    log_success(f"WebUI started at [bold]http://localhost:{port}[/bold]")
+    return True
+
+
+def handle_web_ui(args) -> bool:
+    console = get_console()
+
+    if args.web_ui_action == "start":
+        return ensure_web_ui_running(args.port)
+
+    elif args.web_ui_action == "stop":
+        if not _is_webui_running():
+            log_warning("WebUI is not running")
+            return True
+
+        with console.status("[bold blue]Stopping WebUI...", spinner="dots"):
+            subprocess.run(
+                ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
+                capture_output=True,
+            )
+        log_success("WebUI stopped")
+        return True
+
+    elif args.web_ui_action == "status":
+        if _is_webui_running():
+            port_info = _get_webui_port()
+            console.print(
+                "[green]\u2713[/green] WebUI is [bold green]running[/bold green]"
+                + (f"  [dim]{port_info}[/dim]" if port_info else "")
+            )
+        else:
+            console.print("[dim]\u25cb[/dim] WebUI is [dim]not running[/dim]")
+        return True
+
+    return False
 
 
 def add_gen_compose_command(subparsers):
@@ -597,6 +758,7 @@ def cli() -> bool | int:
     add_gen_compose_command(subparsers)
     add_clean_command(subparsers, add_common_arguments, add_target_arguments)
     add_setup_command(subparsers)
+    add_web_ui_command(subparsers)
 
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
@@ -607,9 +769,11 @@ def cli() -> bool | int:
     if unknown_args and args.command not in ("artifacts", "archive"):
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
 
-    # Handle setup command early - it doesn't need compose file
+    # Handle commands that don't need a compose file
     if args.command == "setup":
         return handle_setup(args)
+    if args.command == "web-ui":
+        return handle_web_ui(args)
 
     # Resolve all Path arguments to absolute paths so that relative paths
     # (e.g., --fuzz-proj-path ../ghostscript) work regardless of cwd.
@@ -660,6 +824,7 @@ def cli() -> bool | int:
             bug_candidate_dir=bug_candidate_dir,
             diff=args.diff,
             incremental_build=args.incremental_build,
+            coverage=args.coverage,
         ):
             return False
     elif args.command == "run":
@@ -675,6 +840,16 @@ def cli() -> bool | int:
         bug_candidate_dir = (
             args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
         )
+        if args.web_ui:
+            # Bring up the dashboard server before the run starts so it is
+            # reachable as soon as the publisher sidecar begins pushing metrics.
+            # A failure here is non-fatal: the publisher falls back to writing
+            # JSONL metrics under the run's webui_logs dir, so the run proceeds.
+            if not ensure_web_ui_running():
+                log_warning(
+                    "Could not start WebUI server; run will continue and metrics "
+                    "will be logged to the run's webui_logs directory."
+                )
         run_rc = crs_compose.run(
             target,
             run_id=args.run_id,
@@ -688,6 +863,7 @@ def cli() -> bool | int:
             bug_candidate_dir=bug_candidate_dir,
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
+            web_ui=args.web_ui,
         )
         if run_rc != 0:
             return run_rc

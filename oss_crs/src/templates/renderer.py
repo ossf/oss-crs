@@ -267,6 +267,25 @@ def _has_post_processor(crs_list: list) -> bool:
     return any(crs.config.is_triage or crs.config.is_seed_filter for crs in crs_list)
 
 
+def _processed_data_types(
+    crs_list: list, processed_exchange_dir: str | None
+) -> list[str]:
+    """Data types whose net count should come from PROCESSED_EXCHANGE_DIR.
+
+    A type is "processed" when its post-processor CRS is present in the run
+    (triage for povs, seed-filter for seeds). The webui publisher uses this to
+    report net (filtered/triaged) counts for those types instead of the raw
+    exchange counts; all other types fall back to the raw exchange.
+    """
+    if not processed_exchange_dir:
+        return []
+    return [
+        dtype
+        for dtype, attr in _DATA_TYPE_PROCESSOR.items()
+        if any(getattr(crs.config, attr, False) for crs in crs_list)
+    ]
+
+
 def _get_fetch_dir_mounts(
     crs_list: list,
     exchange_dir: str,
@@ -303,6 +322,7 @@ def render_run_crs_compose_docker_compose(
     cgroup_parents: Optional[dict[str, str]] = None,
     incremental_build: bool = False,
     sidecar_env: dict[str, str] | None = None,
+    web_ui: bool = False,
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
     compose_env = crs_compose.crs_compose_env
@@ -364,6 +384,9 @@ def render_run_crs_compose_docker_compose(
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,
+        "processed_data_types": _processed_data_types(
+            crs_compose.crs_list, processed_exchange_dir
+        ),
         "fetch_dir_mounts": fetch_dir_mounts,
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
@@ -387,6 +410,20 @@ def render_run_crs_compose_docker_compose(
         "incremental_build": incremental_build,
         "preserved_builder_image_name": preserved_builder_image_name,
         "sidecar_env": sidecar_env or {},
+        "web_ui": web_ui,
+        "webui_url": "http://host.docker.internal:9090",
+        # Pin the publisher sidecar to the host user so it can write to the
+        # host-owned /webui_logs bind mount (the image runs as non-root).
+        "webui_uid": os.getuid(),
+        "webui_gid": os.getgid(),
+        "webui_log_dir": str(
+            crs_compose.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"
+        ),
+        "crs_resources": {
+            crs.name: {"cpuset": crs.resource.cpuset, "memory": crs.resource.memory}
+            for crs in crs_compose.crs_list
+            if crs.resource
+        },
     }
 
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSS-CRS Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #4f8cff;
+    --green: #34d399;
+    --red: #f87171;
+    --orange: #fbbf24;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  header h1 { font-size: 1.3rem; color: var(--accent); }
+  .meta { font-size: 0.8rem; color: var(--text-dim); }
+
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .empty code {
+    background: var(--surface);
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--green);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th {
+    text-align: left;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+  }
+  tr.run-row {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  tr.run-row:hover {
+    background: var(--surface);
+  }
+  .run-id { color: var(--accent); font-weight: 600; }
+  .target { color: var(--text); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .num.povs { color: var(--red); }
+  .num.seeds { color: var(--green); }
+  .num.patches { color: var(--accent); }
+  .num.cov { color: var(--green); }
+  .num.cost { color: var(--orange); }
+  .elapsed { color: var(--text-dim); }
+
+  .badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px;
+  }
+  .badge.live { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.stale { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.finished { color: var(--text-dim); background: rgba(136,136,136,0.12); }
+  .badge.success { color: var(--green); background: rgba(52,211,153,0.12); }
+  .badge.timeout { color: var(--orange); background: rgba(251,191,36,0.12); }
+  .badge.interrupted { color: var(--accent); background: rgba(79,140,255,0.12); }
+  .badge.error { color: var(--red); background: rgba(248,113,113,0.14); }
+  .badge .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); margin-right: 5px; vertical-align: middle;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .status-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 6px 20px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.error { background: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>OSS-CRS Dashboard</h1>
+  <div class="meta" id="run-count"></div>
+</header>
+
+<div id="content">
+  <div class="empty" id="empty-state">
+    No runs yet. Start one with <code>oss-crs run --web-ui ...</code>
+  </div>
+  <table id="run-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Status</th>
+        <th>Target</th>
+        <th>CRSs</th>
+        <th class="num">Elapsed</th>
+        <th class="num">POVs</th>
+        <th class="num">Seeds</th>
+        <th class="num">Patches</th>
+        <th class="num">Coverage</th>
+        <th class="num">LLM Cost</th>
+      </tr>
+    </thead>
+    <tbody id="run-tbody"></tbody>
+  </table>
+</div>
+
+<div class="status-bar">
+  <div><span class="status-dot" id="status-dot"></span><span id="status-text">Connecting...</span></div>
+  <div id="last-update"></div>
+</div>
+
+<script>
+var POLL_MS = 3000;
+
+function formatElapsed(seconds) {
+  var h = Math.floor(seconds / 3600);
+  var m = Math.floor((seconds % 3600) / 60);
+  var s = Math.floor(seconds % 60);
+  if (h > 0) return h + "h " + m + "m " + s + "s";
+  if (m > 0) return m + "m " + s + "s";
+  return s + "s";
+}
+
+function statusBadge(status, outcome) {
+  // A finished run shows how it ended (success / timed out / error);
+  // an active run shows its liveness (live / stale).
+  if (status === "finished") {
+    var map = {
+      success: ["success", "done ✓"],
+      timeout: ["timeout", "timed out"],
+      interrupted: ["interrupted", "interrupted ◼"],
+      error: ["error", "error ✗"]
+    };
+    var e = map[outcome] || ["finished", "done"];
+    return '<span class="badge ' + e[0] + '">' + e[1] + '</span>';
+  }
+  var s = status || "live";
+  var dot = s === "live" ? '<span class="pulse"></span>' : '';
+  var label = s === "stale" ? "stale" : "live";
+  return '<span class="badge ' + s + '">' + dot + label + '</span>';
+}
+
+function formatCost(cost) {
+  if (cost == null) return "-";
+  return "$" + cost.toFixed(cost < 1 ? 4 : 2);
+}
+
+function updateTable(runs) {
+  var empty = document.getElementById("empty-state");
+  var table = document.getElementById("run-table");
+  var tbody = document.getElementById("run-tbody");
+  var countEl = document.getElementById("run-count");
+
+  if (runs.length === 0) {
+    empty.style.display = "block";
+    table.style.display = "none";
+    countEl.textContent = "";
+    return;
+  }
+
+  empty.style.display = "none";
+  table.style.display = "table";
+  countEl.textContent = runs.length + " run" + (runs.length > 1 ? "s" : "");
+
+  // Sort by elapsed descending (most recent activity first)
+  runs.sort(function(a, b) { return b.elapsed_seconds - a.elapsed_seconds; });
+
+  tbody.innerHTML = "";
+  for (var i = 0; i < runs.length; i++) {
+    var r = runs[i];
+    var tr = document.createElement("tr");
+    tr.className = "run-row";
+    tr.setAttribute("data-run-id", r.run_id);
+    tr.onclick = (function(id) {
+      return function() { window.location.href = "/run/" + id; };
+    })(r.run_id);
+
+    tr.innerHTML =
+      '<td class="run-id">' + r.run_id + '</td>' +
+      '<td>' + statusBadge(r.status, r.outcome) + '</td>' +
+      '<td class="target">' + (r.target || "-") + '</td>' +
+      '<td>' + r.crs_count + '</td>' +
+      '<td class="num elapsed">' + formatElapsed(r.elapsed_seconds) + '</td>' +
+      '<td class="num povs">' + r.povs + '</td>' +
+      '<td class="num seeds">' + r.seeds + '</td>' +
+      '<td class="num patches">' + r.patches + '</td>' +
+      '<td class="num cov">' + (r.coverage_pct != null ? r.coverage_pct + "%" : "-") + '</td>' +
+      '<td class="num cost">' + formatCost(r.cost) + '</td>';
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById("status-dot").className = "status-dot";
+  document.getElementById("status-text").textContent = "Live";
+  document.getElementById("last-update").textContent = "Updated: " + new Date().toLocaleTimeString();
+}
+
+function poll() {
+  fetch("/api/runs")
+    .then(function(r) { return r.json(); })
+    .then(function(runs) { updateTable(runs); })
+    .catch(function() {
+      document.getElementById("status-dot").className = "status-dot error";
+      document.getElementById("status-text").textContent = "Connection lost";
+    });
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

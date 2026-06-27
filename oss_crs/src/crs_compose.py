@@ -31,6 +31,7 @@ from .utils import (
     log_dim,
 )
 from .workdir import WorkDir
+from . import webui
 from .cgroup import (
     check_cgroup_parent_available,
     create_run_cgroups,
@@ -625,6 +626,7 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
         incremental_build: bool = False,
+        coverage: bool = False,
     ) -> bool:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -718,6 +720,11 @@ class CRSCompose:
                     ),
                 )
             )
+
+        # NOTE: the coverage build is intentionally NOT added to `tasks` — it is
+        # best-effort and runs after the critical builds (below), so its failure
+        # can never fail build_target.
+
         with MultiTaskProgress(
             tasks=tasks,
             title="CRS Compose Build Target",
@@ -745,9 +752,18 @@ class CRSCompose:
                     bug_candidate_sha256=bug_candidate_sha256,
                     input_sha256=input_sha256,
                 )
-            return ret.success
 
-        return True
+        # Best-effort coverage build (post-critical so it can't fail the build).
+        if ret.success and coverage:
+            webui.build_coverage_best_effort(
+                self,
+                target,
+                target_base_image,
+                build_id,
+                sanitizer,
+                target_source_path=resolved_source_path,
+            )
+        return ret.success
 
     def run(
         self,
@@ -763,6 +779,7 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -845,7 +862,12 @@ class CRSCompose:
                 bug_candidate=bug_candidate,
                 bug_candidate_dir=bug_candidate_dir,
                 diff=diff,
+                coverage=web_ui,
             ):
+                return 1
+        elif web_ui:
+            # CRS builds exist but the best-effort coverage build may be missing.
+            if not webui.ensure_coverage_build(self, target, build_id, sanitizer):
                 return 1
 
         # Collect POV files from --pov and --pov-dir
@@ -880,6 +902,7 @@ class CRSCompose:
             bug_candidate=bug_candidate if bug_candidate else bug_candidate_dir,
             early_exit=early_exit,
             incremental_build=incremental_build,
+            web_ui=web_ui,
         )
         return result
 
@@ -1077,6 +1100,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -1091,6 +1115,7 @@ class CRSCompose:
                 bug_candidate=bug_candidate,
                 early_exit=early_exit,
                 incremental_build=incremental_build,
+                web_ui=web_ui,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -1109,6 +1134,7 @@ class CRSCompose:
         bug_candidate: Optional[Path] = None,
         early_exit: bool = False,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -1200,6 +1226,7 @@ class CRSCompose:
                             cgroup_parents=cgroup_parents,
                             bug_candidate=bug_candidate,
                             incremental_build=incremental_build,
+                            web_ui=web_ui,
                         ),
                     ),
                     (
@@ -1219,6 +1246,21 @@ class CRSCompose:
                         log_dim(f"Note: Cgroup cleanup deferred: {msg}")
 
                 self._write_run_meta(target, actual_run_id, sanitizer)
+                if web_ui:
+                    # Map the run result to a dashboard outcome. A user Ctrl-C is
+                    # a graceful stop distinct from both a timeout deadline and a
+                    # task failure; early-exit lands in the success branch.
+                    if ret.success:
+                        outcome = "success"
+                    elif ret.interrupt_reason == "user":
+                        outcome = "interrupted"
+                    elif ret.interrupted:
+                        outcome = "timeout"
+                    else:
+                        outcome = "error"
+                    webui.publish_final_snapshot(
+                        self, target, actual_run_id, sanitizer, outcome=outcome
+                    )
 
                 if ret.success or ret.interrupted:
                     self.__show_result_local(target, actual_run_id, sanitizer, progress)
@@ -1558,6 +1600,7 @@ class CRSCompose:
         cgroup_parents: Optional[dict[str, str]] = None,
         bug_candidate: Optional[Path] = None,
         incremental_build: bool = False,
+        web_ui: bool = False,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
@@ -1606,6 +1649,7 @@ class CRSCompose:
                 cgroup_parents=cgroup_parents,
                 incremental_build=incremental_build,
                 sidecar_env=sidecar_env,
+                web_ui=web_ui,
             )
             for warning in warnings:
                 progress.add_note(warning)
@@ -1695,6 +1739,11 @@ class CRSCompose:
 
         progress.add_task("Clean up exchange directory", cleanup_exchange_dir)
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
+
+        if web_ui:
+            webui_log_dir = self.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"
+            webui_log_dir.mkdir(parents=True, exist_ok=True)
+            log_success("Publishing metrics to WebUI service")
 
         if pov_files:
             progress.add_task("Copy POV files to exchange dir", copy_povs)

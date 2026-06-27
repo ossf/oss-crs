@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+
+log() {
+    echo "[compile_target_coverage] $*"
+}
+
+log "Compiling target project with coverage instrumentation..."
+
+# Override sanitizer for coverage build
+export SANITIZER=coverage
+compile
+
+# Copy LLVM tools into $OUT so the webui container can use version-matched tools
+for tool in llvm-profdata llvm-cov; do
+    tool_path=$(which "$tool" 2>/dev/null || true)
+    if [ -n "$tool_path" ]; then
+        cp "$tool_path" "$OUT/$tool"
+        log "Copied $tool to build output"
+    else
+        log "WARNING: $tool not found in PATH"
+    fi
+done
+
+# Submit build outputs
+libCRS submit-build-output "$OUT" coverage-build
+libCRS submit-build-output "$SRC" coverage-src
+
+log "Coverage build completed successfully."
