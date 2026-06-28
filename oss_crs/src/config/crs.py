@@ -7,7 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..env_schema import ENV_KEY_PATTERN, validate_additional_env_keys
-from .target import FuzzingEngine, TargetLangauge, TargetSanitizer, TargetArch
+from .target import FuzzingEngine, TargetLanguage, TargetSanitizer, TargetArch
 
 # Prefix for framework-provided infrastructure modules (e.g., "oss-crs-infra:default-builder")
 OSS_CRS_INFRA_PREFIX = "oss-crs-infra:"
@@ -148,7 +148,7 @@ class SupportedTarget(BaseModel):
     """Configuration for supported targets."""
 
     mode: Set[TargetMode]
-    language: Set[TargetLangauge]
+    language: Set[TargetLanguage]
     sanitizer: Set[TargetSanitizer]
     architecture: Set[TargetArch]
     fuzzing_engine: Set[FuzzingEngine] = Field(
