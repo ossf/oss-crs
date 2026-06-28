@@ -7,22 +7,11 @@ import shutil
 import pytest
 import yaml
 
+from oss_crs.src.memory import parse_memory
+
 from .conftest import FIXTURES_DIR, docker_available, init_git_repo
 
 pytestmark = [pytest.mark.integration, pytest.mark.docker]
-
-
-def _memory_to_bytes(memory: str) -> int:
-    match = re.fullmatch(r"(\d+)([KMG])", memory.strip().upper())
-    if not match:
-        raise ValueError(f"Unsupported test memory format: {memory}")
-    value = int(match.group(1))
-    unit = match.group(2)
-    if unit == "K":
-        return value * 1024
-    if unit == "M":
-        return value * 1024 * 1024
-    return value * 1024 * 1024 * 1024
 
 
 def _extract_field(text: str, key: str) -> str:
@@ -73,7 +62,7 @@ def test_build_target_applies_configured_limits(
     work_dir,
 ):
     build_id = "resource-build"
-    expected_memory = _memory_to_bytes("192M")
+    expected_memory = parse_memory("192M")
 
     result = cli_runner(
         "build-target",
@@ -112,7 +101,7 @@ def test_run_enforces_memory_limits_in_active_mode(
 ):
     build_id = "resource-build"
     run_id = "resource-run"
-    expected_memory = _memory_to_bytes("192M")
+    expected_memory = parse_memory("192M")
 
     build_result = cli_runner(
         "build-target",

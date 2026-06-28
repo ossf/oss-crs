@@ -10,6 +10,7 @@ import yaml
 
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 from ..env_schema import validate_additional_env_keys
+from ..memory import parse_memory
 
 CRS_ENTRY_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -67,25 +68,13 @@ class ResourceConfig(BaseModel):
     @field_validator("cpuset")
     @classmethod
     def validate_cpuset(cls, v: str) -> str:
-        # Matches patterns like "0-3", "0,1,2,3", "0-3,5,7-9"
-        pattern = r"^(\d+(-\d+)?)(,\d+(-\d+)?)*$"
-        if not re.match(pattern, v):
-            raise ValueError(
-                f"Invalid cpuset format: '{v}'. "
-                "Expected format like '0-3', '0,1,2,3', or '0-3,5,7-9'"
-            )
+        parse_cpuset(v)
         return v
 
     @field_validator("memory")
     @classmethod
     def validate_memory(cls, v: str) -> str:
-        # Matches patterns like "8G", "16GB", "1024M", "2048MB"
-        pattern = r"^\d+(\.\d+)?\s*(B|K|KB|M|MB|G|GB|T|TB)$"
-        if not re.match(pattern, v, re.IGNORECASE):
-            raise ValueError(
-                f"Invalid memory format: '{v}'. "
-                "Expected format like '8G', '16GB', '1024M', '2048MB'"
-            )
+        parse_memory(v)
         return v
 
 
