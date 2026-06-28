@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 # See https://google.github.io/oss-fuzz/getting-started/new-project-guide/#language
-class TargetLangauge(Enum):
+class TargetLanguage(Enum):
     C = "c"
     CPP = "c++"
     GO = "go"
@@ -49,7 +49,7 @@ class TargetConfig(BaseModel):
     """
 
     # Required fields
-    language: TargetLangauge = Field(
+    language: TargetLanguage = Field(
         ...,
         description="Programming language the project is written in.",
     )
