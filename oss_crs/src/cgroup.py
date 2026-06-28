@@ -7,12 +7,13 @@ for Docker container resource management using cgroup-parent.
 
 import json
 import os
-import re
 import secrets
 import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from .memory import parse_memory
 
 if TYPE_CHECKING:
     from .crs import CRS
@@ -411,93 +412,6 @@ def check_cgroup_parent_available() -> tuple[bool, str]:
     return True, "ok"
 
 
-def parse_memory_to_bytes(memory_str: str) -> int:
-    """Parse memory string to bytes.
-
-    Args:
-        memory_str: Memory string like "8G", "1024M", "2GB"
-
-    Returns:
-        Memory in bytes
-    """
-    pattern = r"^(\d+(?:\.\d+)?)\s*(B|K|KB|M|MB|G|GB|T|TB)$"
-    match = re.match(pattern, memory_str.strip(), re.IGNORECASE)
-    if not match:
-        raise ValueError(f"Invalid memory format: '{memory_str}'")
-
-    value = float(match.group(1))
-    unit = match.group(2).upper()
-
-    multipliers = {
-        "B": 1,
-        "K": 1024,
-        "KB": 1024,
-        "M": 1024**2,
-        "MB": 1024**2,
-        "G": 1024**3,
-        "GB": 1024**3,
-        "T": 1024**4,
-        "TB": 1024**4,
-    }
-
-    return int(value * multipliers[unit])
-
-
-def parse_cpuset(cpuset_str: str) -> set[int]:
-    """Parse cpuset string to set of CPU IDs.
-
-    Args:
-        cpuset_str: Cpuset string like "0-3", "0,1,2,3", "0-3,5,7-9"
-
-    Returns:
-        Set of CPU IDs
-    """
-    cpus = set()
-    for part in cpuset_str.split(","):
-        part = part.strip()
-        if "-" in part:
-            start, end = part.split("-", 1)
-            cpus.update(range(int(start), int(end) + 1))
-        else:
-            cpus.add(int(part))
-    return cpus
-
-
-def format_cpuset(cpus: set[int]) -> str:
-    """Format set of CPU IDs to cpuset string.
-
-    Args:
-        cpus: Set of CPU IDs
-
-    Returns:
-        Cpuset string like "0-3,5,7-9"
-    """
-    if not cpus:
-        return ""
-
-    sorted_cpus = sorted(cpus)
-    ranges = []
-    start = prev = sorted_cpus[0]
-
-    for cpu in sorted_cpus[1:]:
-        if cpu == prev + 1:
-            prev = cpu
-        else:
-            if start == prev:
-                ranges.append(str(start))
-            else:
-                ranges.append(f"{start}-{prev}")
-            start = prev = cpu
-
-    # Handle last range
-    if start == prev:
-        ranges.append(str(start))
-    else:
-        ranges.append(f"{start}-{prev}")
-
-    return ",".join(ranges)
-
-
 def generate_worker_cgroup_name(run_id: str, phase: str) -> str:
     """Generate a unique worker cgroup name.
 
@@ -612,7 +526,7 @@ def create_run_cgroups(
     for crs in crs_list:
         if crs.resource is None:
             raise ValueError(f"CRS '{crs.name}' is missing resource configuration")
-        memory_bytes = parse_memory_to_bytes(crs.resource.memory)
+        memory_bytes = parse_memory(crs.resource.memory)
         crs_cgroup_path = create_crs_cgroup(
             worker_path,
             crs.name,
