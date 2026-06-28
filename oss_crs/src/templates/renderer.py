@@ -3,8 +3,6 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from typing import TYPE_CHECKING, Optional
 import os
-import string
-import secrets
 import yaml
 
 from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
@@ -18,9 +16,7 @@ from ..constants import (
 )
 from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
-from ..utils import preserved_builder_image_name
-
-RAND_CHARS = string.ascii_lowercase + string.digits
+from ..utils import generate_random_key, preserved_builder_image_name
 
 if TYPE_CHECKING:
     from ..crs import CRS
@@ -46,11 +42,6 @@ def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
         module_name = dockerfile[len(OSS_CRS_INFRA_PREFIX) :]
         return str(OSS_CRS_ROOT_PATH / "oss-crs-infra" / module_name / "Dockerfile")
     return str(crs_path / dockerfile)
-
-
-def _generate_random_key(length: int = 10) -> str:
-    """Generate a random alphanumeric string."""
-    return "".join(secrets.choice(RAND_CHARS) for _ in range(length))
 
 
 def render_template(template_path: Path, context: dict) -> str:
@@ -207,7 +198,7 @@ def prepare_llm_context(
                 raise RuntimeError(
                     f"CRS '{crs.name}' is missing resource configuration for LiteLLM"
                 )
-            key = "sk-" + _generate_random_key(16)
+            key = "sk-" + generate_random_key(16)
             keys[crs.name] = key
             key_info[crs.name] = {
                 "api_key": key,
@@ -220,11 +211,11 @@ def prepare_llm_context(
         )
 
         # Write secrets to files for Docker Compose secrets
-        master_key = "sk-" + _generate_random_key(16)
+        master_key = "sk-" + generate_random_key(16)
         master_key_file = tmp_dir / "litellm_master_key"
         master_key_file.write_text(master_key)
 
-        postgres_password = _generate_random_key(16)
+        postgres_password = generate_random_key(16)
         postgres_password_file = tmp_dir / "postgres_password"
         postgres_password_file.write_text(postgres_password)
 

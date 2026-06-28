@@ -3,6 +3,7 @@ import hashlib
 import shutil
 import subprocess
 import random
+import secrets
 import string
 import time
 import re
@@ -77,6 +78,11 @@ def log_dim(message: str) -> None:
 def generate_random_name(length: int = 10) -> str:
     """Generate a random alphanumeric string."""
     return "".join(random.choice(RAND_CHARS) for _ in range(length))
+
+
+def generate_random_key(length: int = 10) -> str:
+    """Generate a cryptographically secure random alphanumeric string."""
+    return "".join(secrets.choice(RAND_CHARS) for _ in range(length))
 
 
 def generate_run_id() -> str:
