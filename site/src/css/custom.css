@@ -7,6 +7,11 @@ html {
 }
 
 :root {
+  /* Bump base body text (16px -> 18px) and heading sizes site-wide. */
+  --ifm-font-size-base: 112.5%;
+  --ifm-h1-font-size: 2.75rem;
+  --ifm-h2-font-size: 2.05rem;
+  --ifm-h3-font-size: 1.55rem;
   --ifm-color-primary: #1f6feb;
   --ifm-color-primary-dark: #1a5fd1;
   --ifm-color-primary-darker: #185abf;
@@ -182,6 +187,12 @@ html {
 /* ----- Section ----- */
 .section {
   padding: 3rem 0;
+}
+
+/* Consistent breathing room above subsection headings, regardless of
+   whether the preceding element carries its own bottom margin. */
+.section .container > h3 {
+  margin-top: 2.5rem;
 }
 
 .section--alt {
