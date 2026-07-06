@@ -332,7 +332,8 @@ def render_run_crs_compose_docker_compose(
     # Each data type in the exchange has an optional post-processor CRS type.
     # When present, the processor's submit dir feeds processed_exchange_dir;
     # when absent, the data type passes through from exchange_dir directly.
-    # Regular (non-processor) CRS always mount processed_exchange_dir as FETCH_DIR.
+    # FETCH_DIR is mounted per data type: processed_exchange_dir for types with a
+    # present processor, otherwise exchange_dir.
     has_post_processor = _has_post_processor(crs_compose.crs_list)
     processed_exchange_dir = (
         str(crs_compose.work_dir.get_processed_exchange_dir(target, run_id, sanitizer))

@@ -67,7 +67,7 @@ class MultiTaskProgress:
 
     Args:
         tasks: A list of (task_name, task_function) tuples.
-               Each function takes (progress: MultiTaskProgress) and returns bool.
+               Each function takes (progress: MultiTaskProgress) and returns a TaskResult.
         title: Title for the progress panel.
         head: Optional header for the progress panel.
         console: Optional Rich console instance.
@@ -626,7 +626,8 @@ class MultiTaskProgress:
             env: Environment variables for the command.
 
         Returns:
-            True if command succeeded, False otherwise.
+            A TaskResult; success is True if the command exited 0, False
+            otherwise with an error message.
         """
         task_name = self._current_task
         if info_text and task_name is not None:

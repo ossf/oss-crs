@@ -265,7 +265,8 @@ class CRS:
             no_pull: If True, skip pulling prebuilt images and always build locally.
 
         Returns:
-            True if bake succeeded, False otherwise.
+            A TaskResult; success is True if the bake (or prebuilt-image pull)
+            succeeded, False otherwise with an error message.
         """
         if self.config.prepare_phase is None:
             return TaskResult(success=True)

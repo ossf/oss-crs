@@ -664,7 +664,7 @@ def _handle_gen_compose(args) -> bool:
         validate_providers(providers)
 
         # Resolve the litellm config path from the compose data
-        litellm_config_path = _resolve_litellm_config_path(data, example_dir)
+        litellm_config_path = _resolve_litellm_config_path(data)
         if litellm_config_path is None:
             raise ValueError(
                 "--litellm-proxy requires a litellm config. "
@@ -685,11 +685,11 @@ def _handle_gen_compose(args) -> bool:
     return True
 
 
-def _resolve_litellm_config_path(data: dict, example_dir: Path) -> "Path | None":
+def _resolve_litellm_config_path(data: dict) -> "Path | None":
     """Resolve the litellm config file path from compose data.
 
     Looks at llm_config.litellm.internal.config_path. If it's a relative path,
-    resolves it relative to the repo root (parent of example_dir's parent).
+    resolves it relative to the repo root.
     Falls back to the default bundled config if no config_path is specified.
     """
     from ..llm import DEFAULT_LITELLM_CONFIG_PATH
@@ -710,13 +710,8 @@ def _resolve_litellm_config_path(data: dict, example_dir: Path) -> "Path | None"
 
     path = Path(config_path)
     if not path.is_absolute():
-        # config_path in examples is relative to repo root (e.g. ./example/foo/litellm-config.yaml)
-        repo_root = (
-            example_dir.parents[0].parent
-            if "example" in example_dir.parts
-            else example_dir
-        )
-        # Walk up from example_dir to find repo root (directory containing "example/")
+        # config_path in examples is relative to repo root (e.g. ./example/foo/litellm-config.yaml).
+        # repo root is three levels up from this file: oss_crs/src/cli/crs_compose.py
         repo_root = Path(__file__).resolve().parents[3]
         path = (repo_root / config_path).resolve()
 
