@@ -118,6 +118,7 @@ required_llms:
 required_inputs:
   - diff
   - bug-candidate
+  - report
 
 # Only needed if your CRS requires environment variables to function.
 # OSS-CRS will fail fast before spawning containers if these are missing.
@@ -138,7 +139,7 @@ required_envs:
 | `crs_run_phase` | Dictionary of named modules (containers) that run at runtime |
 | `supported_target` | Languages, sanitizers, architectures, and modes your CRS supports |
 | `required_llms` | *(Optional)* Minimum required LLM model names your CRS needs (validation baseline) |
-| `required_inputs` | *(Optional)* Input channels the CRS requires (`diff`, `pov`, `seed`, `bug-candidate`). Validated before run. |
+| `required_inputs` | *(Optional)* Input channels the CRS requires (`diff`, `pov`, `seed`, `bug-candidate`, `report`). Validated before run. |
 | `required_envs` | *(Optional)* Environment variable names the CRS requires. Validated before run against the host environment and compose `additional_env`. |
 
 For the complete schema reference, see [config/crs.md](config/crs.md).
@@ -313,6 +314,7 @@ libCRS register-shared-dir /shared-corpus corpus
 libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
+libCRS register-submit-dir report /output/reports &
 
 # 3b. Persist agent logs to the host (visible via oss-crs artifacts)
 libCRS register-log-dir /var/log/agent
@@ -384,15 +386,15 @@ libCRS download-source <type> <dst_path>         # type: fuzz-proj, target-sourc
 libCRS skip-build-output <dst_path>
 
 # Automatic directory submission (runs as daemon)
-libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
+libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, report, patch
 libCRS register-shared-dir <local_path> <shared_path>
 libCRS register-log-dir <local_path>             # persist logs to host
 
 # Fetch directory registration (daemon poller for FETCH_DIR)
-libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, patch, diff
+libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, report, patch, diff
 
 # One-shot fetch (copies from FETCH_DIR)
-libCRS fetch <type> <path>                    # type: pov, seed, bug-candidate, patch, diff
+libCRS fetch <type> <path>                    # type: pov, seed, bug-candidate, report, patch, diff
 
 # Manual submission
 libCRS submit <type> <file_path>
@@ -497,7 +499,8 @@ uv run oss-crs run \
   --target-harness xml \
   --pov-dir ./povs \
   --diff ./ref.diff \
-  --seed-dir ./seeds
+  --seed-dir ./seeds \
+  --report-dir ./reports
 ```
 
 ### Debugging Tips
@@ -779,6 +782,7 @@ Your CRS should submit findings through libCRS:
 | **Seeds** | Interesting fuzzing inputs | `libCRS register-submit-dir seed /output/seeds` or `libCRS submit seed <file>` |
 | **PoVs** | Crash-triggering inputs | `libCRS register-submit-dir pov /output/povs` or `libCRS submit pov <file>` |
 | **Bug Candidates** | Bug reports for verification | `libCRS register-submit-dir bug-candidate /output/bugs` or `libCRS submit bug-candidate <file>` |
+| **Reports** | CRS-native analysis/root-cause/verification reports | `libCRS register-submit-dir report /output/reports` or `libCRS submit report <file>` |
 | **Patches** | Fixes for discovered bugs | `libCRS register-submit-dir patch /output/patches` or `libCRS submit patch <file>` |
 
 ### Directory Registration vs. Manual Submission
@@ -795,7 +799,7 @@ CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to r
 Data arrives from two sources:
 
 1. **Bootup data** — Files passed via CLI flags, pre-populated by the host before containers start.
-run-phase: `oss-crs run --pov-dir/--diff/--seed-dir/--bug-candidate/--bug-candidate-dir`
+run-phase: `oss-crs run --pov-dir/--diff/--seed-dir/--report/--report-dir/--bug-candidate/--bug-candidate-dir`
 build-phase: `oss-crs build-target --diff/--bug-candidate/--bug-candidate-dir`
 2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
 
@@ -805,6 +809,8 @@ The operator passes data via `oss-crs run`:
 - `--pov <file>` or `--pov-dir <dir>` — PoV files → `FETCH_DIR/povs/`
 - `--diff <file>` — Reference diff → `FETCH_DIR/diffs/ref.diff`
 - `--seed-dir <dir>` — Seed files → `FETCH_DIR/seeds/`
+- `--report <file>` — Report file → `FETCH_DIR/reports/`
+- `--report-dir <dir>` — Report directory → `FETCH_DIR/reports/`
 - `--bug-candidate <file>` — Bug-candidate report file → `FETCH_DIR/bug-candidates/`
 - `--bug-candidate-dir <dir>` — Bug-candidate report directory → `FETCH_DIR/bug-candidates/`
 
@@ -845,6 +851,7 @@ NEW_FILES=$(libCRS fetch pov /my-povs)
 | `--pov`, `--pov-dir` | `pov` | `FETCH_DIR/povs/` |
 | `--diff` | `diff` | `FETCH_DIR/diffs/` |
 | `--seed-dir` | `seed` | `FETCH_DIR/seeds/` |
+| `--report`, `--report-dir` | `report` | `FETCH_DIR/reports/` |
 | `--bug-candidate`, `--bug-candidate-dir` | `bug-candidate` | `FETCH_DIR/bug-candidates/` |
 
 ---

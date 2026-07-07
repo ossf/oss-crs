@@ -165,7 +165,13 @@ class CRSType(Enum):
     HARNESS_GEN = "harness-gen"
 
 
-VALID_REQUIRED_INPUT_NAMES: set[str] = {"diff", "pov", "seed", "bug-candidate"}
+VALID_REQUIRED_INPUT_NAMES: set[str] = {
+    "diff",
+    "pov",
+    "seed",
+    "bug-candidate",
+    "report",
+}
 
 
 class CRSConfig(BaseModel):

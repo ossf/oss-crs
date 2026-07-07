@@ -10,6 +10,7 @@ class DataType(str, Enum):
     POV = "pov"
     SEED = "seed"
     BUG_CANDIDATE = "bug-candidate"
+    REPORT = "report"
     PATCH = "patch"
     DIFF = "diff"
 
@@ -22,6 +23,7 @@ class DataType(str, Enum):
             "pov": "povs",
             "seed": "seeds",
             "bug-candidate": "bug-candidates",
+            "report": "reports",
             "patch": "patches",
             "diff": "diffs",
         }

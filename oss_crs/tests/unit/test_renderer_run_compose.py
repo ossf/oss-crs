@@ -648,6 +648,8 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
     """When triage is present without seed-filter, regular CRS mounts:
     - processed_exchange_dir/povs  (triage output)
     - exchange_dir/seeds           (no seed-filter, raw exchange)
+    - exchange_dir/reports         (generic report artifacts)
+    - exchange_dir/patches         (generic patch artifacts)
     """
     _patch_renderer(monkeypatch)
     finder = _make_bug_finding_crs(tmp_path, "crs-finder")
@@ -670,3 +672,13 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
     assert any(
         f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro" == v for v in finder_volumes
     ), f"finder must mount raw seeds; got: {finder_volumes}"
+    # Reports come from exchange_dir (not owned by the triage/seed-filter processors)
+    assert any(
+        f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro" == v
+        for v in finder_volumes
+    ), f"finder must mount raw reports; got: {finder_volumes}"
+    # Patches come from exchange_dir (not owned by triage/seed-filter processors)
+    assert any(
+        f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v
+        for v in finder_volumes
+    ), f"finder must mount raw patches; got: {finder_volumes}"

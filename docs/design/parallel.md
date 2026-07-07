@@ -94,6 +94,7 @@ Run artifacts are stored at:
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/povs/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/seeds/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/bug-candidates/
+{work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/reports/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/patches/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SHARED_DIR/{harness}/
 {work_dir}/{sanitizer}/runs/{run-id}/EXCHANGE_DIR/{target}/{harness}/      # shared across all CRSs
@@ -153,6 +154,7 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
     "pov": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/povs",
     "seed": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/seeds",
     "bug_candidate": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/bug-candidates",
+    "report": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/reports",
     "patch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/patches",
     "diff": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/diffs"
   },
@@ -169,6 +171,7 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
       "pov": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/povs",
       "seed": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/seeds",
       "bug_candidate": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/bug-candidates",
+      "report": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/reports",
       "patch": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/patches",
       "fetch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml",
       "shared": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SHARED_DIR/xml"

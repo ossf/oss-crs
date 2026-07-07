@@ -61,7 +61,7 @@ Multiple CRSs can be composed in a single `crs-compose.yaml` to run simultaneous
 
 ### Web Dashboard
 
-An optional WebUI dashboard visualizes live run status — per-CRS and exchange artifact counts (POVs, seeds, bug-candidates, patches, diffs), LLM cost, and a coverage panel.
+An optional WebUI dashboard visualizes live run status — per-CRS and exchange artifact counts (POVs, seeds, bug-candidates, reports, patches, diffs), LLM cost, and a coverage panel.
 
 - **Start the service** — `oss-crs web-ui start` (add `--port <N>` to override the default port `9090`). Use `oss-crs web-ui status` to check it and `oss-crs web-ui stop` to tear it down.
 - **Monitor a run** — pass `--web-ui` to `oss-crs run`. This starts the service if it isn't already running and publishes final artifact and cost totals after teardown so the finished run reflects the true results.

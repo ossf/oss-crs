@@ -61,6 +61,18 @@ def test_required_seed_passes_when_provided(tmp_path):
     assert compose._validate_required_inputs(seed_dir=tmp_path).success is True
 
 
+def test_required_report_passes_with_file(tmp_path):
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
+    assert compose._validate_required_inputs(report=report).success is True
+
+
+def test_required_report_passes_with_dir(tmp_path):
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    assert compose._validate_required_inputs(report_dir=tmp_path).success is True
+
+
 def test_required_bug_candidate_passes_with_file(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["bug-candidate"])])
     bc = tmp_path / "report.sarif"
@@ -114,6 +126,11 @@ def test_required_seed_fails_when_missing():
     assert compose._validate_required_inputs().success is False
 
 
+def test_required_report_fails_when_missing():
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    assert compose._validate_required_inputs().success is False
+
+
 def test_required_bug_candidate_fails_when_missing():
     compose = _make_compose([_FakeCRS("crs-a", ["bug-candidate"])])
     assert compose._validate_required_inputs().success is False
@@ -121,7 +138,7 @@ def test_required_bug_candidate_fails_when_missing():
 
 def test_all_four_inputs_required_and_satisfied(tmp_path):
     compose = _make_compose(
-        [_FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate"])]
+        [_FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate", "report"])]
     )
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
@@ -131,9 +148,15 @@ def test_all_four_inputs_required_and_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
     assert (
         compose._validate_required_inputs(
-            diff=diff_file, pov=pov_file, seed_dir=seed_subdir, bug_candidate=bc
+            diff=diff_file,
+            pov=pov_file,
+            seed_dir=seed_subdir,
+            bug_candidate=bc,
+            report=report,
         ).success
         is True
     )
@@ -168,7 +191,7 @@ def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     compose = _make_compose(
         [
             _FakeCRS("crs-a", ["diff", "seed"]),
-            _FakeCRS("crs-b", ["pov", "bug-candidate"]),
+            _FakeCRS("crs-b", ["pov", "bug-candidate", "report"]),
         ]
     )
     diff_file = tmp_path / "ref.diff"
@@ -179,12 +202,15 @@ def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
     assert (
         compose._validate_required_inputs(
             diff=diff_file,
             pov=pov_file,
             seed_dir=seed_subdir,
             bug_candidate=bc,
+            report=report,
         ).success
         is True
     )

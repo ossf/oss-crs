@@ -2,7 +2,7 @@
 
 ## Overview
 
-libCRS is a Python CLI library installed in every CRS container. It provides a uniform interface for CRS containers to interact with the OSS-CRS infrastructure — submitting artifacts (seeds, PoVs, bug candidates), sharing files between containers within a CRS, managing build outputs, and resolving service endpoints.
+libCRS is a Python CLI library installed in every CRS container. It provides a uniform interface for CRS containers to interact with the OSS-CRS infrastructure — submitting artifacts (seeds, PoVs, bug candidates, reports), sharing files between containers within a CRS, managing build outputs, and resolving service endpoints.
 
 By abstracting these operations behind a single CLI, libCRS allows CRS developers to write infrastructure-agnostic code: the same `libCRS` commands work regardless of whether the CRS runs locally via Docker Compose or (in the future) on a cloud deployment.
 
@@ -147,6 +147,7 @@ All submission and fetching operations work with one of the following data types
 | `pov` | Proof-of-vulnerability inputs that trigger bugs |
 | `seed` | Fuzzing seed inputs |
 | `bug-candidate` | Potential bug reports for verification |
+| `report` | CRS-native analysis/root-cause/verification reports |
 | `patch` | Patches to fix discovered bugs |
 | `diff` | Reference diffs for delta-mode analysis |
 
@@ -247,7 +248,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, or `patch` |
 | `path` | Local directory to watch |
 | `--log` | *(Optional)* Log file path for the daemon |
 
@@ -262,6 +263,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 ```bash
 $ libCRS register-submit-dir seed /output/seeds
 $ libCRS register-submit-dir --log /var/log/pov-submit.log pov /output/povs
+$ libCRS register-submit-dir report /output/reports
 ```
 
 #### `register-shared-dir` ✅
@@ -325,7 +327,7 @@ $ libCRS register-fetch-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, `patch`, or `diff` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, `patch`, or `diff` |
 | `path` | Local directory path to receive fetched data |
 | `--log` | *(Optional)* Log file path for the daemon |
 
@@ -355,7 +357,7 @@ $ libCRS submit <type> <file_path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, or `patch` |
 | `file_path` | Path to the file to submit |
 
 **Example:**
@@ -363,6 +365,7 @@ $ libCRS submit <type> <file_path>
 $ libCRS submit pov /tmp/crash-input
 $ libCRS submit seed /tmp/interesting-input
 $ libCRS submit bug-candidate /tmp/bug-report
+$ libCRS submit report /tmp/audit-report.json
 ```
 
 #### `submit-harness` ✅
@@ -397,7 +400,7 @@ $ libCRS fetch <type> <dst_dir_path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, `patch`, or `diff` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, `patch`, or `diff` |
 | `dst_dir_path` | Local directory to download files into |
 
 **How it works:**
@@ -580,6 +583,7 @@ libCRS register-shared-dir /shared-corpus corpus
 libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
+libCRS register-submit-dir report /output/reports &
 
 # Resolve service endpoints
 ANALYZER_HOST=$(libCRS get-service-domain analyzer)

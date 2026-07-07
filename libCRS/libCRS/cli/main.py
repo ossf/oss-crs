@@ -158,7 +158,13 @@ def main():
     # =========================================================================
 
     # Valid types for submit vs fetch commands
-    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH]
+    submit_types = [
+        DataType.POV,
+        DataType.SEED,
+        DataType.BUG_CANDIDATE,
+        DataType.REPORT,
+        DataType.PATCH,
+    ]
     fetch_types = list(DataType)
 
     # register-submit-dir command (auto-submit data to oss-crs-infra)
@@ -171,7 +177,7 @@ def main():
         type=DataType,
         choices=submit_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch",
+        help="Type of data: pov, seed, bug-candidate, report, patch",
     )
     register_submit_dir_parser.add_argument(
         "path", type=Path, help="Directory path to register"
@@ -229,7 +235,7 @@ def main():
         type=DataType,
         choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch, diff",
+        help="Type of data: pov, seed, bug-candidate, report, patch, diff",
     )
     register_fetch_dir_parser.add_argument(
         "path", type=Path, help="Directory path to receive shared data"
@@ -258,7 +264,7 @@ def main():
         type=DataType,
         choices=submit_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch",
+        help="Type of data: pov, seed, bug-candidate, report, patch",
     )
     submit_parser.add_argument("path", type=Path, help="File path to submit")
     submit_parser.set_defaults(func=lambda args: crs_utils.submit(args.type, args.path))
@@ -306,7 +312,7 @@ def main():
         type=DataType,
         choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch, diff",
+        help="Type of data: pov, seed, bug-candidate, report, patch, diff",
     )
     fetch_parser.add_argument("path", type=Path, help="Output directory path")
     fetch_parser.set_defaults(

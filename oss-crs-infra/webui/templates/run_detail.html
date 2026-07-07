@@ -77,6 +77,7 @@
   .metric.povs .value { color: var(--red); }
   .metric.seeds .value { color: var(--green); }
   .metric.patches .value { color: var(--accent); }
+  .metric.reports .value { color: var(--orange); }
   .metric.diffs .value { color: var(--purple); }
   .metric.bug-candidates .value { color: var(--orange); }
 
@@ -177,12 +178,13 @@
     <div class="metrics">
       <div class="metric povs"><div class="value" data-crs="{{ name }}" data-type="povs">0</div><div class="label">POVs</div></div>
       <div class="metric seeds"><div class="value" data-crs="{{ name }}" data-type="seeds">0</div><div class="label">Seeds</div></div>
+      <div class="metric reports"><div class="value" data-crs="{{ name }}" data-type="reports">0</div><div class="label">Reports</div></div>
       <div class="metric patches"><div class="value" data-crs="{{ name }}" data-type="patches">0</div><div class="label">Patches</div></div>
       <div class="metric diffs"><div class="value" data-crs="{{ name }}" data-type="diffs">0</div><div class="label">Diffs</div></div>
       <div class="metric bug-candidates"><div class="value" data-crs="{{ name }}" data-type="bug-candidates">0</div><div class="label">Bugs</div></div>
     </div>
     <div class="sparkline-row">
-      {% for dtype in ["povs", "seeds", "patches", "diffs", "bug-candidates"] %}
+      {% for dtype in ["povs", "seeds", "reports", "patches", "diffs", "bug-candidates"] %}
       <canvas id="spark-{{ name }}-{{ dtype }}" title="{{ dtype }}"></canvas>
       {% endfor %}
     </div>
@@ -251,6 +253,7 @@
     <div class="metrics" id="metrics-exchange">
       <div class="metric povs"><div class="value" data-type="povs" data-exchange>0</div><div class="label">POVs</div></div>
       <div class="metric seeds"><div class="value" data-type="seeds" data-exchange>0</div><div class="label">Seeds</div></div>
+      <div class="metric reports"><div class="value" data-type="reports" data-exchange>0</div><div class="label">Reports</div></div>
       <div class="metric patches"><div class="value" data-type="patches" data-exchange>0</div><div class="label">Patches</div></div>
       <div class="metric diffs"><div class="value" data-type="diffs" data-exchange>0</div><div class="label">Diffs</div></div>
       <div class="metric bug-candidates"><div class="value" data-type="bug-candidates" data-exchange>0</div><div class="label">Bugs</div></div>
@@ -266,8 +269,8 @@
 <script>
 var RUN_ID = {{ run_id | tojson }};
 var POLL_MS = 5000;
-var DATA_TYPES = ["povs", "seeds", "bug-candidates", "patches", "diffs"];
-var TYPE_COLORS = {"povs":"#f87171","seeds":"#34d399","patches":"#4f8cff","diffs":"#a78bfa","bug-candidates":"#fbbf24"};
+var DATA_TYPES = ["povs", "seeds", "bug-candidates", "reports", "patches", "diffs"];
+var TYPE_COLORS = {"povs":"#f87171","seeds":"#34d399","reports":"#f97316","patches":"#4f8cff","diffs":"#a78bfa","bug-candidates":"#fbbf24"};
 var CRS_NAMES = {{ crs_names | tojson }};
 var historyData = [];
 

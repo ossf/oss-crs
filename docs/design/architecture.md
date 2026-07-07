@@ -136,11 +136,13 @@ $ libCRS skip-build-output <path in output fs>
 $ libCRS register-submit-dir pov /povs
 $ libCRS register-submit-dir seed /seeds
 $ libCRS register-submit-dir bug-candidate /bug-candidates
+$ libCRS register-submit-dir report /reports
 $ libCRS register-submit-dir patch /patches
 
 $ libCRS submit pov <pov_file_path>
 $ libCRS submit seed <seed_file_path>
 $ libCRS submit bug-candidate <bug_candidate_file_path>
+$ libCRS submit report <report_file_path>
 $ libCRS submit patch <patch_file_path>
 ```
  
@@ -160,10 +162,12 @@ $ libCRS register-log-dir <local_dir_path>
 $ libCRS register-fetch-dir pov /shared-povs
 $ libCRS register-fetch-dir diff /shared-diffs
 $ libCRS register-fetch-dir seed /shared-seeds
+$ libCRS register-fetch-dir report /shared-reports
 
 # One-shot fetch from FETCH_DIR
 $ libCRS fetch pov /shared-povs
 $ libCRS fetch diff /shared-diffs
+$ libCRS fetch report /shared-reports
 
 # FETCH_DIR is a read-only mount of EXCHANGE_DIR, populated by oss-crs via --pov/--pov-dir, --diff, --seed-dir flags
 # An exchange sidecar copies submissions from SUBMIT_DIR to EXCHANGE_DIR (CRS containers do not write to EXCHANGE_DIR directly)

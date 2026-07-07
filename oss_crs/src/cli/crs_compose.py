@@ -7,7 +7,7 @@ import signal
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
-from ..crs_compose import CRSCompose
+from ..crs_compose import ArtifactInput, CRSCompose, RUN_ARTIFACT_INPUT_SPECS
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from ..constants import WEBUI_CONTAINER_NAME, WEBUI_DEFAULT_PORT
@@ -65,20 +65,55 @@ def add_target_arguments(parser):
             "source path resolved from Dockerfile WORKDIR."
         ),
     )
-    parser.add_argument(
-        "--bug-candidate",
-        type=Path,
-        required=False,
-        default=None,
-        help="Path to a bug-candidate report file.",
-    )
-    parser.add_argument(
-        "--bug-candidate-dir",
-        type=Path,
-        required=False,
-        default=None,
-        help="Path to a directory containing bug-candidate report files.",
-    )
+
+
+def _dest_for_flag(flag: str) -> str:
+    return flag.replace("-", "_")
+
+
+def add_artifact_input_arguments(parser, specs) -> None:
+    for spec in specs:
+        if spec.allow_file:
+            parser.add_argument(
+                f"--{spec.flag}",
+                dest=_dest_for_flag(spec.flag),
+                type=Path,
+                required=False,
+                default=None,
+                help=(
+                    f"Single {spec.name} file to pre-populate into "
+                    f"FETCH_DIR/{spec.dest_dir_name} before containers start"
+                ),
+            )
+        if spec.allow_dir and spec.dir_flag:
+            parser.add_argument(
+                f"--{spec.dir_flag}",
+                dest=_dest_for_flag(spec.dir_flag),
+                type=Path,
+                required=False,
+                default=None,
+                help=(
+                    f"Directory containing {spec.name} files to pre-populate "
+                    f"into FETCH_DIR/{spec.dest_dir_name} before containers start"
+                ),
+            )
+
+
+def collect_artifact_inputs_from_args(args, specs) -> dict[str, ArtifactInput]:
+    artifact_inputs: dict[str, ArtifactInput] = {}
+    for spec in specs:
+        file_path = getattr(args, _dest_for_flag(spec.flag), None)
+        dir_path = (
+            getattr(args, _dest_for_flag(spec.dir_flag), None)
+            if spec.dir_flag
+            else None
+        )
+        if file_path is not None or dir_path is not None:
+            artifact_inputs[spec.name] = ArtifactInput(
+                file=file_path,
+                directory=dir_path,
+            )
+    return artifact_inputs
 
 
 def add_target_resolution_arguments(parser):
@@ -151,6 +186,10 @@ def add_build_target_command(subparsers):
         default=None,
         help="Diff file for directed build analysis, mounted into build-target containers.",
     )
+    add_artifact_input_arguments(
+        build_target,
+        [spec for spec in RUN_ARTIFACT_INPUT_SPECS if spec.name == "bug-candidate"],
+    )
     build_target.add_argument(
         "--incremental-build",
         action="store_true",
@@ -201,18 +240,7 @@ def add_run_command(subparsers):
         default=None,
         help="Run identifier for this run's artifacts. If not provided, generates timestamp-based id.",
     )
-    run.add_argument(
-        "--pov",
-        type=Path,
-        default=None,
-        help="Single POV file to pre-populate into FETCH_DIR before containers start",
-    )
-    run.add_argument(
-        "--pov-dir",
-        type=Path,
-        default=None,
-        help="Directory containing POV files to pre-populate into FETCH_DIR before containers start",
-    )
+    add_artifact_input_arguments(run, RUN_ARTIFACT_INPUT_SPECS)
     run.add_argument(
         "--diff",
         type=Path,
@@ -220,10 +248,13 @@ def add_run_command(subparsers):
         help="Diff file for delta-mode analysis, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch diff <local_path>",
     )
     run.add_argument(
-        "--seed-dir",
-        type=Path,
+        "--forward-artifacts",
+        type=str,
         default=None,
-        help="Directory of initial seed files, pre-populated into FETCH_DIR before containers start. Accessible via: libCRS fetch seed <local_path>",
+        help=(
+            "Comma-separated run IDs whose exchange artifacts should be "
+            "forwarded into this run before containers start."
+        ),
     )
     run.add_argument(
         "--early-exit",
@@ -807,21 +838,22 @@ def cli() -> bool | int:
             return False
     elif args.command == "build-target":
         target = init_target_from_args(args)
-        if args.bug_candidate and args.bug_candidate_dir:
+        build_artifact_inputs = collect_artifact_inputs_from_args(
+            args,
+            [spec for spec in RUN_ARTIFACT_INPUT_SPECS if spec.name == "bug-candidate"],
+        )
+        bug_candidate_input = build_artifact_inputs.get("bug-candidate", ArtifactInput())
+        if bug_candidate_input.file and bug_candidate_input.directory:
             print(
                 "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
             )
             return False
-        bug_candidate = args.bug_candidate if hasattr(args, "bug_candidate") else None
-        bug_candidate_dir = (
-            args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
-        )
         if not crs_compose.build_target(
             target,
             build_id=args.build_id,
             sanitizer=args.sanitizer,
-            bug_candidate=bug_candidate,
-            bug_candidate_dir=bug_candidate_dir,
+            bug_candidate=bug_candidate_input.file,
+            bug_candidate_dir=bug_candidate_input.directory,
             diff=args.diff,
             incremental_build=args.incremental_build,
             coverage=args.coverage,
@@ -831,15 +863,15 @@ def cli() -> bool | int:
         target = init_target_from_args(args)
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
-        if args.bug_candidate and args.bug_candidate_dir:
-            print(
-                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
-            )
-            return False
-        bug_candidate = args.bug_candidate if hasattr(args, "bug_candidate") else None
-        bug_candidate_dir = (
-            args.bug_candidate_dir if hasattr(args, "bug_candidate_dir") else None
+        artifact_inputs = collect_artifact_inputs_from_args(
+            args,
+            RUN_ARTIFACT_INPUT_SPECS,
         )
+        forward_artifacts = [
+            item.strip()
+            for item in (args.forward_artifacts or "").split(",")
+            if item.strip()
+        ]
         if args.web_ui:
             # Bring up the dashboard server before the run starts so it is
             # reachable as soon as the publisher sidecar begins pushing metrics.
@@ -855,12 +887,9 @@ def cli() -> bool | int:
             run_id=args.run_id,
             build_id=args.build_id,
             sanitizer=args.sanitizer,
-            pov=args.pov,
-            pov_dir=args.pov_dir,
             diff=args.diff,
-            seed_dir=args.seed_dir,
-            bug_candidate=bug_candidate,
-            bug_candidate_dir=bug_candidate_dir,
+            artifact_inputs=artifact_inputs,
+            forward_artifacts=forward_artifacts,
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
             web_ui=args.web_ui,
