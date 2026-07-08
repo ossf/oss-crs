@@ -844,6 +844,12 @@ even when the current compose file uses a different CRS ensemble. If a run ID
 matches multiple source target/harness/sanitizer combinations, OSS-CRS prompts
 you to select one; in non-interactive mode it fails and prints the candidates.
 
+When bare `--forward-artifacts` is provided with no run ID and `oss-crs run` is
+attached to an interactive terminal, OSS-CRS searches all prior runs for the
+same target project under the current `--work-dir` root and prompts you to
+select zero or more artifact sources. In non-interactive mode, the bare flag is a
+no-op. Omitting `--forward-artifacts` also does not forward artifacts.
+
 Forwarding copies fetchable exchange artifacts into the new run's raw
 `EXCHANGE_DIR`: `povs`, `seeds`, `bug-candidates`, `reports`, and `patches`.
 When the source run has a processed exchange dir, processed `povs` and `seeds`

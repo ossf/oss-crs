@@ -32,6 +32,7 @@ from .utils import (
     log_warning,
     log_dim,
     select,
+    multi_select,
 )
 from .workdir import WorkDir
 from . import webui
@@ -893,6 +894,7 @@ class CRSCompose:
         bug_candidate_dir: Optional[Path] = None,
         artifact_inputs: ArtifactInputs | None = None,
         forward_artifacts: list[str] | None = None,
+        prompt_forward_artifacts: bool = False,
         early_exit: bool = False,
         incremental_build: bool = False,
         web_ui: bool = False,
@@ -960,7 +962,11 @@ class CRSCompose:
         if artifact_error:
             print(artifact_error)
             return 1
-        forward_sources = self._resolve_forward_artifact_sources(forward_artifacts)
+        forward_sources = self._resolve_forward_artifact_sources(
+            forward_artifacts,
+            target=target,
+            prompt_if_missing=prompt_forward_artifacts,
+        )
         if forward_sources is None:
             return 1
         if not self.__validate_before_run(
@@ -1169,17 +1175,50 @@ class CRSCompose:
             for artifact_dir in FORWARD_ARTIFACT_DIRS
         }
 
-    def _forward_source_display(self, source: ForwardArtifactSource) -> str:
-        counts = self._artifact_counts_for_forward_source(source)
+    @staticmethod
+    def _forward_source_count_text(counts: dict[str, int]) -> str:
         count_text = ", ".join(
             f"{name}={count}" for name, count in counts.items() if count
         )
         if not count_text:
             count_text = "no fetchable artifacts"
+        return count_text
+
+    @staticmethod
+    def _forward_source_crs_names(source: ForwardArtifactSource) -> list[str]:
+        crs_dir = source.run_dir / "crs"
+        if not crs_dir.is_dir():
+            return []
+
+        all_crs_names = sorted(p.name for p in crs_dir.iterdir() if p.is_dir())
+        target_crs_names = [
+            crs_name
+            for crs_name in all_crs_names
+            if (crs_dir / crs_name / source.target_key).is_dir()
+        ]
+        return target_crs_names or all_crs_names
+
+    def _forward_source_crs_text(self, source: ForwardArtifactSource) -> str:
+        crs_names = self._forward_source_crs_names(source)
+        if not crs_names:
+            return "unknown"
+        return ", ".join(crs_names)
+
+    def _forward_source_compact_display(self, source: ForwardArtifactSource) -> str:
+        counts = self._artifact_counts_for_forward_source(source)
+        return (
+            f"{source.run_id} | harness: {source.harness} | "
+            f"crs: {self._forward_source_crs_text(source)} | "
+            f"{self._forward_source_count_text(counts)}"
+        )
+
+    def _forward_source_display(self, source: ForwardArtifactSource) -> str:
+        counts = self._artifact_counts_for_forward_source(source)
         return (
             f"{source.run_id} | sanitizer={source.sanitizer} | "
-            f"compose={source.compose_hash[:12]} | target={source.target_key} | "
-            f"harness={source.harness} | {count_text}"
+            f"crs: {self._forward_source_crs_text(source)} | "
+            f"target: {source.target_key} | harness: {source.harness} | "
+            f"{self._forward_source_count_text(counts)}"
         )
 
     def _iter_forward_artifact_candidates(
@@ -1219,6 +1258,71 @@ class CRSCompose:
                         )
                     )
         return candidates
+
+    def _iter_forward_artifact_project_candidates(
+        self, target: Target
+    ) -> list[ForwardArtifactSource]:
+        target_key = WorkDir._get_target_key(target)
+        crs_compose_root = self.work_dir.path.parent
+        if not crs_compose_root.is_dir():
+            return []
+
+        candidates: list[ForwardArtifactSource] = []
+        for compose_dir in sorted(crs_compose_root.iterdir()):
+            if not compose_dir.is_dir():
+                continue
+            compose_hash = compose_dir.name
+            for sanitizer_dir in sorted(compose_dir.iterdir()):
+                runs_dir = sanitizer_dir / "runs"
+                if not runs_dir.is_dir():
+                    continue
+                for run_dir in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
+                    candidates.extend(
+                        self._iter_forward_sources_for_run_dir(
+                            requested_run_id=run_dir.name,
+                            run_id=run_dir.name,
+                            sanitizer=sanitizer_dir.name,
+                            compose_hash=compose_hash,
+                            run_dir=run_dir,
+                        )
+                    )
+
+        return [
+            c
+            for c in candidates
+            if c.target_key == target_key
+            and any(self._artifact_counts_for_forward_source(c).values())
+        ]
+
+    def _prompt_forward_artifact_sources(
+        self, target: Target
+    ) -> ForwardArtifactSources | None:
+        if not sys.stdin.isatty():
+            return []
+
+        candidates = self._iter_forward_artifact_project_candidates(target)
+        if not candidates:
+            return []
+
+        choices = [
+            (
+                self._forward_source_compact_display(candidate),
+                candidate,
+                self._forward_source_display(candidate),
+            )
+            for candidate in candidates
+        ]
+        selected = multi_select(
+            "Select prior runs to forward artifacts from:",
+            choices,
+            instruction=(
+                "Use space to select, enter to continue; move the cursor to "
+                "view details."
+            ),
+        )
+        if selected is None:
+            return None
+        return selected
 
     def _iter_forward_sources_for_run_dir(
         self,
@@ -1261,8 +1365,16 @@ class CRSCompose:
         ]
 
     def _resolve_forward_artifact_sources(
-        self, requested_run_ids: list[str] | None
+        self,
+        requested_run_ids: list[str] | None,
+        *,
+        target: Target | None = None,
+        prompt_if_missing: bool = False,
     ) -> ForwardArtifactSources | None:
+        if requested_run_ids is None:
+            if prompt_if_missing and target is not None:
+                return self._prompt_forward_artifact_sources(target)
+            return []
         if not requested_run_ids:
             return []
 

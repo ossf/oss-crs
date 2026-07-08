@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 from pathlib import Path
 
+import oss_crs.src.crs_compose as crs_compose_module
 from oss_crs.src.crs_compose import CRSCompose, ForwardArtifactSource
 from oss_crs.src.target import Target
 from oss_crs.src.workdir import WorkDir
@@ -406,6 +407,180 @@ def test_forward_artifact_resolution_searches_sibling_compose_hashes(
     assert candidates[0].target_key == "target_latest"
     assert candidates[0].harness == "fuzz_target"
     assert compose._forwarded_artifact_names(candidates) == {"pov"}
+
+
+def test_prompt_forward_artifacts_noninteractive_is_noop(
+    tmp_path: Path, monkeypatch
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
+    monkeypatch.setattr(crs_compose_module.sys.stdin, "isatty", lambda: False)
+
+    assert (
+        compose._resolve_forward_artifact_sources(
+            None,
+            target=target,
+            prompt_if_missing=True,
+        )
+        == []
+    )
+
+
+def test_run_without_forward_artifacts_does_not_prompt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
+    captured: dict = {}
+
+    _stub_run_for_existing_build(compose, target, monkeypatch, captured)
+
+    def _resolve(requested_run_ids, *, target=None, prompt_if_missing=False):
+        captured["requested_run_ids"] = requested_run_ids
+        captured["prompt_if_missing"] = prompt_if_missing
+        return []
+
+    monkeypatch.setattr(compose, "_resolve_forward_artifact_sources", _resolve)
+
+    assert (
+        compose.run(
+            target,
+            run_id="run-1",
+            build_id="build-1",
+            sanitizer="address",
+        )
+        is True
+    )
+    assert captured["requested_run_ids"] is None
+    assert captured["prompt_if_missing"] is False
+
+
+def test_run_with_prompt_forward_artifacts_prompts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
+    captured: dict = {}
+
+    _stub_run_for_existing_build(compose, target, monkeypatch, captured)
+
+    def _resolve(requested_run_ids, *, target=None, prompt_if_missing=False):
+        captured["requested_run_ids"] = requested_run_ids
+        captured["prompt_if_missing"] = prompt_if_missing
+        return []
+
+    monkeypatch.setattr(compose, "_resolve_forward_artifact_sources", _resolve)
+
+    assert (
+        compose.run(
+            target,
+            run_id="run-1",
+            build_id="build-1",
+            sanitizer="address",
+            prompt_forward_artifacts=True,
+        )
+        is True
+    )
+    assert captured["requested_run_ids"] is None
+    assert captured["prompt_if_missing"] is True
+
+
+def test_prompt_forward_artifacts_lists_matching_project_sources(
+    tmp_path: Path, monkeypatch
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
+    target_key = WorkDir._get_target_key(target)
+    matching_source = (
+        compose.work_dir.path.parent
+        / "bug-finding-compose"
+        / "address"
+        / "runs"
+        / "run-1"
+        / "EXCHANGE_DIR"
+        / target_key
+        / "fuzz_target"
+        / "povs"
+    )
+    nonmatching_source = (
+        compose.work_dir.path.parent
+        / "bug-finding-compose"
+        / "address"
+        / "runs"
+        / "run-2"
+        / "EXCHANGE_DIR"
+        / "other_target_latest"
+        / "fuzz_target"
+        / "povs"
+    )
+    matching_source.mkdir(parents=True)
+    nonmatching_source.mkdir(parents=True)
+    (
+        compose.work_dir.path.parent
+        / "bug-finding-compose"
+        / "address"
+        / "runs"
+        / "run-1"
+        / "crs"
+        / "crs-finder"
+        / target_key
+    ).mkdir(parents=True)
+    (
+        compose.work_dir.path.parent
+        / "bug-finding-compose"
+        / "address"
+        / "runs"
+        / "run-1"
+        / "crs"
+        / "crs-triage"
+        / target_key
+    ).mkdir(parents=True)
+    (matching_source / "crash").write_text("pov")
+    (nonmatching_source / "crash").write_text("pov")
+    captured: dict = {}
+
+    def _select(message, choices, **kwargs):
+        captured["message"] = message
+        captured["choices"] = choices
+        captured["kwargs"] = kwargs
+        return [choices[0][1]]
+
+    monkeypatch.setattr(crs_compose_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(crs_compose_module, "multi_select", _select)
+
+    selected = compose._resolve_forward_artifact_sources(
+        None,
+        target=target,
+        prompt_if_missing=True,
+    )
+
+    assert selected is not None
+    assert [source.run_id for source in selected] == ["run-1"]
+    assert captured["message"] == "Select prior runs to forward artifacts from:"
+    assert "instruction" in captured["kwargs"]
+    assert "validate" not in captured["kwargs"]
+    assert len(captured["choices"]) == 1
+    title, _source, description = captured["choices"][0]
+    assert title == (
+        "run-1 | harness: fuzz_target | crs: crs-finder, crs-triage | povs=1"
+    )
+    assert "sanitizer=address" in description
+    assert "crs: crs-finder, crs-triage" in description
+    assert f"target: {target_key}" in description
+    assert "compose=" not in description
+    assert "bug-finding-compose" not in title
+    assert "target:" not in title
+    assert "sanitizer=" not in title
+
+    records = compose._copy_forward_artifact_sources(
+        sources=selected,
+        target=target,
+        run_id="new-run",
+        sanitizer="address",
+    )
+    dst = compose.work_dir.get_exchange_dir(target, "new-run", "address")
+    assert (dst / "povs" / "crash").read_text() == "pov"
+    assert records[0]["copied"] == {"povs": 1}
 
 
 def test_forward_artifacts_prefers_processed_povs_and_forwards_patches(

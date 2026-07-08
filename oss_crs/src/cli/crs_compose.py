@@ -250,10 +250,14 @@ def add_run_command(subparsers):
     run.add_argument(
         "--forward-artifacts",
         type=str,
+        nargs="?",
+        const="",
         default=None,
         help=(
             "Comma-separated run IDs whose exchange artifacts should be "
-            "forwarded into this run before containers start."
+            "forwarded into this run before containers start. Pass the flag "
+            "with no argument to choose from prior artifact-producing runs "
+            "for the same target project."
         ),
     )
     run.add_argument(
@@ -867,11 +871,17 @@ def cli() -> bool | int:
             args,
             RUN_ARTIFACT_INPUT_SPECS,
         )
-        forward_artifacts = [
-            item.strip()
-            for item in (args.forward_artifacts or "").split(",")
-            if item.strip()
-        ]
+        prompt_forward_artifacts = False
+        forward_artifacts = None
+        if args.forward_artifacts is not None:
+            if args.forward_artifacts == "":
+                prompt_forward_artifacts = True
+            else:
+                forward_artifacts = [
+                    item.strip()
+                    for item in args.forward_artifacts.split(",")
+                    if item.strip()
+                ]
         if args.web_ui:
             # Bring up the dashboard server before the run starts so it is
             # reachable as soon as the publisher sidecar begins pushing metrics.
@@ -890,6 +900,7 @@ def cli() -> bool | int:
             diff=args.diff,
             artifact_inputs=artifact_inputs,
             forward_artifacts=forward_artifacts,
+            prompt_forward_artifacts=prompt_forward_artifacts,
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
             web_ui=args.web_ui,
