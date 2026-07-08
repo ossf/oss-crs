@@ -500,7 +500,15 @@ uv run oss-crs run \
   --pov-dir ./povs \
   --diff ./ref.diff \
   --seed-dir ./seeds \
-  --report-dir ./reports
+  --report-dir ./reports \
+  --patch-dir ./patches
+
+# Optional: forward artifacts from previous runs into this run
+uv run oss-crs run \
+  --compose-file ./my-crs-compose.yaml \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml \
+  --forward-artifacts 1700000002ab,previous-run-name
 ```
 
 ### Debugging Tips
@@ -796,12 +804,13 @@ Your CRS should submit findings through libCRS:
 
 CRS containers receive data through `FETCH_DIR`, a read-only volume mounted to run-phase CRS containers. During `build-target`, it is also mounted to builder containers when directed inputs are provided (`--diff`, `--bug-candidate`, `--bug-candidate-dir`).
 
-Data arrives from two sources:
+Data arrives from three sources:
 
 1. **Bootup data** — Files passed via CLI flags, pre-populated by the host before containers start.
-run-phase: `oss-crs run --pov-dir/--diff/--seed-dir/--report/--report-dir/--bug-candidate/--bug-candidate-dir`
+run-phase: `oss-crs run --pov/--pov-dir/--diff/--seed-dir/--report/--report-dir/--patch/--patch-dir/--bug-candidate/--bug-candidate-dir`
 build-phase: `oss-crs build-target --diff/--bug-candidate/--bug-candidate-dir`
-2. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
+2. **Forwarded data** — Files copied from previous run exchange directories via `oss-crs run --forward-artifacts <run-id>[,<run-id>...]`.
+3. **Inter-CRS data** — Files submitted by other CRSs at runtime via `register-submit-dir` or `submit`, delivered by the exchange sidecar which polls `SUBMIT_DIR` and copies artifacts into the shared exchange volume.
 
 ### Bootup Data (oss-crs run flags)
 
@@ -811,8 +820,38 @@ The operator passes data via `oss-crs run`:
 - `--seed-dir <dir>` — Seed files → `FETCH_DIR/seeds/`
 - `--report <file>` — Report file → `FETCH_DIR/reports/`
 - `--report-dir <dir>` — Report directory → `FETCH_DIR/reports/`
+- `--patch <file>` — Patch file → `FETCH_DIR/patches/`
+- `--patch-dir <dir>` — Patch directory → `FETCH_DIR/patches/`
 - `--bug-candidate <file>` — Bug-candidate report file → `FETCH_DIR/bug-candidates/`
 - `--bug-candidate-dir <dir>` — Bug-candidate report directory → `FETCH_DIR/bug-candidates/`
+
+### Forwarding Artifacts Across Runs
+
+Use `--forward-artifacts` to seed a new run from artifacts produced by prior
+runs:
+
+```bash
+uv run oss-crs run \
+  --compose-file ./bug-fixing-compose.yaml \
+  --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
+  --target-harness xml \
+  --forward-artifacts 1700000002ab
+```
+
+The argument is a comma-separated list of run IDs. OSS-CRS searches sibling
+compose-hash workdirs under the same `--work-dir`, so artifacts can be forwarded
+even when the current compose file uses a different CRS ensemble. If a run ID
+matches multiple source target/harness/sanitizer combinations, OSS-CRS prompts
+you to select one; in non-interactive mode it fails and prints the candidates.
+
+Forwarding copies fetchable exchange artifacts into the new run's raw
+`EXCHANGE_DIR`: `povs`, `seeds`, `bug-candidates`, `reports`, and `patches`.
+When the source run has a processed exchange dir, processed `povs` and `seeds`
+are preferred over raw exchange artifacts. `diff` is not forwarded; pass a delta
+reference diff explicitly with `--diff`.
+
+Each forwarding operation writes provenance to
+`<run-dir>/FORWARDED_ARTIFACTS.json`.
 
 TODO: Standardize the bug-candidate format across CRSs (for example, SARIF 2.1.0) and define validation policy.
 Reference implementation: [`libCRS/libCRS/sarif.py`](../libCRS/libCRS/sarif.py).
@@ -852,7 +891,9 @@ NEW_FILES=$(libCRS fetch pov /my-povs)
 | `--diff` | `diff` | `FETCH_DIR/diffs/` |
 | `--seed-dir` | `seed` | `FETCH_DIR/seeds/` |
 | `--report`, `--report-dir` | `report` | `FETCH_DIR/reports/` |
+| `--patch`, `--patch-dir` | `patch` | `FETCH_DIR/patches/` |
 | `--bug-candidate`, `--bug-candidate-dir` | `bug-candidate` | `FETCH_DIR/bug-candidates/` |
+| `--forward-artifacts <run-id>[,<run-id>...]` | prior-run `pov`, `seed`, `bug-candidate`, `report`, `patch` | Matching `FETCH_DIR/<type>/` directories |
 
 ---
 
