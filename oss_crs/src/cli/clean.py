@@ -8,7 +8,7 @@ from pathlib import Path
 import docker
 import docker.errors
 
-from ..constants import PRESERVED_BUILDER_REPO
+from ..constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
 from ..utils import (
     confirm,
     get_console,
@@ -147,6 +147,23 @@ def discover_build_target_images(
         except docker.errors.ImageNotFound:
             pass
 
+    # Preserved runner images: oss-crs-runner:{crs_name}-{module}-{repo_hash}
+    # Produced by build-target for target-dependent run modules. Scope by CRS
+    # name (and by target repo hash when a target is provided).
+    repo_hash = target.get_docker_image_name().rsplit(":", 1)[-1] if target else None
+    for img in client.images.list(name=PRESERVED_RUNNER_REPO):
+        for tag in img.tags:
+            if not tag.startswith(f"{PRESERVED_RUNNER_REPO}:"):
+                continue
+            _, _, tag_suffix = tag.partition(":")
+            if not tag_suffix:
+                continue
+            for crs_name in crs_names:
+                if tag_suffix.startswith(f"{crs_name}-"):
+                    if repo_hash is None or tag_suffix.endswith(f"-{repo_hash}"):
+                        builder_tags.append(tag)
+                    break
+
     return (
         _dedupe(builder_tags),
         _dedupe(snapshot_tags),
@@ -169,10 +186,7 @@ def discover_run_images(crs_compose) -> list[str]:
     for img in client.images.list():
         for tag in img.tags:
             for rid in run_ids:
-                if (
-                    tag.startswith(f"crs_compose_{rid}")
-                    or tag == f"{rid}-oss-crs-litellm-key-gen:latest"
-                ):
+                if tag.startswith(f"crs_compose_{rid}"):
                     tags.append(tag)
                     break
     return _dedupe(tags)

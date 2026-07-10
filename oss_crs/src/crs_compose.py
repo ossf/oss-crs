@@ -37,6 +37,13 @@ from .cgroup import (
     create_run_cgroups,
     cleanup_cgroup,
 )
+from .constants import (
+    ALPINE_IMAGE,
+    OSS_CRS_INFRA_SIDECAR_IMAGES,
+    OSS_CRS_INTERNAL_LLM_IMAGES,
+    OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
+)
+from .templates.renderer import OSS_CRS_ROOT_PATH
 from .libcrs_nix import build_deps_image
 
 import docker
@@ -44,22 +51,54 @@ import docker.errors
 import requests.exceptions
 
 
+def _lifecycle_needed(crs_list) -> bool:
+    """Whether the lifecycle sidecar will ever be started for this config.
+
+    Mirrors the run-compose template gate for ``oss-crs-lifecycle``: it is only
+    injected when there is a bug-fix ensemble *and* at least one non-ensemble
+    bug-fixing CRS with a run-phase module to watch (``exchange_dir`` in the
+    template is always truthy, so it drops out). All inputs come from static CRS
+    config, so this is fully determinable at prepare time -- letting prepare skip
+    building lifecycle for configs that can never use it.
+    """
+    has_bug_fix_ensemble = any(crs.config.is_bug_fixing_ensemble for crs in crs_list)
+    if not has_bug_fix_ensemble:
+        return False
+    return any(
+        crs.config.is_bug_fixing
+        and not crs.config.is_bug_fixing_ensemble
+        and any(
+            module.dockerfile for module in crs.config.crs_run_phase.modules.values()
+        )
+        for crs in crs_list
+    )
+
+
 class CRSCompose:
     @classmethod
     def from_yaml_file(
-        cls, compose_file: Path, work_dir: Path, skip_crs_init: bool = False, offline: bool = False
+        cls,
+        compose_file: Path,
+        work_dir: Path,
+        skip_crs_init: bool = False,
+        offline: bool = False,
     ) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
         return cls(config, work_dir, skip_crs_init=skip_crs_init, offline=offline)
 
     def __init__(
-        self, config: CRSComposeConfig, work_dir: Path, skip_crs_init: bool = False, offline: bool = False
+        self,
+        config: CRSComposeConfig,
+        work_dir: Path,
+        skip_crs_init: bool = False,
+        offline: bool = False,
     ):
         hash = config.md5_hash()
         self.config = config
         self.llm = LLM(self.config.llm_config)
         self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}")
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
+        self.offline = offline
         self.crs_list = [
             CRS.from_crs_compose_entry(
                 name,
@@ -585,6 +624,161 @@ class CRSCompose:
     def __prepare_oss_crs_infra(
         self, publish: bool = False, docker_registry: Optional[str] = None
     ) -> "TaskResult":
+        result = self.__build_infra_sidecar_images(self.__needed_infra_sidecar_images())
+        if not result.success:
+            return result
+        # The alpine cleanup image is used by run teardown and `oss-crs clean`
+        # regardless of LLM mode, so pull it unconditionally here (before the
+        # internal-mode gate) so offline teardown/clean find it locally.
+        result = self.__pull_cleanup_image()
+        if not result.success:
+            return result
+
+        result = self.__build_oss_crs_deps()
+        if not result.success:
+            return result
+        # The internal LiteLLM stack (litellm-key-gen sidecar + the pinned
+        # LiteLLM/Postgres images) only runs in internal-LLM mode. Prepare it
+        # here, gated on that mode, so the run phase (and especially offline
+        # runs) finds these images locally instead of building/pulling per run.
+        if self.llm.exists() and self.llm.mode == "internal":
+            result = self.__build_infra_sidecar_images(
+                OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES
+            )
+            if not result.success:
+                return result
+            return self.__pull_internal_llm_images()
+        return result
+
+    def __needed_infra_sidecar_images(self) -> dict:
+        """The base infra sidecar images this config can actually use.
+
+        exchange and the builder/runner sidecars are unconditionally injected
+        into every run, so they are always built. lifecycle is conditional on
+        the (config-derivable) bug-fix-ensemble topology, so it is dropped when
+        ``_lifecycle_needed`` says no run will ever start it.
+        """
+
+        images = dict(OSS_CRS_INFRA_SIDECAR_IMAGES)
+        if "lifecycle" in images and not _lifecycle_needed(self.crs_list):
+            del images["lifecycle"]
+        return images
+
+    def __pull_cleanup_image(self) -> "TaskResult":
+        """Pull the pinned alpine cleanup image once, at prepare time.
+
+        ``rm_with_docker`` and the ``oss-crs clean`` size fallback shell out to
+        ``docker run --rm ... alpine ...`` to delete/measure root-owned files
+        during run teardown and clean. Those run regardless of LLM mode, so this
+        is pulled unconditionally. The pinned digest is tagged back to the bare
+        ``alpine`` handle the helpers reference (tagging is additive -- the image
+        keeps its RepoDigest), so offline teardown/clean resolve it locally
+        instead of pulling per invocation.
+        """
+
+        result = subprocess.run(
+            ["docker", "pull", ALPINE_IMAGE],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return TaskResult(
+                success=False,
+                error=(
+                    f"Failed to pull cleanup image '{ALPINE_IMAGE}':\n{result.stderr}"
+                ),
+            )
+        tag_result = subprocess.run(
+            ["docker", "tag", ALPINE_IMAGE, "alpine"],
+            capture_output=True,
+            text=True,
+        )
+        if tag_result.returncode != 0:
+            return TaskResult(
+                success=False,
+                error=(
+                    f"Failed to tag cleanup image '{ALPINE_IMAGE}' as "
+                    f"'alpine':\n{tag_result.stderr}"
+                ),
+            )
+        return TaskResult(success=True)
+
+    def __pull_internal_llm_images(self) -> "TaskResult":
+        """Pull the pinned internal LiteLLM/Postgres images once, at prepare time.
+
+        These sidecars only run when the LLM stack is in ``internal`` mode, so
+        pulling is gated on that mode. The images are referenced by immutable
+        digests, so a single pull serves every CRS module and target. Each
+        pulled image is then tagged with a stable, infra-owned local tag: the
+        tag is additive (the image keeps its RepoDigest, so the digest
+        references in the run template still resolve), but it makes the image
+        visible in ``docker images`` and gives it a usable, stable handle.
+        """
+        for image, local_tag in OSS_CRS_INTERNAL_LLM_IMAGES.items():
+            result = subprocess.run(
+                ["docker", "pull", image],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return TaskResult(
+                    success=False,
+                    error=(
+                        f"Failed to pull internal LLM image '{image}':\n{result.stderr}"
+                    ),
+                )
+            tag_result = subprocess.run(
+                ["docker", "tag", image, local_tag],
+                capture_output=True,
+                text=True,
+            )
+            if tag_result.returncode != 0:
+                return TaskResult(
+                    success=False,
+                    error=(
+                        f"Failed to tag internal LLM image '{image}' "
+                        f"as '{local_tag}':\n{tag_result.stderr}"
+                    ),
+                )
+        return TaskResult(success=True)
+
+    def __build_infra_sidecar_images(
+        self, images: Optional[dict] = None
+    ) -> "TaskResult":
+        """Build shared infra sidecar images once, with stable tags.
+
+        The exchange, lifecycle and builder/runner sidecars (the default
+        ``images`` registry) are built from fixed oss-crs-infra contexts and
+        take no target/CRS build args, so a single image serves every CRS module
+        and every target. Building them here (at prepare time) with
+        run-independent tags lets the run phase reuse them instead of rebuilding
+        per run; offline runs rely on them already existing locally. The same
+        machinery builds the internal-LLM-only sidecars when an explicit
+        ``images`` registry is passed.
+        """
+        if images is None:
+            images = OSS_CRS_INFRA_SIDECAR_IMAGES
+
+        infra_root = OSS_CRS_ROOT_PATH / "oss-crs-infra"
+        for subdir, tag in images.items():
+            context = infra_root / subdir
+            result = subprocess.run(
+                ["docker", "build", "-t", tag, str(context)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return TaskResult(
+                    success=False,
+                    error=(
+                        f"Failed to build infra sidecar image '{tag}' "
+                        f"from {context}:\n{result.stderr}"
+                    ),
+                )
+
+        return TaskResult(success=True)
+
+    def __build_oss_crs_deps(self) -> "TaskResult":
         """Build the oss-crs-deps Docker image (libCRS + rsync via Nix).
 
         This is a framework-level prepare step that runs once during prepare.
@@ -595,12 +789,12 @@ class CRSCompose:
         """
         libcrs_dir = renderer.LIBCRS_PATH
         success, detail = build_deps_image(libcrs_dir)
+
+        error = ""
         if not success:
-            return TaskResult(
-                success=False,
-                error=f"Failed to build oss-crs-deps image: {detail}",
-            )
-        return TaskResult(success=True)
+            error = f"Failed to build oss-crs-deps image: {detail}"
+
+        return TaskResult(success=success, error=error)
 
     def prepare(self, publish: bool = False, no_pull: bool = False) -> bool:
         # Collect task names (infra + all CRS)
@@ -1778,12 +1972,19 @@ class CRSCompose:
         progress.add_task(
             "Prepare combined docker compose file", prepare_docker_compose
         )
-        progress.add_task(
-            "Build docker images in the combined docker compose file",
-            lambda progress: progress.docker_compose_build(
-                project_name, docker_compose_path
-            ),
-        )
+
+        if not self.offline:
+            progress.add_task(
+                "Build docker images in the combined docker compose file",
+                lambda progress: progress.docker_compose_build(
+                    project_name, docker_compose_path
+                ),
+            )
+        else:
+            progress.add_note(
+                "Skipping docker image build (--offline); "
+                "relying on pre-existing local images."
+            )
 
         return progress.run_added_tasks()
 

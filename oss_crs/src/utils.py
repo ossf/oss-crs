@@ -13,7 +13,7 @@ from typing import Optional
 import questionary
 from rich.console import Console
 
-from .constants import PRESERVED_BUILDER_REPO
+from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
 
 
 RAND_CHARS = string.ascii_lowercase + string.digits
@@ -175,6 +175,29 @@ def preserved_builder_image_name(crs_name: str, build_name: str, build_id: str) 
     compose template for BASE_IMAGE_* env vars.
     """
     return f"{PRESERVED_BUILDER_REPO}:{crs_name}-{build_name}-{build_id}"
+
+
+def preserved_runner_image_name(
+    crs_name: str, module_name: str, target_hash: Optional[str] = None
+) -> str:
+    """Framework-derived tag for a prebuilt run-phase image.
+
+    Both the producer (prepare / build-target, which builds and tags the image)
+    and the consumer (the run renderer, which references it) call this so the
+    two agree by construction -- the tag is never written down in crs.yaml.
+
+    - Target-independent modules (built by prepare) omit ``target_hash`` and
+      get ``oss-crs-runner:<crs>-<module>``.
+    - Target-dependent modules (built by build-target) pass the target hash and
+      get ``oss-crs-runner:<crs>-<module>-<target_hash>``.
+
+    The ``oss-crs-runner:`` prefix is what keeps the image out of the run-time
+    teardown sweep (see ui.py / cli/clean.py).
+    """
+    base = f"{PRESERVED_RUNNER_REPO}:{crs_name}-{module_name}"
+    if target_hash:
+        return f"{base}-{target_hash}"
+    return base
 
 
 def build_snapshot_tag(crs_name: str, build_name: str, build_id: str) -> str:
