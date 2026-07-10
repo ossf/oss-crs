@@ -101,25 +101,31 @@ class TargetBuildPhase(BaseModel):
 class CRSRunPhaseModule(BaseModel):
     """Configuration for a single CRS run phase module.
 
-    The dockerfile can be:
-    - "oss-crs-infra:<module>": framework-provided service (e.g., default-builder)
-    - A file path: CRS developer's custom service Dockerfile
+    A module's run image is always *prebuilt* by the framework and consumed
+    read-only at run time. The build phase is selected by ``target_dependent``:
+
+    - ``target_dependent: false`` (default): the image is target-independent
+      and is built once during the prepare phase. Its tag is derived by the
+      framework as ``oss-crs-runner:<crs>-<module>``.
+    - ``target_dependent: true``: the image depends on the specific target
+      (e.g. ``FROM ${target_base_image}``) and is built during the
+      build-target phase, keyed by the target hash. Its tag is derived as
+      ``oss-crs-runner:<crs>-<module>-<target_hash>``.
+
+    ``dockerfile`` is always required and may be a file path or an
+    ``oss-crs-infra:<module>`` reference.
     """
 
-    dockerfile: Optional[str] = None
+    dockerfile: str
+    target_dependent: bool = False
     additional_env: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_dockerfile_requirement(self):
-        """Ensure dockerfile is always provided."""
-        if self.dockerfile is None:
-            raise ValueError("dockerfile is required")
-        return self
 
     @field_validator("dockerfile")
     @classmethod
-    def validate_dockerfile(cls, v: Optional[str]) -> Optional[str]:
-        return _validate_dockerfile_value(v)
+    def validate_dockerfile(cls, v: str) -> str:
+        result = _validate_dockerfile_value(v)
+        assert result is not None
+        return result
 
     @field_validator("additional_env")
     @classmethod

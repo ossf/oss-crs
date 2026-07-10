@@ -3,6 +3,36 @@
 LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:64d3547e0b131bf4638342e52c12bc46d6f1d9b8498e4b731ff31be5ab316ea9"  # v1.92.0
 POSTGRES_IMAGE = "postgres@sha256:b913fd5699b8bd23fa4b06d72ecdd939fad43b80fb8651bac06caa0e6d135cac"  # 18.4
 
+# Alpine image used by the cleanup helpers (``rm_with_docker`` and the
+# ``oss-crs clean`` size fallback), which shell out to ``docker run --rm alpine``
+# to delete/measure root-owned files during run teardown and clean. ``prepare``
+# pulls this pinned digest once (unconditionally, since cleanup runs regardless
+# of LLM mode) and tags it back to the bare ``alpine`` handle the helpers use, so
+# offline teardown/clean resolve it locally instead of pulling per invocation.
+ALPINE_IMAGE = "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"  # 3.x latest
+
+# Pinned-digest images pulled (not built) for the internal LiteLLM stack, each
+# mapped to a stable, infra-owned local tag. ``prepare`` pulls each by its
+# immutable digest once (gated on internal-LLM mode) and then applies the local
+# tag, so offline runs have them locally instead of pulling per run. Tagging is
+# additive: the pulled image keeps its RepoDigest, so the digest references in
+# the run template still resolve to the same local image, while the tag makes it
+# visible in ``docker images`` and gives it a usable, stable handle.
+OSS_CRS_INTERNAL_LLM_IMAGES = {
+    LITELLM_IMAGE: "oss-crs-litellm:latest",
+    POSTGRES_IMAGE: "oss-crs-postgres:latest",
+}
+
+# Internal-LLM-only sidecars that are *built* from oss-crs-infra contexts (as
+# opposed to the pinned images above, which are pulled). litellm-key-gen only
+# runs when the LLM stack is in ``internal`` mode, so ``prepare`` builds it with
+# its stable tag gated on that mode -- but the tag is always passed to the
+# renderer so the compose template can reference it. Maps each context
+# subdirectory under oss-crs-infra/ to its stable image tag.
+OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES = {
+    "litellm-key-gen": "oss-crs-litellm-key-gen:latest",
+}
+
 # Internal LiteLLM proxy URL exposed inside the Docker network.
 LITELLM_INTERNAL_URL = "http://litellm.oss-crs:4000"
 
@@ -19,6 +49,26 @@ PRESERVED_BUILDER_REPO = "oss-crs-builder"
 # specified (e.g. harness-gen CRSs that produce harnesses rather than consume them).
 # OSS_CRS_TARGET_HARNESS is NOT set in the container environment in this case.
 UNHARNESSED = "OSS_CRS_UNHARNESSED"
+
+# Docker repository name for target-dependent run-phase images. These are
+# produced by the build-target phase (tag embeds the target repo hash) and
+# consumed unbuilt by the run phase, so they must survive run-time teardown
+# sweeps just like preserved builder images.
+PRESERVED_RUNNER_REPO = "oss-crs-runner"
+
+# Infra sidecar images.
+# These sidecars (exchange, lifecycle, builder/runner sidecars) are built from
+# fixed oss-crs-infra contexts and take no target/CRS build args, so a single
+# image serves every CRS module and every target. ``prepare`` builds them once
+# with these stable, run-independent tags; the run phase reuses them instead of
+# rebuilding per run (and offline runs rely on them already existing locally).
+# Maps each context subdirectory under oss-crs-infra/ to its stable image tag.
+OSS_CRS_INFRA_SIDECAR_IMAGES = {
+    "exchange": "oss-crs-exchange:latest",
+    "lifecycle": "oss-crs-lifecycle:latest",
+    "builder-sidecar": "oss-crs-builder-sidecar:latest",
+    "runner-sidecar": "oss-crs-runner-sidecar:latest",
+}
 
 # OSS-Fuzz base-runner image. CRS run-phase runners (that execute harness
 # binaries) should start FROM this, tagged to match the OS the harness was

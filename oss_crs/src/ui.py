@@ -12,7 +12,7 @@ from typing import Callable, Optional
 import yaml
 from rich.console import Console, Group
 
-from .constants import PRESERVED_BUILDER_REPO
+from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
 from .utils import bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
 from rich.live import Live
 from rich.markup import escape
@@ -1314,8 +1314,13 @@ class MultiTaskProgress:
 
             # Don't remove preserved builder images — they're tagged copies of
             # compose-built images kept for the sidecar and snapshot workflows.
+            # Likewise keep preserved runner images — target-dependent run-phase
+            # images produced by build-target and consumed unbuilt by run.
             image_refs = {
-                r for r in image_refs if not r.startswith(f"{PRESERVED_BUILDER_REPO}:")
+                r
+                for r in image_refs
+                if not r.startswith(f"{PRESERVED_BUILDER_REPO}:")
+                and not r.startswith(f"{PRESERVED_RUNNER_REPO}:")
             }
             if image_refs:
                 rm_result = subprocess.run(

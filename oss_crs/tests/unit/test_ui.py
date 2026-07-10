@@ -65,7 +65,6 @@ def test_docker_compose_down_prunes_project_scoped_images(monkeypatch) -> None:
                     "proj-svc1:latest\n"
                     "other:latest\n"
                     "proj-svc2:latest\n"
-                    "proj-oss-crs-litellm-key-gen:latest\n"
                     "oss-crs-litellm-key-gen:latest\n"
                 ),
                 stderr="",
@@ -79,10 +78,6 @@ def test_docker_compose_down_prunes_project_scoped_images(monkeypatch) -> None:
             if ref == "proj-svc2:latest":
                 return SimpleNamespace(
                     returncode=0, stdout="sha256:svc2 proj\n", stderr=""
-                )
-            if ref == "proj-oss-crs-litellm-key-gen:latest":
-                return SimpleNamespace(
-                    returncode=0, stdout="sha256:keygen proj\n", stderr=""
                 )
             return SimpleNamespace(
                 returncode=0, stdout="sha256:other other\n", stderr=""
@@ -131,7 +126,6 @@ def test_docker_compose_down_prunes_project_scoped_images(monkeypatch) -> None:
         "image",
         "rm",
         "-f",
-        "proj-oss-crs-litellm-key-gen:latest",
         "proj-svc-label:latest",
         "proj-svc1:latest",
         "proj-svc2:latest",

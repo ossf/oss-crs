@@ -23,15 +23,7 @@ services:
 {% if module_config.dockerfile %}
   {{ crs.name }}_{{ module_name }}:
     privileged: true
-    build:
-      context: {{ crs.crs_path }}
-      dockerfile: {{ resolve_dockerfile(crs.crs_path, module_config.dockerfile) }}
-      additional_contexts:
-        libcrs: {{ libCRS_path }}
-      args:
-        - target_base_image={{target.get_docker_image_name()}}
-        - base_runner_image={{ target.base_runner_image }}
-        - crs_version={{ crs.config.version }}
+    image: {{ run_module_image(crs.name, module_name, module_config) }}
     environment:
 {%- for env_key, env_value in module_envs[crs.name + "_" + module_name].items() %}
       - {{ env_key }}={{ env_value }}
@@ -142,11 +134,8 @@ services:
         aliases:
           - {{ postgres_host }}
   oss-crs-litellm-key-gen:
-    image: {{ crs_compose_name }}-oss-crs-litellm-key-gen:latest
+    image: {{ infra_sidecar_images['litellm-key-gen'] }}
     attach: false
-    build:
-      context: {{ oss_crs_infra_root_path }}/litellm-key-gen
-      dockerfile: {{ oss_crs_infra_root_path }}/litellm-key-gen/Dockerfile
     depends_on:
       oss-crs-litellm:
         condition: service_healthy
@@ -174,8 +163,7 @@ services:
   ###########################################
 {%- if exchange_dir %}
   oss-crs-exchange:
-    build:
-      context: {{ oss_crs_infra_root_path }}/exchange
+    image: {{ infra_sidecar_images['exchange'] }}
     attach: false
     restart: on-failure:3
     volumes:
@@ -193,8 +181,7 @@ services:
   ###########################################
 {%- if processed_exchange_dir %}
   oss-crs-processed-exchange:
-    build:
-      context: {{ oss_crs_infra_root_path }}/exchange
+    image: {{ infra_sidecar_images['exchange'] }}
     attach: false
     restart: on-failure:3
     volumes:
@@ -223,8 +210,7 @@ services:
 {%- endfor %}
 {%- if bug_fix_ensemble and exchange_dir and watch_services %}
   oss-crs-lifecycle:
-    build:
-      context: {{ oss_crs_infra_root_path }}/lifecycle
+    image: {{ infra_sidecar_images['lifecycle'] }}
     attach: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -283,8 +269,7 @@ services:
   # OSS-CRS-BUILDER-SIDECAR
   ###########################################
   oss-crs-builder-sidecar:
-    build:
-      context: {{ oss_crs_infra_root_path }}/builder-sidecar
+    image: {{ infra_sidecar_images['builder-sidecar'] }}
     attach: false
     restart: on-failure:3
     volumes:
@@ -348,8 +333,7 @@ services:
   # OSS-CRS-RUNNER-SIDECAR
   ###########################################
   oss-crs-runner-sidecar:
-    build:
-      context: {{ oss_crs_infra_root_path }}/runner-sidecar
+    image: {{ infra_sidecar_images['runner-sidecar'] }}
     attach: false
     restart: on-failure:3
     volumes:
