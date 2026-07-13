@@ -16,6 +16,20 @@ RUN /opt/libCRS/install.sh --cli     # CLI entry point only
 RUN /opt/libCRS/install.sh --python  # importable Python library only
 ```
 
+### Offline install (`oss-crs-deps`)
+
+`install.sh` needs network access (it downloads `uv` and installs `rsync`). For
+fully offline builds, use the `oss-crs-deps` image — a self-contained Nix
+closure of libCRS + rsync built during `oss-crs prepare` — instead:
+
+```dockerfile
+COPY --from=oss-crs-deps /nix/store /nix/store
+COPY --from=oss-crs-deps /usr/local/bin/libCRS /usr/local/bin/libCRS
+COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
+```
+
+See [oss-crs-deps Image](../docs/design/deps-image.md) for details.
+
 ## Commands
 
 | Category | Commands |
@@ -30,5 +44,6 @@ RUN /opt/libCRS/install.sh --python  # importable Python library only
 ## Documentation
 
 - [Full CLI reference and design](../docs/design/libCRS.md)
+- [oss-crs-deps Image](../docs/design/deps-image.md) - offline libCRS + rsync install via `COPY --from=oss-crs-deps`
 - [CRS Development Guide](../docs/crs-development-guide.md) - how to use libCRS in your CRS
 - [Builder README](../builder/README.md) - builder sidecar API details

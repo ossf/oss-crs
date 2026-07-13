@@ -30,6 +30,18 @@ BASE_RUNNER_IMAGE = "gcr.io/oss-fuzz-base/base-runner"
 LEGACY_BASE_OS_VERSION = "legacy"
 DEFAULT_BASE_RUNNER_TAG = "latest"
 
+# Pinned Nix builder image used to build the oss-crs-deps Docker image during
+# prepare. Passed as the NIX_BUILDER_IMAGE build-arg to libCRS/deps.Dockerfile,
+# where Nix runs inside an ephemeral Docker container; the host's own /nix is
+# never touched or required.
+NIX_BUILDER_IMAGE = "nixos/nix@sha256:e623d73af9cac82d1b50784c83e0cf2a4b83bfd2cfe8d5b67809a2fc94e043ac"  # v2.28.3
+
+# The constant Docker image name for the Nix-built libCRS+rsync dependencies
+# image. CRS builder Dockerfiles reference this via COPY --from=oss-crs-deps.
+# Built during prepare via `docker build` (see oss_crs/src/libcrs_nix.py and
+# libCRS/deps.Dockerfile) and tagged oss-crs-deps:latest.
+OSS_CRS_DEPS_IMAGE = "oss-crs-deps"
+
 # base_os_version values that map to a known base-runner OS tag. Unknown values
 # are still passed through as the runner tag verbatim (OSS-Fuzz may add new OS
 # lines over time), but warned about since a non-existent tag fails at pull.
