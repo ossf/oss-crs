@@ -48,6 +48,23 @@ This installs:
 - `requests >= 2.28.0` (HTTP client for builder sidecar communication)
 - `rsync` (installed automatically by `install.sh`)
 
+### Offline install via `oss-crs-deps`
+
+`install.sh` downloads `uv` and installs `rsync`, so it needs network access at
+build time. For **fully offline builds**, use the `oss-crs-deps` image instead.
+It ships libCRS and rsync as a self-contained Nix closure, built once during
+`oss-crs prepare`, and is pulled into a container with three `COPY` lines:
+
+```dockerfile
+COPY --from=oss-crs-deps /nix/store /nix/store
+COPY --from=oss-crs-deps /usr/local/bin/libCRS /usr/local/bin/libCRS
+COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
+```
+
+This coexists with `install.sh` — pick `install.sh` for normal networked builds
+and `oss-crs-deps` when the build must be offline. See
+[oss-crs-deps Image](deps-image.md) for details.
+
 ## Environment Variables
 
 libCRS relies on several environment variables injected by CRS Compose at container startup:

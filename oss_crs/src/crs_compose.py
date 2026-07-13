@@ -37,6 +37,7 @@ from .cgroup import (
     create_run_cgroups,
     cleanup_cgroup,
 )
+from .libcrs_nix import build_deps_image
 
 import docker
 import docker.errors
@@ -583,7 +584,21 @@ class CRSCompose:
     def __prepare_oss_crs_infra(
         self, publish: bool = False, docker_registry: Optional[str] = None
     ) -> "TaskResult":
-        # TODO
+        """Build the oss-crs-deps Docker image (libCRS + rsync via Nix).
+
+        This is a framework-level prepare step that runs once during prepare.
+        The image is built with ``docker build`` (Nix runs inside the build
+        stage) and tagged ``oss-crs-deps:latest``. CRS builder Dockerfiles can
+        then use ``COPY --from=oss-crs-deps`` to get libCRS and rsync without
+        any network access at build time.
+        """
+        libcrs_dir = renderer.LIBCRS_PATH
+        success, detail = build_deps_image(libcrs_dir)
+        if not success:
+            return TaskResult(
+                success=False,
+                error=f"Failed to build oss-crs-deps image: {detail}",
+            )
         return TaskResult(success=True)
 
     def prepare(self, publish: bool = False, no_pull: bool = False) -> bool:
