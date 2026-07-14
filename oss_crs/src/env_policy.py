@@ -172,6 +172,7 @@ def build_run_service_env(
     crs_additional_env: Mapping[str, str] | None,
     scope: str,
     harness: str | None = None,
+    target_key: str | None = None,
     include_fetch_dir: bool = False,
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
@@ -201,6 +202,7 @@ def build_run_service_env(
         "OSS_CRS_REBUILD_OUT_DIR": "/OSS_CRS_REBUILD_OUT_DIR",
         "OSS_CRS_SUBMIT_DIR": "/OSS_CRS_SUBMIT_DIR",
         "OSS_CRS_SHARED_DIR": "/OSS_CRS_SHARED_DIR",
+        "OSS_CRS_BUG_CANDIDATE_DIR": "/OSS_CRS_BUG_CANDIDATE_DIR",
         "OSS_CRS_LOG_DIR": "/OSS_CRS_LOG_DIR",
         "BUILDER_MODULE": "builder-sidecar",
         "OSS_CRS_FUZZ_PROJ": "/OSS_CRS_FUZZ_PROJ",
@@ -208,6 +210,8 @@ def build_run_service_env(
     }
     if harness:
         system_env["OSS_CRS_TARGET_HARNESS"] = harness
+    if target_key:
+        system_env["OSS_CRS_TARGET_KEY"] = target_key
     if include_fetch_dir:
         system_env["OSS_CRS_FETCH_DIR"] = "/OSS_CRS_FETCH_DIR"
     if llm_api_url:

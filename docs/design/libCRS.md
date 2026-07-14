@@ -76,6 +76,9 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_BUILD_OUT_DIR` | Shared filesystem path for build outputs |
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
+| `OSS_CRS_BUG_CANDIDATE_DIR` | Path to the single global bug-candidate SQLite DB (and its SARIF files), shared read-write across all CRSs and runs |
+| `OSS_CRS_TARGET_KEY` | The target's key (docker image name with `:`→`_`); libCRS scopes bug-candidate rows by it |
+| `OSS_CRS_TARGET_HARNESS` | The harness name (when the target is harnessed); libCRS scopes bug-candidate rows by it |
 | `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
 | `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (written by builder sidecar, read by CRS modules) |
@@ -146,7 +149,7 @@ All submission and fetching operations work with one of the following data types
 |---|---|
 | `pov` | Proof-of-vulnerability inputs that trigger bugs |
 | `seed` | Fuzzing seed inputs |
-| `bug-candidate` | Potential bug reports for verification |
+| `bug-candidate` | Potential bug reports for verification — managed through the [Bug-Candidate Interface](#bug-candidate-interface) (one shared SQLite DB), not raw file drops. The channel now carries only directed-input/bootup SARIF |
 | `report` | CRS-native analysis/root-cause/verification reports |
 | `patch` | Patches to fix discovered bugs |
 | `diff` | Reference diffs for delta-mode analysis |
@@ -248,7 +251,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` (`report` is not supported — use `submit`) |
+| `type` | Data type: `pov`, `seed`, or `patch` (bug-candidates use the [Bug-Candidate Interface](#bug-candidate-interface); `report` is not supported — use `submit`) |
 | `path` | Local directory to watch |
 | `--log` | *(Optional)* Log file path for the daemon |
 
@@ -356,7 +359,7 @@ $ libCRS submit <type> <file_path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, or `patch` |
+| `type` | Data type: `pov`, `seed`, `report`, or `patch` (bug-candidates use the [Bug-Candidate Interface](#bug-candidate-interface)) |
 | `file_path` | Path to the file to submit. For `report`, this may be a file or a directory. |
 
 For `report`, the path is bundled into a gzip tarball under `SUBMIT_DIR/reports/`:
@@ -369,7 +372,6 @@ after its stem. Name collisions get a `_N` counter suffix, so submitting
 ```bash
 $ libCRS submit pov /tmp/crash-input
 $ libCRS submit seed /tmp/interesting-input
-$ libCRS submit bug-candidate /tmp/bug-report
 $ libCRS submit report /tmp/audit-report.json      # → reports/audit-report.tar.gz
 $ libCRS submit report /tmp/run-1-analysis/        # → reports/run-1-analysis.tar.gz
 ```
@@ -555,6 +557,97 @@ $ libCRS apply-patch-test /tmp/fix.diff /tmp/test-result
 - `test.sh` is resolved by the builder sidecar (checked at `/src/run_tests.sh`, `/src/test.sh`, `$OSS_CRS_PROJ_PATH/test.sh`).
 - If no test script is found, the sidecar returns a skipped-success result (`retcode=0`) by contract.
 
+## Bug-Candidate Interface
+
+The `bug-candidate` command group is a queryable, coordination-capable interface
+for potential bug reports. It replaces the raw `submit bug-candidate` file-drop
+(which is why `bug-candidate` is absent from `submit` / `register-submit-dir`).
+
+### Model
+
+- **One global SQLite DB for the whole workdir.** A single database at
+  `OSS_CRS_BUG_CANDIDATE_DIR/index.sqlite` (a top-level `BUG_CANDIDATE_DIR/`, not
+  partitioned by run/sanitizer/target) is mounted read-write into *every* CRS
+  module container of *every* run. Every CRS and agent opens the same file, so
+  state is **immediately consistent** and SQLite's own locking (WAL +
+  `busy_timeout`) handles parallel access. The DB is one portable file under
+  `.oss-crs-workdir`, so the "all artifacts are files" model holds. SARIF results
+  are written alongside as plain `sarif/<id>.sarif.json` files. Because it is one
+  global store, bug-candidates naturally **persist across runs**; a prior run's
+  claim leases expire by TTL rather than lingering.
+- **Rows are scoped by `target_key` + `harness` columns.** libCRS reads the
+  current CRS's `OSS_CRS_TARGET_KEY` / `OSS_CRS_TARGET_HARNESS` and *automatically*
+  stamps them on every insert and filters every query by them, so a CRS only ever
+  sees its own target+harness candidates even though the file is global. A
+  candidate's `correlation_id` is unique within its `(target_key, harness)` scope.
+- **`claim` is a genuine cross-CRS atomic check-and-set** (`BEGIN IMMEDIATE`
+  transaction): if another owner holds an unexpired lease, `claim` returns false
+  without changing state, so parallel agents on any CRS never both grab the same
+  candidate. Leases auto-expire (`--ttl`).
+- **Format is SARIF 2.1.0.** A candidate's identity (`correlation_id`) is the
+  SARIF `result.correlationGuid` — the equivalence class of logically identical
+  results ("the same bug across runs/versions") — minted and embedded when the
+  SARIF lacks one. The per-instance `result.guid` is kept only as detection
+  provenance (never identity), so repeated detections collapse into one
+  candidate; `partialFingerprints` are stored as a merge hint. A location's
+  `version` is the SARIF `run.versionControlProvenance[].revisionId`, so a bug
+  whose `file:line` moves across versions stays one candidate with several
+  versioned locations. In practice tools rarely emit these fields, so identity is
+  usually a minted id resolved by explicit `merge`, and `version` is supplied via
+  `add-location --version`.
+- **Directed-input / bootup** raw SARIF (`--bug-candidate` / `--bug-candidate-dir`,
+  delivered read-only via `FETCH_DIR/bug-candidates`) is ingested into the DB by
+  `bug-candidate sync`, idempotently.
+
+### Commands
+
+Each verb maps 1:1 to a `CRSUtils` Python method. Mutating verbs accept `--agent`
+(the actor recorded on events; defaults to `$OSS_CRS_AGENT_ID` or the CRS name).
+
+| Command | Python | Notes |
+|---|---|---|
+| `add <sarif> [--status] [--harness] [--pov-ref]` | `bug_candidate_add(sarif_path, *, agent=None, status="new", harness=None, pov_ref=None) -> list[str]` | Registers candidate(s); prints candidate id(s). A file with N results → N candidates. |
+| `add-location <id> --version <rev> --file <p> --start-line <n> [--end-line --start-col --end-col --function --repo --branch --uri-base-id]` | `bug_candidate_add_location(candidate_id, version, file_path, start_line, ...) -> str` | Adds a location for a program version. |
+| `set-status <id> <status>` | `bug_candidate_set_status(candidate_id, status, *, agent=None)` | `new`/`exploring`/`confirmed`/`fixed`/`false_positive`. |
+| `claim <id> [--owner --ttl]` | `bug_candidate_claim(candidate_id, owner=None, ttl_seconds=3600) -> bool` | Prints JSON; **exits 0 iff claimed**. |
+| `release <id> [--owner]` | `bug_candidate_release(candidate_id, owner=None)` | Release a claim. |
+| `merge <id> --into <id2>` | `bug_candidate_merge(candidate_id, into_candidate_id, *, agent=None)` | Explicit dedup: alias one candidate into another. |
+| `note <id> <text>` | `bug_candidate_note(candidate_id, text, *, agent=None) -> str` | Append commentary to the pub/sub stream. |
+| `list [--status --claimed\|--unclaimed --version]` | `bug_candidate_list(*, status=None, claimed=None, version=None) -> list[dict]` | JSON array of canonical candidates. |
+| `get <id>` | `bug_candidate_get(candidate_id) -> dict \| None` | JSON: metadata + versioned locations + claim (aliases resolve to canonical). |
+| `sync [--daemon --poll-interval --log]` | `bug_candidate_sync() -> int` | Ingest directed-input/bootup raw SARIF from `FETCH_DIR/bug-candidates`; `--daemon` is a CLI-only poll loop. |
+| `watch [--candidate --since --type --follow --poll-interval --timeout]` | `bug_candidate_watch(since_seq=0, *, candidate_id=None, types=None, follow=False, poll_interval=5.0, timeout=None) -> Iterator[dict]` | Pub/sub: streams update events as JSON Lines. |
+
+### Publish / subscribe
+
+There is no separate "publish" verb — every mutation (`set-status`, `claim`/
+`release`, `add-location`, `note`) appends a row to the shared `updates` table.
+Because all CRSs write to the same DB, one CRS's updates are visible to another's
+`watch` directly. Subscribe with `watch`, which streams JSON Lines ordered by the
+`updates.seq` cursor; each line carries its own `seq`:
+
+```bash
+# live subscription to one candidate
+$ libCRS bug-candidate watch --candidate BUG-42 --follow
+
+# resume a polling consumer from a persisted cursor
+$ libCRS bug-candidate watch --since "$(cat cursor)" | while read -r ev; do handle "$ev"; done
+```
+
+`seq` is a durable, globally-consistent cursor in the shared DB (it only resets
+if the DB file itself is deleted).
+
+### Example
+
+```bash
+# Fuzzer found a crash → file a candidate, explore it, don't duplicate effort
+$ ID=$(libCRS bug-candidate add /work/report.sarif --status exploring --agent fuzzer-3)
+$ libCRS bug-candidate claim "$ID" --ttl 600 --agent fuzzer-3 || exit 0   # someone else owns it
+$ libCRS bug-candidate add-location "$ID" --version "$(git rev-parse HEAD)" \
+    --file src/parse.c --start-line 91 --agent fuzzer-3
+$ libCRS bug-candidate set-status "$ID" confirmed --agent fuzzer-3
+```
+
 ## Typical Usage in a CRS
 
 ### During Target Build Phase
@@ -644,6 +737,7 @@ libCRS submit patch /tmp/patch.diff
 | `run-pov` | ✅ Implemented | PoV reproduction via runner sidecar |
 | `apply-patch-test` | ✅ Implemented | Patch + test.sh via builder sidecar |
 | `fetch` | ✅ Implemented | One-shot fetch from FETCH_DIR via InfraClient |
+| `bug-candidate` (interface) | ✅ Implemented | One global SQLite DB (`OSS_CRS_BUG_CANDIDATE_DIR`), rows auto-scoped by `target_key`+`harness`; atomic `claim`; SARIF-native identity/version; add/list/get/set-status/claim/release/merge/note/sync/watch |
 | `apply-patch-build` | ✅ Implemented | Sends patch to builder sidecar `/build` endpoint |
 | `run-pov` | ✅ Implemented | Sends PoV to builder sidecar `/run-pov` endpoint |
 | `AzureCRSUtils` | 📝 Planned | Azure deployment backend for `CRSUtils` |

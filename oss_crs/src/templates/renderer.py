@@ -24,6 +24,7 @@ from ..utils import (
     preserved_builder_image_name,
     preserved_runner_image_name,
 )
+from ..workdir import WorkDir
 
 if TYPE_CHECKING:
     from ..crs import CRS
@@ -357,6 +358,12 @@ def render_run_crs_compose_docker_compose(
         )
     )
 
+    # One global bug-candidate SQLite DB for the whole workdir; rows are scoped
+    # by target_key + harness columns (libCRS filters via OSS_CRS_TARGET_KEY /
+    # OSS_CRS_TARGET_HARNESS), so a single file is shared across all runs/targets.
+    bug_candidate_dir = str(crs_compose.work_dir.get_bug_candidate_dir())
+    target_key = WorkDir._get_target_key(target)
+
     target_env = target.get_target_env()
     if hasattr(crs_compose.work_dir, "get_litellm_spend_report_file"):
         litellm_spend_report_path = str(
@@ -392,6 +399,7 @@ def render_run_crs_compose_docker_compose(
         ),
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
+        "bug_candidate_dir": bug_candidate_dir,
         "processed_exchange_dir": processed_exchange_dir,
         "processed_data_types": _processed_data_types(
             crs_compose.crs_list, processed_exchange_dir
@@ -468,6 +476,7 @@ def render_run_crs_compose_docker_compose(
                 module_additional_env=module_config.additional_env,
                 crs_additional_env=resource.additional_env,
                 harness=target_env.get("harness"),
+                target_key=target_key,
                 include_fetch_dir=bool(fetch_dir),
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,

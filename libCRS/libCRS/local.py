@@ -9,7 +9,10 @@ from pathlib import Path
 
 import requests as http_requests
 
+from typing import Iterator, Optional
+
 from .base import CRSUtils, DataType, SourceType
+from .bug_candidate import DEFAULT_CLAIM_TTL, DEFAULT_HARNESS, BugCandidateStore
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
 from .sync import DirSyncHelper
@@ -29,6 +32,7 @@ class LocalCRSUtils(CRSUtils):
     def __init__(self):
         super().__init__()
         self._builders_healthy: dict[str, bool] = {}
+        self._bc_store: "BugCandidateStore | None" = None
 
     def __init_submit_helper(self, data_type: DataType) -> SubmitHelper:
         OSS_CRS_SUBMIT_DIR = Path(get_env("OSS_CRS_SUBMIT_DIR"))
@@ -653,3 +657,136 @@ class LocalCRSUtils(CRSUtils):
 
         dst = Path(dst_path)
         rsync_copy(src, dst)
+
+    # =====================================================================
+    # Bug-candidate interface
+    # =====================================================================
+
+    def _bug_candidate_store(self) -> BugCandidateStore:
+        """Lazily open the bug-candidate store.
+
+        The DB + SARIF artifacts live on OSS_CRS_BUG_CANDIDATE_DIR, a single
+        global SQLite database shared across every CRS of every run. Rows are
+        scoped by the current CRS's OSS_CRS_TARGET_KEY / OSS_CRS_TARGET_HARNESS,
+        which the store applies to every query and insert automatically.
+        FETCH_DIR is consulted only for directed-input / bootup raw SARIF.
+        """
+        if self._bc_store is None:
+            db_dir = Path(get_env("OSS_CRS_BUG_CANDIDATE_DIR"))
+            fetch_raw = os.environ.get("OSS_CRS_FETCH_DIR")
+            self._bc_store = BugCandidateStore(
+                db_dir,
+                target_key=os.environ.get("OSS_CRS_TARGET_KEY", "unknown"),
+                harness=os.environ.get("OSS_CRS_TARGET_HARNESS") or DEFAULT_HARNESS,
+                fetch_dir=Path(fetch_raw) if fetch_raw else None,
+                crs_name=os.environ.get("OSS_CRS_NAME", "unknown"),
+            )
+        return self._bc_store
+
+    def bug_candidate_add(
+        self,
+        sarif_path: Path,
+        *,
+        agent: "str | None" = None,
+        status: str = "new",
+        harness: "str | None" = None,
+        pov_ref: "str | None" = None,
+    ) -> list[str]:
+        return self._bug_candidate_store().add(
+            sarif_path, agent=agent, status=status, harness=harness, pov_ref=pov_ref
+        )
+
+    def bug_candidate_add_location(
+        self,
+        candidate_id: str,
+        version: str,
+        file_path: str,
+        start_line: int,
+        *,
+        end_line: "int | None" = None,
+        start_column: "int | None" = None,
+        end_column: "int | None" = None,
+        function_name: "str | None" = None,
+        repository_uri: "str | None" = None,
+        branch: "str | None" = None,
+        uri_base_id: "str | None" = None,
+        agent: "str | None" = None,
+    ) -> None:
+        self._bug_candidate_store().add_location(
+            candidate_id,
+            version,
+            file_path,
+            start_line,
+            end_line=end_line,
+            start_column=start_column,
+            end_column=end_column,
+            function_name=function_name,
+            repository_uri=repository_uri,
+            branch=branch,
+            uri_base_id=uri_base_id,
+            agent=agent,
+        )
+
+    def bug_candidate_set_status(
+        self, candidate_id: str, status: str, *, agent: "str | None" = None
+    ) -> None:
+        self._bug_candidate_store().set_status(candidate_id, status, agent=agent)
+
+    def bug_candidate_claim(
+        self,
+        candidate_id: str,
+        owner: "str | None" = None,
+        ttl_seconds: float = DEFAULT_CLAIM_TTL,
+    ) -> bool:
+        return self._bug_candidate_store().claim(candidate_id, owner, ttl_seconds)
+
+    def bug_candidate_release(
+        self, candidate_id: str, owner: "str | None" = None
+    ) -> None:
+        self._bug_candidate_store().release(candidate_id, owner)
+
+    def bug_candidate_merge(
+        self, candidate_id: str, into_candidate_id: str, *, agent: "str | None" = None
+    ) -> None:
+        self._bug_candidate_store().merge(candidate_id, into_candidate_id, agent=agent)
+
+    def bug_candidate_note(
+        self, candidate_id: str, text: str, *, agent: "str | None" = None
+    ) -> None:
+        self._bug_candidate_store().note(candidate_id, text, agent=agent)
+
+    def bug_candidate_list(
+        self,
+        *,
+        status: "str | None" = None,
+        claimed: "bool | None" = None,
+        version: "str | None" = None,
+    ) -> list[dict]:
+        return self._bug_candidate_store().list_candidates(
+            status=status, claimed=claimed, version=version
+        )
+
+    def bug_candidate_get(self, candidate_id: str) -> "dict | None":
+        return self._bug_candidate_store().get(candidate_id)
+
+    def bug_candidate_sync(self) -> int:
+        return self._bug_candidate_store().sync()
+
+    def bug_candidate_watch(
+        self,
+        since_seq: int = 0,
+        *,
+        candidate_id: Optional[str] = None,
+        types: "list[str] | None" = None,
+        follow: bool = False,
+        poll_interval: float = 5.0,
+        timeout: "float | None" = None,
+    ) -> Iterator[dict]:
+        return self._bug_candidate_store().watch(
+            since_seq,
+            candidate_id=candidate_id,
+            types=types,
+            follow=follow,
+            poll_interval=poll_interval,
+            timeout=timeout,
+        )

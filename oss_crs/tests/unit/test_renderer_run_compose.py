@@ -40,6 +40,7 @@ def _make_crs_compose(tmp_path: Path, crs_list: list) -> SimpleNamespace:
             get_build_output_dir=lambda *_a, **_k: tmp_path / "build",
             get_submit_dir=lambda *_a, **_k: tmp_path / "submit",
             get_shared_dir=lambda *_a, **_k: tmp_path / "shared",
+            get_bug_candidate_dir=lambda *_a, **_k: tmp_path / "bug-candidate",
             get_log_dir=lambda *_a, **_k: tmp_path / "log",
             get_rebuild_out_dir=lambda *_a, **_k: tmp_path / "rebuild_out",
             get_target_source_dir=lambda *_a, **_k: tmp_path / "target-source",

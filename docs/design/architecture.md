@@ -135,14 +135,15 @@ $ libCRS skip-build-output <path in output fs>
 ```
 $ libCRS register-submit-dir pov /povs
 $ libCRS register-submit-dir seed /seeds
-$ libCRS register-submit-dir bug-candidate /bug-candidates
 $ libCRS register-submit-dir patch /patches
 
 $ libCRS submit pov <pov_file_path>
 $ libCRS submit seed <seed_file_path>
-$ libCRS submit bug-candidate <bug_candidate_file_path>
 $ libCRS submit report <report_file_path>
 $ libCRS submit patch <patch_file_path>
+
+# Bug-candidates use the dedicated interface (see docs/design/libCRS.md):
+$ libCRS bug-candidate add <sarif_file_path>
 ```
  
 #### ✅ Sharing File between Containers in a CRS

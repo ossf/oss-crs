@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: MIT
 import os
 import sys
+import json
+import time
 import argparse
 from pathlib import Path
 from ..base import DataType, SourceType, CRSUtils
+from ..bug_candidate import DEFAULT_CLAIM_TTL
 from ..local import LocalCRSUtils
 from ..common import get_run_env_type, EnvType
 
@@ -64,6 +67,237 @@ def register_fetch_dir(crs_utils, args):
 def get_service_domain(crs_utils, args):
     domain = crs_utils.get_service_domain(args.service_name)
     print(domain)
+
+
+def _register_bug_candidate(subparsers, crs_utils):
+    """Register the `bug-candidate` command group (shared-DB interface)."""
+    bc = subparsers.add_parser(
+        "bug-candidate",
+        help="Manage bug-candidates (add/list/get/claim/status/merge/watch)",
+    )
+    bc_sub = bc.add_subparsers(dest="bc_command", metavar="SUBCOMMAND")
+
+    # Shared --agent option (actor identity for events).
+    actor = argparse.ArgumentParser(add_help=False)
+    actor.add_argument(
+        "--agent",
+        default=None,
+        help="Actor id recorded on events (default: $OSS_CRS_AGENT_ID or CRS name)",
+    )
+
+    # add
+    p_add = bc_sub.add_parser(
+        "add", parents=[actor], help="Register bug-candidate(s) from a SARIF file"
+    )
+    p_add.add_argument("sarif_path", type=Path, help="Path to a SARIF 2.1.0 file")
+    p_add.add_argument(
+        "--status",
+        default="new",
+        help="Initial status (new/exploring/confirmed/fixed/false_positive)",
+    )
+    p_add.add_argument("--harness", default=None, help="Associated harness name")
+    p_add.add_argument("--pov-ref", default=None, dest="pov_ref", help="PoV reference")
+
+    def _add(args):
+        ids = crs_utils.bug_candidate_add(
+            args.sarif_path,
+            agent=args.agent,
+            status=args.status,
+            harness=args.harness,
+            pov_ref=args.pov_ref,
+        )
+        print("\n".join(ids))
+
+    p_add.set_defaults(func=_add)
+
+    # add-location
+    p_loc = bc_sub.add_parser(
+        "add-location", parents=[actor], help="Attach a versioned location"
+    )
+    p_loc.add_argument("candidate_id")
+    p_loc.add_argument(
+        "--version", required=True, help="Program version (SARIF revisionId)"
+    )
+    p_loc.add_argument("--file", required=True, dest="file_path")
+    p_loc.add_argument("--start-line", required=True, type=int, dest="start_line")
+    p_loc.add_argument("--end-line", type=int, default=None, dest="end_line")
+    p_loc.add_argument("--start-col", type=int, default=None, dest="start_column")
+    p_loc.add_argument("--end-col", type=int, default=None, dest="end_column")
+    p_loc.add_argument("--function", default=None, dest="function_name")
+    p_loc.add_argument("--repo", default=None, dest="repository_uri")
+    p_loc.add_argument("--branch", default=None)
+    p_loc.add_argument("--uri-base-id", default=None, dest="uri_base_id")
+
+    def _add_location(args):
+        crs_utils.bug_candidate_add_location(
+            args.candidate_id,
+            args.version,
+            args.file_path,
+            args.start_line,
+            end_line=args.end_line,
+            start_column=args.start_column,
+            end_column=args.end_column,
+            function_name=args.function_name,
+            repository_uri=args.repository_uri,
+            branch=args.branch,
+            uri_base_id=args.uri_base_id,
+            agent=args.agent,
+        )
+
+    p_loc.set_defaults(func=_add_location)
+
+    # set-status
+    p_status = bc_sub.add_parser(
+        "set-status", parents=[actor], help="Set lifecycle status"
+    )
+    p_status.add_argument("candidate_id")
+    p_status.add_argument("status", help="new/exploring/confirmed/fixed/false_positive")
+    p_status.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_set_status(
+            args.candidate_id, args.status, agent=args.agent
+        )
+    )
+
+    # claim
+    p_claim = bc_sub.add_parser("claim", parents=[actor], help="Claim a candidate")
+    p_claim.add_argument("candidate_id")
+    p_claim.add_argument("--owner", default=None, help="Claim owner (default: --agent)")
+    p_claim.add_argument(
+        "--ttl", type=float, default=DEFAULT_CLAIM_TTL, help="Lease TTL in seconds"
+    )
+
+    def _claim(args):
+        owner = args.owner or args.agent
+        ok = crs_utils.bug_candidate_claim(args.candidate_id, owner, args.ttl)
+        result = {"claimed": ok, "candidate_id": args.candidate_id}
+        if ok:
+            got = crs_utils.bug_candidate_get(args.candidate_id)
+            if got:
+                result["claim"] = got["claim"]
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if ok else 1)
+
+    p_claim.set_defaults(func=_claim)
+
+    # release
+    p_rel = bc_sub.add_parser("release", parents=[actor], help="Release a claim")
+    p_rel.add_argument("candidate_id")
+    p_rel.add_argument("--owner", default=None)
+    p_rel.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_release(
+            args.candidate_id, args.owner or args.agent
+        )
+    )
+
+    # merge
+    p_merge = bc_sub.add_parser(
+        "merge", parents=[actor], help="Alias a candidate into another (dedup)"
+    )
+    p_merge.add_argument("candidate_id")
+    p_merge.add_argument("--into", required=True, dest="into_candidate_id")
+    p_merge.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_merge(
+            args.candidate_id, args.into_candidate_id, agent=args.agent
+        )
+    )
+
+    # note
+    p_note = bc_sub.add_parser("note", parents=[actor], help="Append a note")
+    p_note.add_argument("candidate_id")
+    p_note.add_argument("text")
+    p_note.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_note(
+            args.candidate_id, args.text, agent=args.agent
+        )
+    )
+
+    # list
+    p_list = bc_sub.add_parser("list", help="List candidates (JSON array)")
+    p_list.add_argument("--status", default=None)
+    p_list.add_argument("--claimed", action="store_true", help="Only actively claimed")
+    p_list.add_argument("--unclaimed", action="store_true", help="Only unclaimed")
+    p_list.add_argument(
+        "--version", default=None, help="Only with a location at this version"
+    )
+
+    def _list(args):
+        claimed = True if args.claimed else (False if args.unclaimed else None)
+        rows = crs_utils.bug_candidate_list(
+            status=args.status, claimed=claimed, version=args.version
+        )
+        print(json.dumps(rows, indent=2))
+
+    p_list.set_defaults(func=_list)
+
+    # get
+    p_get = bc_sub.add_parser("get", help="Get one candidate (JSON object)")
+    p_get.add_argument("candidate_id")
+    p_get.set_defaults(
+        func=lambda args: print(
+            json.dumps(crs_utils.bug_candidate_get(args.candidate_id), indent=2)
+        )
+    )
+
+    # sync
+    p_sync = bc_sub.add_parser(
+        "sync", help="Fold newly-fetched events into the local view"
+    )
+    p_sync.add_argument(
+        "--daemon", action="store_true", help="Run a background ingest poll loop"
+    )
+    p_sync.add_argument(
+        "--poll-interval", type=float, default=5.0, dest="poll_interval"
+    )
+    p_sync.add_argument("--log", type=Path, default=None)
+
+    def _sync(args):
+        if args.daemon:
+            with DaemonContext(log_path=args.log):
+                while True:
+                    crs_utils.bug_candidate_sync()
+                    time.sleep(args.poll_interval)
+        else:
+            print(crs_utils.bug_candidate_sync())
+
+    p_sync.set_defaults(func=_sync)
+
+    # watch
+    p_watch = bc_sub.add_parser(
+        "watch", help="Stream candidate update events as JSON Lines"
+    )
+    p_watch.add_argument("--candidate", default=None, help="Filter to one candidate id")
+    p_watch.add_argument("--since", type=int, default=0, help="Resume after this seq")
+    p_watch.add_argument(
+        "--type",
+        action="append",
+        default=None,
+        help="Filter by event type (repeatable)",
+    )
+    p_watch.add_argument(
+        "--follow", action="store_true", help="Keep streaming (tail -f)"
+    )
+    p_watch.add_argument(
+        "--poll-interval", type=float, default=5.0, dest="poll_interval"
+    )
+    p_watch.add_argument("--timeout", type=float, default=None)
+
+    def _watch(args):
+        for ev in crs_utils.bug_candidate_watch(
+            args.since,
+            candidate_id=args.candidate,
+            types=args.type,
+            follow=args.follow,
+            poll_interval=args.poll_interval,
+            timeout=args.timeout,
+        ):
+            print(json.dumps(ev), flush=True)
+
+    p_watch.set_defaults(func=_watch)
+
+    def _bc_default(_args):
+        bc.print_help()
+
+    bc.set_defaults(func=_bc_default)
 
 
 def main():
@@ -158,15 +392,10 @@ def main():
     # =========================================================================
 
     # Valid types for submit vs fetch commands. `report` is submit-only via the
-    # one-shot `submit` command (it is bundled into a tarball); it is not a
-    # valid target for `register-submit-dir`.
-    submit_types = [
-        DataType.POV,
-        DataType.SEED,
-        DataType.BUG_CANDIDATE,
-        DataType.REPORT,
-        DataType.PATCH,
-    ]
+    # one-shot `submit` command (bundled into a tarball); not valid for
+    # `register-submit-dir`. bug-candidate is intentionally absent: it is managed
+    # through the `bug-candidate` command group, not raw file drops.
+    submit_types = [DataType.POV, DataType.SEED, DataType.REPORT, DataType.PATCH]
     register_submit_types = [t for t in submit_types if t != DataType.REPORT]
     fetch_types = list(DataType)
 
@@ -521,6 +750,11 @@ def main():
     get_service_domain_parser.set_defaults(
         func=lambda args: get_service_domain(crs_utils, args)
     )
+
+    # =========================================================================
+    # Bug-candidate interface
+    # =========================================================================
+    _register_bug_candidate(subparsers, crs_utils)
 
     args = parser.parse_args()
 

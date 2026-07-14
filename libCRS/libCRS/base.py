@@ -2,8 +2,10 @@
 from enum import Enum
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Iterator, Optional
 
 from .infra_client import InfraClient
+from .bug_candidate import DEFAULT_CLAIM_TTL
 
 
 class DataType(str, Enum):
@@ -33,6 +35,19 @@ class DataType(str, Enum):
 class SourceType(str, Enum):
     FUZZ_PROJ = "fuzz-proj"
     TARGET_SOURCE = "target-source"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class Status(str, Enum):
+    """Bug-candidate lifecycle status."""
+
+    NEW = "new"
+    EXPLORING = "exploring"
+    CONFIRMED = "confirmed"  # confirmed but not fixed
+    FIXED = "fixed"
+    FALSE_POSITIVE = "false_positive"
 
     def __str__(self) -> str:
         return self.value
@@ -261,5 +276,141 @@ class CRSUtils(ABC):
 
         Returns:
             Test exit code (0 = tests pass).
+        """
+        pass
+
+    # =====================================================================
+    # Bug-candidate interface
+    #
+    # One SQLite database shared read-write across all CRSs of a run (on
+    # OSS_CRS_BUG_CANDIDATE_DIR); SQLite locking gives immediate cross-CRS
+    # consistency and atomic claims (see bug_candidate.py).
+    # =====================================================================
+
+    @abstractmethod
+    def bug_candidate_add(
+        self,
+        sarif_path: Path,
+        *,
+        agent: "str | None" = None,
+        status: str = "new",
+        harness: "str | None" = None,
+        pov_ref: "str | None" = None,
+    ) -> list[str]:
+        """Register bug-candidate(s) from a SARIF file.
+
+        Identity is the SARIF ``correlationGuid`` (minted and embedded when
+        absent). A file with N results creates N candidates.
+
+        Returns:
+            The candidate ids (correlationGuids), one per SARIF result.
+        """
+        pass
+
+    @abstractmethod
+    def bug_candidate_add_location(
+        self,
+        candidate_id: str,
+        version: str,
+        file_path: str,
+        start_line: int,
+        *,
+        end_line: "int | None" = None,
+        start_column: "int | None" = None,
+        end_column: "int | None" = None,
+        function_name: "str | None" = None,
+        repository_uri: "str | None" = None,
+        branch: "str | None" = None,
+        uri_base_id: "str | None" = None,
+        agent: "str | None" = None,
+    ) -> None:
+        """Attach a location for a program ``version`` (SARIF revisionId).
+
+        The same candidate accretes one location per version, so a bug whose
+        ``file:line`` moves across versions stays a single candidate.
+        """
+        pass
+
+    @abstractmethod
+    def bug_candidate_set_status(
+        self, candidate_id: str, status: str, *, agent: "str | None" = None
+    ) -> None:
+        """Set lifecycle status (new/exploring/confirmed/fixed/false_positive)."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_claim(
+        self,
+        candidate_id: str,
+        owner: "str | None" = None,
+        ttl_seconds: float = DEFAULT_CLAIM_TTL,
+    ) -> bool:
+        """Claim a candidate so parallel agents don't duplicate effort.
+
+        Atomic across all CRSs sharing the DB. Returns False if another owner
+        holds an unexpired claim.
+        """
+        pass
+
+    @abstractmethod
+    def bug_candidate_release(
+        self, candidate_id: str, owner: "str | None" = None
+    ) -> None:
+        """Release a previously-claimed candidate."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_merge(
+        self, candidate_id: str, into_candidate_id: str, *, agent: "str | None" = None
+    ) -> None:
+        """Mark ``candidate_id`` an alias of ``into_candidate_id`` (explicit dedup)."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_note(
+        self, candidate_id: str, text: str, *, agent: "str | None" = None
+    ) -> None:
+        """Append a human note to the candidate's pub/sub stream."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_list(
+        self,
+        *,
+        status: "str | None" = None,
+        claimed: "bool | None" = None,
+        version: "str | None" = None,
+    ) -> list[dict]:
+        """List candidates, optionally filtered by status/claim/version."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_get(self, candidate_id: str) -> "dict | None":
+        """Return one candidate (metadata + versioned locations + claim), or None."""
+        pass
+
+    @abstractmethod
+    def bug_candidate_sync(self) -> int:
+        """Ingest directed-input / bootup raw SARIF from FETCH_DIR into the DB.
+
+        Returns the number of newly-ingested files.
+        """
+        pass
+
+    @abstractmethod
+    def bug_candidate_watch(
+        self,
+        since_seq: int = 0,
+        *,
+        candidate_id: Optional[str] = None,
+        types: "list[str] | None" = None,
+        follow: bool = False,
+        poll_interval: float = 5.0,
+        timeout: "float | None" = None,
+    ) -> Iterator[dict]:
+        """Yield update events with ``seq > since_seq`` from the shared DB.
+
+        Subscribe to updates for pub/sub coordination; other CRSs' updates appear
+        directly. With ``follow=True`` this polls until ``timeout``.
         """
         pass

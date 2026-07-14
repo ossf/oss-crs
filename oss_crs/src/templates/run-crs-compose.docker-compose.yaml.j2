@@ -50,6 +50,7 @@ services:
       - {{ rebuild_out_dir }}:/OSS_CRS_REBUILD_OUT_DIR:ro
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
+      - {{ bug_candidate_dir }}:/OSS_CRS_BUG_CANDIDATE_DIR:rw
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
 {%- if not crs.config.is_triage and not crs.config.is_seed_filter %}
 {%- for dtype, src_dir in fetch_dir_mounts.items() %}

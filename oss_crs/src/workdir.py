@@ -5,6 +5,8 @@ This module provides a WorkDir class that encapsulates all path construction
 logic for the CRS Compose work directory structure:
 
     <work_dir>/
+    ├── BUG_CANDIDATE_DIR/          # global: one index.sqlite + sarif/ for the
+    │                              #   whole workdir (rows scoped by target_key+harness)
     └── <sanitizer>/
         ├── builds/
         │   └── <build_id>/
@@ -375,6 +377,24 @@ class WorkDir:
         path = (
             self.get_run_dir(run_id, sanitizer) / "EXCHANGE_DIR" / target_key / harness
         )
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def get_bug_candidate_dir(self, create: bool = True) -> Path:
+        """Get the global BUG_CANDIDATE_DIR — one SQLite DB for the whole workdir.
+
+        Mounted read-write into every CRS module container (of every run) as
+        OSS_CRS_BUG_CANDIDATE_DIR; holds the single bug-candidate ``index.sqlite``
+        and its SARIF files under ``sarif/``. The DB is a *global* store — rows
+        carry ``target_key`` and ``harness`` columns and libCRS filters/inserts by
+        the CRS's ``OSS_CRS_TARGET_KEY`` / ``OSS_CRS_TARGET_HARNESS`` — so it is
+        deliberately not partitioned by sanitizer/target/harness/run and persists
+        across everything.
+
+        Structure: <work_dir>/BUG_CANDIDATE_DIR/
+        """
+        path = self.path / "BUG_CANDIDATE_DIR"
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path

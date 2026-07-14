@@ -2289,6 +2289,13 @@ class CRSCompose:
                         )
             return TaskResult(success=True)
 
+        def prepare_bug_candidate_dir(progress: MultiTaskProgress) -> TaskResult:
+            # Ensure the global bug-candidate DB dir exists (so Docker bind-mounts
+            # it rather than creating it as root). It is intentionally NOT wiped:
+            # the DB is a single global store persisting across all runs/targets.
+            self.work_dir.get_bug_candidate_dir()
+            return TaskResult(success=True)
+
         def cleanup_shared_dir(
             progress: MultiTaskProgress, crs_name: str
         ) -> TaskResult:
@@ -2362,6 +2369,7 @@ class CRSCompose:
             return TaskResult(success=True)
 
         progress.add_task("Clean up exchange directory", cleanup_exchange_dir)
+        progress.add_task("Prepare bug-candidate directory", prepare_bug_candidate_dir)
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
 
         if web_ui:

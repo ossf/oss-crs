@@ -313,7 +313,7 @@ libCRS register-shared-dir /shared-corpus corpus
 #    (These run as background daemons)
 libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
-libCRS register-submit-dir bug-candidate /output/bugs &
+# Bug-candidates use the dedicated interface: `libCRS bug-candidate add <sarif>`
 # Reports are not auto-submitted; bundle each one explicitly (see below):
 #   libCRS submit report /output/reports/run-1
 
@@ -790,7 +790,7 @@ Your CRS should submit findings through libCRS:
 |---|---|---|
 | **Seeds** | Interesting fuzzing inputs | `libCRS register-submit-dir seed /output/seeds` or `libCRS submit seed <file>` |
 | **PoVs** | Crash-triggering inputs | `libCRS register-submit-dir pov /output/povs` or `libCRS submit pov <file>` |
-| **Bug Candidates** | Bug reports for verification | `libCRS register-submit-dir bug-candidate /output/bugs` or `libCRS submit bug-candidate <file>` |
+| **Bug Candidates** | Bug reports for verification | `libCRS bug-candidate add <sarif>` (see the [Bug-Candidate Interface](design/libCRS.md#bug-candidate-interface)) |
 | **Reports** | CRS-native analysis/root-cause/verification reports | `libCRS submit report <file-or-dir>` (bundled into a tarball; not auto-submitted) |
 | **Patches** | Fixes for discovered bugs | `libCRS register-submit-dir patch /output/patches` or `libCRS submit patch <file>` |
 

@@ -1,13 +1,34 @@
 # SPDX-License-Identifier: MIT
-"""SARIF 2.1.0 parsing and validation utilities for bug-candidate reports."""
+"""SARIF 2.1.0 parsing and validation utilities for bug-candidate reports.
+
+Beyond validation, this module surfaces the SARIF-native fields the
+bug-candidate interface builds identity and versioning on:
+
+- ``result.correlationGuid`` — the stable identifier for the equivalence class
+  of logically identical results (i.e. "the same bug across versions/runs"). The
+  bug-candidate ``candidate_id`` *is* this value.
+- ``result.guid`` / ``result.partialFingerprints`` — per-instance identity and
+  matching hints used for explicit merge/dedup.
+- ``run.versionControlProvenance[].revisionId`` (with ``repositoryUri`` /
+  ``branch``) — the program version a location is valid for.
+"""
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 
 SARIF_VERSION = "2.1.0"
+
+
+@dataclass
+class VersionInfo:
+    """Version-control provenance for a SARIF run (or a single location)."""
+
+    revision_id: Optional[str] = None
+    repository_uri: Optional[str] = None
+    branch: Optional[str] = None
 
 
 @dataclass
@@ -16,6 +37,13 @@ class BugLocation:
     start_line: int
     end_line: Optional[int] = None
     function_name: Optional[str] = None
+    start_column: Optional[int] = None
+    end_column: Optional[int] = None
+    uri_base_id: Optional[str] = None
+    # Program version this location is valid for (SARIF revisionId).
+    version: Optional[str] = None
+    repository_uri: Optional[str] = None
+    branch: Optional[str] = None
 
 
 @dataclass
@@ -24,6 +52,10 @@ class BugCandidate:
     level: str
     message: str
     locations: list[BugLocation] = field(default_factory=list)
+    # SARIF-native identity.
+    correlation_guid: Optional[str] = None
+    guid: Optional[str] = None
+    partial_fingerprints: dict = field(default_factory=dict)
 
 
 def validate_sarif(doc: dict) -> list[str]:
@@ -89,7 +121,26 @@ def validate_sarif(doc: dict) -> list[str]:
     return errors
 
 
-def _parse_result(result: dict) -> BugCandidate:
+def run_version_info(run: dict) -> VersionInfo:
+    """Extract version-control provenance from a SARIF run.
+
+    Uses the first ``versionControlProvenance`` entry; SARIF permits several
+    (e.g. one per submodule), but bug-candidate locations map to a single
+    program version, so the first entry is the run's version.
+    """
+    provenance = run.get("versionControlProvenance")
+    if isinstance(provenance, list) and provenance:
+        vcs = provenance[0]
+        if isinstance(vcs, dict):
+            return VersionInfo(
+                revision_id=vcs.get("revisionId"),
+                repository_uri=vcs.get("repositoryUri"),
+                branch=vcs.get("branch"),
+            )
+    return VersionInfo()
+
+
+def _parse_result(result: dict, version: VersionInfo) -> BugCandidate:
     """Parse a single SARIF result into a BugCandidate."""
     locations: list[BugLocation] = []
     for loc in result.get("locations", []):
@@ -114,6 +165,12 @@ def _parse_result(result: dict) -> BugCandidate:
                 start_line=start_line,
                 end_line=end_line,
                 function_name=function_name,
+                start_column=region.get("startColumn"),
+                end_column=region.get("endColumn"),
+                uri_base_id=artifact.get("uriBaseId"),
+                version=version.revision_id,
+                repository_uri=version.repository_uri,
+                branch=version.branch,
             )
         )
 
@@ -122,12 +179,36 @@ def _parse_result(result: dict) -> BugCandidate:
         message.get("text", "") if isinstance(message, dict) else str(message)
     )
 
+    fingerprints = result.get("partialFingerprints")
+    if not isinstance(fingerprints, dict):
+        fingerprints = {}
+
     return BugCandidate(
         rule_id=result.get("ruleId", ""),
         level=result.get("level", "warning"),
         message=message_text,
         locations=locations,
+        correlation_guid=result.get("correlationGuid"),
+        guid=result.get("guid"),
+        partial_fingerprints=fingerprints,
     )
+
+
+def iter_results(doc: dict) -> Iterator[tuple[dict, VersionInfo]]:
+    """Yield ``(raw_result, version_info)`` pairs across all runs.
+
+    Yields the *original* SARIF result dicts (not the parsed dataclass) so
+    callers that embed results in event payloads keep every field intact.
+    """
+    for run in doc.get("runs", []):
+        version = run_version_info(run)
+        for result in run.get("results", []):
+            yield result, version
+
+
+def parse_sarif_doc(doc: dict) -> list[BugCandidate]:
+    """Parse an already-loaded SARIF document into BugCandidates."""
+    return [_parse_result(result, version) for result, version in iter_results(doc)]
 
 
 def parse_sarif_file(path: Path) -> list[BugCandidate]:
@@ -136,12 +217,7 @@ def parse_sarif_file(path: Path) -> list[BugCandidate]:
     errors = validate_sarif(doc)
     if errors:
         raise ValueError(f"Invalid SARIF file {path}: {'; '.join(errors)}")
-
-    candidates: list[BugCandidate] = []
-    for run in doc.get("runs", []):
-        for result in run.get("results", []):
-            candidates.append(_parse_result(result))
-    return candidates
+    return parse_sarif_doc(doc)
 
 
 def parse_sarif_dir(dir_path: Path) -> list[BugCandidate]:
@@ -151,3 +227,26 @@ def parse_sarif_dir(dir_path: Path) -> list[BugCandidate]:
         for f in sorted(dir_path.glob(pattern)):
             candidates.extend(parse_sarif_file(f))
     return candidates
+
+
+def wrap_result(result: dict, version: VersionInfo | None = None) -> dict:
+    """Build a minimal single-result SARIF 2.1.0 document around ``result``.
+
+    Used to persist one bug-candidate's SARIF result as a standalone artifact.
+    """
+    run: dict = {
+        "tool": {"driver": {"name": "libCRS"}},
+        "results": [result],
+    }
+    if version is not None and (
+        version.revision_id or version.repository_uri or version.branch
+    ):
+        vcs: dict = {}
+        if version.repository_uri:
+            vcs["repositoryUri"] = version.repository_uri
+        if version.revision_id:
+            vcs["revisionId"] = version.revision_id
+        if version.branch:
+            vcs["branch"] = version.branch
+        run["versionControlProvenance"] = [vcs]
+    return {"version": SARIF_VERSION, "runs": [run]}
