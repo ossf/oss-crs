@@ -62,8 +62,8 @@ COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
 ```
 
 This coexists with `install.sh` — pick `install.sh` for normal networked builds
-and `oss-crs-deps` when the build must be offline. See
-[oss-crs-deps Image](deps-image.md) for details.
+and `oss-crs-deps` when the build must be offline. Note: libCRS is only available
+as a CLI tool, not as a python library.
 
 ## Environment Variables
 

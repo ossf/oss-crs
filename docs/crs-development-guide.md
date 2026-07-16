@@ -198,7 +198,7 @@ CMD ["compile_target"]
 > **Offline builds:** `install.sh` needs network access (it downloads `uv` and
 > installs `rsync`). For a fully offline build, replace the two `libCRS` lines
 > with `COPY --from=oss-crs-deps` — see the
-> [oss-crs-deps Image](design/deps-image.md) doc.
+> [Offline install via `oss-crs-deps`](design/libCRS.md) doc.
 
 ### Example Build Script
 
