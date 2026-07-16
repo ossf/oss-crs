@@ -28,7 +28,8 @@ COPY --from=oss-crs-deps /usr/local/bin/libCRS /usr/local/bin/libCRS
 COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
 ```
 
-See [oss-crs-deps Image](../docs/design/deps-image.md) for details.
+Note: libCRS is only available as a CLI tool, not as a python library.
+See [Offline install via `oss-crs-deps`](../docs/design/libCRS.md) for details.
 
 ## Commands
 
@@ -44,6 +45,5 @@ See [oss-crs-deps Image](../docs/design/deps-image.md) for details.
 ## Documentation
 
 - [Full CLI reference and design](../docs/design/libCRS.md)
-- [oss-crs-deps Image](../docs/design/deps-image.md) - offline libCRS + rsync install via `COPY --from=oss-crs-deps`
 - [CRS Development Guide](../docs/crs-development-guide.md) - how to use libCRS in your CRS
 - [Builder README](../builder/README.md) - builder sidecar API details
