@@ -171,6 +171,7 @@ VALID_REQUIRED_INPUT_NAMES: set[str] = {
     "seed",
     "bug-candidate",
     "report",
+    "patch",
 }
 
 
