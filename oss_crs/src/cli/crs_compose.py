@@ -846,7 +846,9 @@ def cli() -> bool | int:
             args,
             [spec for spec in RUN_ARTIFACT_INPUT_SPECS if spec.name == "bug-candidate"],
         )
-        bug_candidate_input = build_artifact_inputs.get("bug-candidate", ArtifactInput())
+        bug_candidate_input = build_artifact_inputs.get(
+            "bug-candidate", ArtifactInput()
+        )
         if bug_candidate_input.file and bug_candidate_input.directory:
             print(
                 "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."

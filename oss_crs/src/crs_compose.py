@@ -1126,18 +1126,12 @@ class CRSCompose:
             spec = RUN_ARTIFACT_INPUT_SPECS_BY_NAME.get(name)
             if spec is None:
                 return f"Error: Unknown artifact input type: {name}"
-            if (
-                artifact_input.file is not None
-                and artifact_input.directory is not None
-            ):
-                return (
-                    f"Error: --{spec.flag} and --{spec.dir_flag} are mutually exclusive."
-                )
+            if artifact_input.file is not None and artifact_input.directory is not None:
+                return f"Error: --{spec.flag} and --{spec.dir_flag} are mutually exclusive."
             if artifact_input.file is not None:
                 if not spec.allow_file:
                     return (
-                        f"Error: --{spec.flag} is not supported. "
-                        f"Use --{spec.dir_flag}."
+                        f"Error: --{spec.flag} is not supported. Use --{spec.dir_flag}."
                     )
                 if not artifact_input.file.exists():
                     return (
@@ -1342,9 +1336,9 @@ class CRSCompose:
             for target_dir in sorted(p for p in base.iterdir() if p.is_dir()):
                 harness_dirs = sorted(p for p in target_dir.iterdir() if p.is_dir())
                 for harness_dir in harness_dirs:
-                    pairs.setdefault((target_dir.name, harness_dir.name), {})[
-                        key
-                    ] = harness_dir
+                    pairs.setdefault((target_dir.name, harness_dir.name), {})[key] = (
+                        harness_dir
+                    )
 
         collect("EXCHANGE_DIR", "exchange")
         collect("PROCESSED_EXCHANGE_DIR", "processed")
@@ -2222,7 +2216,9 @@ class CRSCompose:
         def _get_exchange_dir() -> Path:
             return self.work_dir.get_exchange_dir(target, run_id, sanitizer)
 
-        def _copy_artifact_input(spec: ArtifactInputSpec, artifact_input: ArtifactInput) -> int:
+        def _copy_artifact_input(
+            spec: ArtifactInputSpec, artifact_input: ArtifactInput
+        ) -> int:
             dst_dir = _get_exchange_dir() / spec.dest_dir_name
             dst_dir.mkdir(parents=True, exist_ok=True)
             copied = 0
@@ -2287,7 +2283,9 @@ class CRSCompose:
             progress.add_task("Forward artifacts into exchange dir", forward_artifacts)
 
         if any(artifact_input.provided for artifact_input in artifact_inputs.values()):
-            progress.add_task("Copy artifact inputs to exchange dir", copy_artifact_inputs)
+            progress.add_task(
+                "Copy artifact inputs to exchange dir", copy_artifact_inputs
+            )
 
         if diff_path:
             progress.add_task("Copy diff file to exchange dir", copy_diff)

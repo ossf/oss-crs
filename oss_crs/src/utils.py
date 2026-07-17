@@ -8,7 +8,8 @@ import string
 import time
 import re
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Sequence
+from typing import Any, Callable, Optional, TypeVar, cast
 
 import questionary
 from prompt_toolkit.application import Application
@@ -287,7 +288,7 @@ def select(message: str, choices: list[tuple[str, str]]) -> str | None:
 
 def multi_select(
     message: str,
-    choices: list[tuple[str, T] | tuple[str, T, str]],
+    choices: Sequence[tuple[str, T] | tuple[str, T, str]],
     instruction: str | None = None,
     validate: Callable[[list[T]], bool | str] | None = None,
 ) -> list[T] | None:
@@ -364,9 +365,7 @@ def _checkbox_enter_selects_current(
                 else:
                     tokens.append(("class:answer", f"[{selected_title}]"))
             else:
-                tokens.append(
-                    ("class:answer", f"done ({selected_count} selections)")
-                )
+                tokens.append(("class:answer", f"done ({selected_count} selections)"))
         else:
             tokens.append(
                 (
@@ -388,7 +387,8 @@ def _checkbox_enter_selects_current(
             error_message = FormattedText([("class:validation-toolbar", error_text)])
         else:
             error_message = None
-        ic.error_message = (
+        # questionary leaves error_message unannotated, so it infers as None.
+        cast(Any, ic).error_message = (
             error_message if not valid and ic.submission_attempted else None
         )
         return valid

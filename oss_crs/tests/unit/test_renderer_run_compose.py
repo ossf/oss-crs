@@ -674,11 +674,9 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
     ), f"finder must mount raw seeds; got: {finder_volumes}"
     # Reports come from exchange_dir (not owned by the triage/seed-filter processors)
     assert any(
-        f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro" == v
-        for v in finder_volumes
+        f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro" == v for v in finder_volumes
     ), f"finder must mount raw reports; got: {finder_volumes}"
     # Patches come from exchange_dir (not owned by triage/seed-filter processors)
     assert any(
-        f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v
-        for v in finder_volumes
+        f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v for v in finder_volumes
     ), f"finder must mount raw patches; got: {finder_volumes}"

@@ -377,8 +377,7 @@ def test_run_without_build_id_passes_bug_candidate_dir_to_both_phases(
     assert build_captured["bug_candidate_dir"] == bug_candidate_dir
     # __run receives the generated artifact input mapping.
     assert (
-        run_captured["artifact_inputs"]["bug-candidate"].directory
-        == bug_candidate_dir
+        run_captured["artifact_inputs"]["bug-candidate"].directory == bug_candidate_dir
     )
 
 
@@ -455,9 +454,7 @@ def test_run_without_forward_artifacts_does_not_prompt(
     assert captured["prompt_if_missing"] is False
 
 
-def test_run_with_prompt_forward_artifacts_prompts(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_run_with_prompt_forward_artifacts_prompts(tmp_path: Path, monkeypatch) -> None:
     compose = _make_run_compose(tmp_path)
     target = Target(tmp_path / "work", tmp_path / "proj", None, "fuzz_target")
     captured: dict = {}
