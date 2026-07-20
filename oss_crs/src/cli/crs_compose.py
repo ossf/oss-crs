@@ -7,11 +7,19 @@ import signal
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
+from ..azure_spot_vm import AzureSpotVmConfig, AzureSpotVmRunSubmitter
 from ..crs_compose import CRSCompose
 from ..config.crs_compose import CRSComposeConfig
 from ..target import Target
 from ..constants import WEBUI_CONTAINER_NAME, WEBUI_DEFAULT_PORT
-from ..utils import get_console, log_success, log_error, log_warning, log_dim
+from ..utils import (
+    get_console,
+    log_success,
+    log_error,
+    log_warning,
+    log_dim,
+    normalize_run_id,
+)
 from .artifacts import handle_artifacts
 from .archive import handle_archive
 from .clean import add_clean_command, handle_clean
@@ -202,6 +210,12 @@ def add_run_command(subparsers):
         help="Run identifier for this run's artifacts. If not provided, generates timestamp-based id.",
     )
     run.add_argument(
+        "--resume-run-id",
+        type=str,
+        default=None,
+        help="Azure run ID whose final archive or latest checkpoint supplies resume seeds.",
+    )
+    run.add_argument(
         "--pov",
         type=Path,
         default=None,
@@ -358,6 +372,29 @@ def add_web_ui_command(subparsers):
     )
     web_ui_sub.add_parser("stop", help="Stop the WebUI service")
     web_ui_sub.add_parser("status", help="Check if the WebUI service is running")
+
+
+def add_azure_cleanup_command(subparsers):
+    cleanup = subparsers.add_parser(
+        "azure-cleanup",
+        help="Delete Azure resources belonging to one interrupted run",
+    )
+    cleanup.add_argument(
+        "--run-id",
+        required=True,
+        help="Exact run ID whose VM, disk, and network resources should be deleted",
+    )
+
+
+def handle_azure_cleanup(args) -> bool:
+    try:
+        config = AzureSpotVmConfig.from_env()
+        submitter = AzureSpotVmRunSubmitter(config)
+        submitter.cleanup_run(normalize_run_id(args.run_id))
+        return True
+    except Exception as exc:
+        print(f"Azure cleanup failed: {exc}", file=sys.stderr)
+        return False
 
 
 def _is_webui_running() -> bool:
@@ -735,13 +772,20 @@ def _warn_deprecated_cli_aliases(argv: list[str]) -> None:
             )
 
 
-def _sigterm_handler(signum, frame):
-    """Convert SIGTERM into KeyboardInterrupt so cleanup tasks can run."""
-    raise KeyboardInterrupt("SIGTERM received")
+class _SignalInterrupt(KeyboardInterrupt):
+    def __init__(self, signum: int):
+        super().__init__(f"signal {signum} received")
+        self.signum = signum
+
+
+def _interrupt_handler(signum, frame):
+    """Convert termination signals into an exception so cleanup can run."""
+    raise _SignalInterrupt(signum)
 
 
 def cli() -> bool | int:
-    signal.signal(signal.SIGTERM, _sigterm_handler)
+    signal.signal(signal.SIGINT, _interrupt_handler)
+    signal.signal(signal.SIGTERM, _interrupt_handler)
     load_dotenv()
     parser = argparse.ArgumentParser(
         prog="oss-crs", description="OSS-CRS: Cyber Reasoning System orchestration CLI"
@@ -759,6 +803,7 @@ def cli() -> bool | int:
     add_clean_command(subparsers, add_common_arguments, add_target_arguments)
     add_setup_command(subparsers)
     add_web_ui_command(subparsers)
+    add_azure_cleanup_command(subparsers)
 
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
@@ -774,6 +819,8 @@ def cli() -> bool | int:
         return handle_setup(args)
     if args.command == "web-ui":
         return handle_web_ui(args)
+    if args.command == "azure-cleanup":
+        return handle_azure_cleanup(args)
 
     # Resolve all Path arguments to absolute paths so that relative paths
     # (e.g., --fuzz-proj-path ../ghostscript) work regardless of cwd.
@@ -853,6 +900,7 @@ def cli() -> bool | int:
         run_rc = crs_compose.run(
             target,
             run_id=args.run_id,
+            resume_run_id=args.resume_run_id,
             build_id=args.build_id,
             sanitizer=args.sanitizer,
             pov=args.pov,
@@ -879,7 +927,12 @@ def cli() -> bool | int:
 
 
 def main() -> int:
-    rc = cli()
+    try:
+        rc = cli()
+    except KeyboardInterrupt as exc:
+        signum = getattr(exc, "signum", signal.SIGINT)
+        print("Run interrupted; cleanup was attempted.", file=sys.stderr)
+        return 128 + int(signum)
     if isinstance(rc, bool):
         return 0 if rc else 1
     return rc

@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: MIT
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
+
+from .azure_spot_vm import AzureSpotVmConfig, AzureSpotVmRunSubmitter
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .env_policy import (
     OSS_FUZZ_TARGET_ENV,
@@ -795,6 +799,7 @@ class CRSCompose:
         early_exit: bool = False,
         incremental_build: bool = False,
         web_ui: bool = False,
+        resume_run_id: str | None = None,
     ) -> int:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -806,6 +811,26 @@ class CRSCompose:
 
         # Normalize IDs at library boundary
         run_id = normalize_run_id(run_id) if run_id else generate_run_id()
+        run_env = getattr(
+            getattr(self, "crs_compose_env", None), "run_env", RunEnv.LOCAL
+        )
+        if resume_run_id == run_id:
+            print("Error: --resume-run-id must differ from the new --run-id.")
+            return 1
+        if resume_run_id and run_env != RunEnv.AZURE:
+            print(
+                "Error: --resume-run-id is currently supported only for run_env: azure."
+            )
+            return 1
+        if run_env == RunEnv.AZURE and early_exit:
+            print("Error: --early-exit is not yet supported for run_env: azure.")
+            return 1
+        if run_env == RunEnv.AZURE and incremental_build:
+            print("Error: --incremental-build is not yet supported for run_env: azure.")
+            return 1
+        if run_env == RunEnv.AZURE and web_ui:
+            print("Error: --web-ui is not yet supported for run_env: azure.")
+            return 1
 
         # Auto-detect cgroup-parent availability
         cgroup_parent, _ = check_cgroup_parent_available()
@@ -908,6 +933,7 @@ class CRSCompose:
         result = self.__run(
             target,
             run_id=run_id,
+            resume_run_id=resume_run_id,
             build_id=build_id,
             sanitizer=sanitizer,
             pov_files=pov_files,
@@ -1108,6 +1134,7 @@ class CRSCompose:
         run_id: str,
         build_id: str,
         sanitizer: str,
+        resume_run_id: Optional[str] = None,
         pov_files: list[Path] | None = None,
         diff_path: Optional[Path] = None,
         seed_dir: Optional[Path] = None,
@@ -1132,9 +1159,39 @@ class CRSCompose:
                 incremental_build=incremental_build,
                 web_ui=web_ui,
             )
-        else:
-            print(f"TODO: Support run env {self.crs_compose_env.run_env}")
-            return 1
+        if self.crs_compose_env.run_env == RunEnv.AZURE:
+            try:
+                timeout_seconds: int | None = None
+                if self.deadline is not None:
+                    remaining = self.deadline - time.monotonic()
+                    if remaining <= 0:
+                        return 124
+                    timeout_seconds = max(1, math.ceil(remaining))
+                submitter = AzureSpotVmRunSubmitter(
+                    AzureSpotVmConfig.from_env(),
+                    llm=self.llm,
+                )
+                run_rc = submitter.submit_and_wait(
+                    self.crs_list,
+                    target,
+                    self.work_dir,
+                    run_id,
+                    build_id,
+                    sanitizer,
+                    timeout_seconds=timeout_seconds,
+                    pov_files=pov_files or [],
+                    diff_path=diff_path,
+                    seed_dir=seed_dir,
+                    bug_candidate=bug_candidate,
+                    resume_run_id=resume_run_id,
+                )
+            except Exception as exc:
+                print(f"Azure Spot VM run failed: {exc}")
+                return 1
+            return run_rc
+
+        print(f"TODO: Support run env {self.crs_compose_env.run_env}")
+        return 1
 
     def __run_local(
         self,
