@@ -56,10 +56,18 @@ class LocalCRSUtils(CRSUtils):
         Both build-target and run phases use the same mechanism: rsync to the
         mounted OSS_CRS_BUILD_OUT_DIR. The ephemeral container mounts the
         rebuild output dir at the same path, so no HTTP upload is needed.
+
+        Build products are produced as root inside the builder and can be
+        non-world-readable (libtool's ltmain.sh sets ``umask 0077``; CodeQL's
+        ``build-tracer.log`` lands mode 600). The host later stages
+        OSS_CRS_BUILD_OUT_DIR by reading every file as the invoking non-root
+        user (tar), which aborts on such files. Force world-readable perms here,
+        at write time inside the builder, so no separate normalization pass is
+        needed downstream.
         """
         src = Path(src_path)
         dst = _get_build_out_dir() / dst_path
-        rsync_copy(src, dst)
+        rsync_copy(src, dst, chmod="a+rX")
 
     def skip_build_output(self, dst_path: str) -> None:
         with tempfile.NamedTemporaryFile() as tmp_file:

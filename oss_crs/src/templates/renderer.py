@@ -106,7 +106,8 @@ def render_build_target_docker_compose(
     target_env["sanitizer"] = sanitizer
     env_plan = build_target_builder_env(
         target_env=target_env,
-        run_env_type=crs_compose_env.get_env()["type"],
+        # build-target always executes locally even when run_env=azure
+        run_env_type="local",
         build_id=build_id,
         crs_additional_env=resource.additional_env,
         build_additional_env=build_config.additional_env,

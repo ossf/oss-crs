@@ -31,16 +31,20 @@ def get_run_env_type() -> EnvType:
     return _OSS_CRS_RUN_ENV_TYPE
 
 
-def rsync_copy(src: Path, dst: Path) -> None:
+def rsync_copy(src: Path, dst: Path, chmod: "str | None" = None) -> None:
     # Create parent directories
     dst.parent.mkdir(parents=True, exist_ok=True)
 
+    # Optional --chmod applies permission adjustments to the transferred files
+    # on top of the source perms (e.g. "a+rX" to force world-readable outputs).
+    extra = ["--chmod", chmod] if chmod else []
+
     if src.is_dir():
         # Directory: copy everything recursively
-        subprocess.run(["rsync", "-a", "--", f"{src}/", f"{dst}/"], check=True)
+        subprocess.run(["rsync", "-a", *extra, "--", f"{src}/", f"{dst}/"], check=True)
     else:
         # File: just copy it (rsync uses temp-file + atomic rename internally)
-        subprocess.run(["rsync", "-a", "--", str(src), str(dst)], check=True)
+        subprocess.run(["rsync", "-a", *extra, "--", str(src), str(dst)], check=True)
 
 
 def rsync_copy_files(src_dir: Path, names: list[str], dst_dir: Path) -> None:

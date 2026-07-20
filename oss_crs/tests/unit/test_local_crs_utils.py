@@ -244,6 +244,45 @@ class TestDownloadBuildOutput:
             crs_utils.download_build_output("build_out/fuzzer_binary", dst)
 
 
+class TestSubmitBuildOutputPermissions:
+    """submit_build_output must emit world-readable outputs so the non-root
+    host staging (tar) can read every file (libtool umask 0077 / CodeQL
+    build-tracer.log land mode 600 otherwise)."""
+
+    def test_submit_build_output_forces_world_readable(self, crs_utils, tmp_path):
+        import os
+
+        src = tmp_path / "out"
+        src.mkdir()
+        # A build product that came out non-world-readable (mode 600).
+        secret = src / "build-tracer.log"
+        secret.write_text("log")
+        os.chmod(secret, 0o600)
+        nested = src / "sub"
+        nested.mkdir(mode=0o700)
+        (nested / "harness").write_bytes(b"ELF")
+        os.chmod(nested / "harness", 0o700)
+
+        build_out = tmp_path / "build_out"
+        with patch.dict("os.environ", {"OSS_CRS_BUILD_OUT_DIR": str(build_out)}):
+            crs_utils.submit_build_output(str(src), "build")
+
+        copied_log = build_out / "build" / "build-tracer.log"
+        copied_dir = build_out / "build" / "sub"
+        copied_bin = build_out / "build" / "sub" / "harness"
+        assert copied_log.exists()
+        # Everyone can read the file, traverse the dir, and read the binary.
+        assert os.stat(copied_log).st_mode & 0o004, "file not world-readable"
+        assert os.stat(copied_dir).st_mode & 0o005, "dir not world-readable+traversable"
+        assert os.stat(copied_bin).st_mode & 0o004, "binary not world-readable"
+
+    @patch("libCRS.libCRS.local.rsync_copy")
+    def test_submit_build_output_passes_chmod(self, mock_rsync, crs_utils, tmp_path):
+        with patch.dict("os.environ", {"OSS_CRS_BUILD_OUT_DIR": str(tmp_path)}):
+            crs_utils.submit_build_output(str(tmp_path / "x"), "build")
+        assert mock_rsync.call_args.kwargs.get("chmod") == "a+rX"
+
+
 class TestDownloadBuildOutputWithRebuildId:
     """download_build_output with rebuild_id copies from OSS_CRS_REBUILD_OUT_DIR."""
 

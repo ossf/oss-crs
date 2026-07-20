@@ -111,3 +111,35 @@ def test_infra_prefix_does_not_leak_colon_into_path(monkeypatch, tmp_path, docke
 
     assert "oss-crs-infra:" not in rendered_dockerfile
     assert rendered_dockerfile.endswith("/Dockerfile")
+
+
+def test_build_target_env_stays_local_when_compose_run_env_is_azure(
+    monkeypatch, tmp_path
+):
+    captured = {}
+
+    def fake_build_target_builder_env(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[])
+
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.build_target_builder_env",
+        fake_build_target_builder_env,
+    )
+
+    crs = _make_crs(tmp_path)
+    crs.crs_compose_env = SimpleNamespace(get_env=lambda: {"type": "azure"})
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "repo").mkdir()
+
+    render_build_target_docker_compose(
+        crs=crs,
+        target=_make_target(tmp_path),
+        target_base_image="base:latest",
+        build_config=_make_build_config("oss-crs/builder.Dockerfile"),
+        build_out_dir=tmp_path / "out",
+        build_id="build-1",
+        sanitizer="address",
+    )
+
+    assert captured["run_env_type"] == "local"
