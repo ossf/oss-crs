@@ -7,14 +7,22 @@ Verifies that:
 3. All expected image patterns are correctly matched.
 """
 
+import docker.errors
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from oss_crs.src.cli.clean import (
+from oss_crs.src.cli.discovery import (
     discover_build_target_images,
+    discover_infra_images,
     discover_prepare_images,
     discover_run_images,
+)
+from oss_crs.src.constants import (
+    OSS_CRS_ALPINE_TAG,
+    OSS_CRS_DEPS_IMAGE,
+    OSS_CRS_INTERNAL_LLM_IMAGES,
+    OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
 )
 from oss_crs.src.workdir import BuildEntry, RunEntry, WorkDir
 
@@ -79,7 +87,7 @@ class TestBuilderImageDiscovery:
         images = [
             _make_image(["oss-crs-builder:atlantis-c-default-builder-1700000000ab"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
             client.images.get.side_effect = Exception("not called")
@@ -100,7 +108,7 @@ class TestBuilderImageDiscovery:
             # Builder belongs to "roboduck", not "atlantis-c"
             _make_image(["oss-crs-builder:roboduck-default-builder-1700000000ab"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -118,7 +126,7 @@ class TestBuilderImageDiscovery:
             # Correct CRS but wrong build_id
             _make_image(["oss-crs-builder:atlantis-c-default-builder-9999999999zz"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -136,7 +144,7 @@ class TestBuilderImageDiscovery:
             _make_image(["oss-crs-builder:atlantis-c-fuzzer-a-bid1"]),
             _make_image(["oss-crs-builder:atlantis-c-fuzzer-b-bid2"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -158,7 +166,7 @@ class TestBuilderImageDiscovery:
             # Tag starts with "atlantis-c-" which is NOT "atlantis-"
             _make_image(["oss-crs-builder:atlantis-c-default-builder-bid1"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -181,7 +189,7 @@ class TestBuilderImageDiscovery:
         images = [
             _make_image(["oss-crs-builder:atlantis-c-default-builder-bid1"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -208,7 +216,7 @@ class TestSnapshotImageDiscovery:
         snapshot_images = [
             _make_image(["oss-crs-snapshot:pre-atlantis-c-default-builder-bid1"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.side_effect = lambda name=None: (
                 builder_images
@@ -231,7 +239,7 @@ class TestSnapshotImageDiscovery:
         snapshot_images = [
             _make_image(["oss-crs-snapshot:pre-roboduck-default-builder-bid1"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.side_effect = lambda name=None: (
                 snapshot_images if name == "oss-crs-snapshot" else []
@@ -250,7 +258,7 @@ class TestSnapshotImageDiscovery:
         snapshot_images = [
             _make_image(["oss-crs-snapshot:pre-atlantis-c-default-builder-other_bid"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.side_effect = lambda name=None: (
                 snapshot_images if name == "oss-crs-snapshot" else []
@@ -269,7 +277,7 @@ class TestSnapshotImageDiscovery:
         snapshot_images = [
             _make_image(["oss-crs-snapshot:test-bid1"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.side_effect = lambda name=None: (
                 snapshot_images if name == "oss-crs-snapshot" else []
@@ -288,7 +296,7 @@ class TestSnapshotImageDiscovery:
         snapshot_images = [
             _make_image(["oss-crs-snapshot:test-other_bid"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.side_effect = lambda name=None: (
                 snapshot_images if name == "oss-crs-snapshot" else []
@@ -314,7 +322,7 @@ class TestTargetImageDiscovery:
         target = MagicMock()
         target.get_docker_image_name.return_value = "oss-fuzz-target:address"
 
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = []
             client.images.get.return_value = _make_image(["oss-fuzz-target:address"])
@@ -332,9 +340,7 @@ class TestTargetImageDiscovery:
         target = MagicMock()
         target.get_docker_image_name.return_value = "oss-fuzz-target:address"
 
-        import docker.errors
-
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             mock_docker.errors = docker.errors
             client = mock_docker.from_env.return_value
             client.images.list.return_value = []
@@ -350,7 +356,7 @@ class TestTargetImageDiscovery:
             build_ids=["bid1"],
             run_ids=[],
         )
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = []
 
@@ -375,7 +381,7 @@ class TestRunImageDiscovery:
             _make_image(["crs_compose_1700000000ab-crs-atlantis-c:latest"]),
             _make_image(["crs_compose_1700000000ab-litellm:latest"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -396,7 +402,7 @@ class TestRunImageDiscovery:
             _make_image(["crs_compose_other_run-crs-atlantis-c:latest"]),
             _make_image(["unrelated-image:latest"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -410,7 +416,7 @@ class TestRunImageDiscovery:
             build_ids=[],
             run_ids=[],
         )
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
 
             result = discover_run_images(compose)
@@ -434,7 +440,7 @@ class TestRunImageDiscovery:
                 ]
             ),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -455,7 +461,7 @@ class TestRunImageDiscovery:
             # "run123" starts with "run1" but is a different run
             _make_image(["crs_compose_run123-svc:latest"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = images
 
@@ -491,7 +497,7 @@ class TestCrossConfigIsolation:
             _make_image(["oss-crs-builder:atlantis-c-default-builder-bid_a"]),
             _make_image(["oss-crs-builder:roboduck-default-builder-bid_b"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = all_images
 
@@ -517,7 +523,7 @@ class TestCrossConfigIsolation:
             _make_image(["oss-crs-builder:atlantis-c-default-builder-bid_a"]),
             _make_image(["oss-crs-builder:atlantis-c-default-builder-bid_b"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = all_images
 
@@ -542,7 +548,7 @@ class TestCrossConfigIsolation:
             _make_image(["crs_compose_run_a-crs:latest"]),
             _make_image(["crs_compose_run_b-crs:latest"]),
         ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             client = mock_docker.from_env.return_value
             client.images.list.return_value = all_images
 
@@ -559,6 +565,36 @@ class TestCrossConfigIsolation:
 
 
 class TestPrepareImageDiscovery:
+    def test_infra_images_include_oss_crs_deps(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = False
+        result = discover_infra_images(crs_compose)
+        assert f"{OSS_CRS_DEPS_IMAGE}:latest" in result
+        assert OSS_CRS_ALPINE_TAG in result
+
+    def test_infra_images_include_internal_llm(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = True
+        crs_compose.llm.mode = "internal"
+        result = discover_infra_images(crs_compose)
+        for tag in OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES.values():
+            assert tag in result
+        for tag in OSS_CRS_INTERNAL_LLM_IMAGES.values():
+            assert tag in result
+
+    def test_infra_images_exclude_internal_llm_when_not_internal(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = True
+        crs_compose.llm.mode = "external"
+        result = discover_infra_images(crs_compose)
+        for tag in OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES.values():
+            assert tag not in result
+        for tag in OSS_CRS_INTERNAL_LLM_IMAGES.values():
+            assert tag not in result
+
     def test_returns_existing_images_from_bake_tags(self):
         crs = MagicMock()
         crs.name = "atlantis-c"
@@ -567,9 +603,7 @@ class TestPrepareImageDiscovery:
         compose = MagicMock()
         compose.crs_list = [crs]
 
-        import docker.errors
-
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
             mock_docker.errors = docker.errors
             client = mock_docker.from_env.return_value
 
@@ -599,11 +633,18 @@ class TestPrepareImageDiscovery:
         compose.crs_list = [crs_bad, crs_ok]
 
         with (
-            patch("oss_crs.src.cli.clean.docker") as mock_docker,
-            patch("oss_crs.src.cli.clean.log_warning") as mock_warn,
+            patch("oss_crs.src.cli.discovery.docker") as mock_docker,
+            patch("oss_crs.src.cli.discovery.log_warning") as mock_warn,
         ):
+            mock_docker.errors = docker.errors
             client = mock_docker.from_env.return_value
-            client.images.get.return_value = _make_image(["roboduck:latest"])
+
+            def fake_get(tag):
+                if tag == "roboduck:latest":
+                    return _make_image([tag])
+                raise docker.errors.ImageNotFound("nope")
+
+            client.images.get.side_effect = fake_get
 
             result = discover_prepare_images(compose)
 
@@ -613,7 +654,7 @@ class TestPrepareImageDiscovery:
         # Healthy CRS images are still discovered
         assert result == ["roboduck:latest"]
 
-    def test_empty_when_no_bake_tags(self):
+    def test_empty_when_no_prepare_images_exist(self):
         crs = MagicMock()
         crs.name = "atlantis-c"
         crs.get_bake_image_tags.return_value = []
@@ -621,7 +662,122 @@ class TestPrepareImageDiscovery:
         compose = MagicMock()
         compose.crs_list = [crs]
 
-        with patch("oss_crs.src.cli.clean.docker"):
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
+            mock_docker.errors = docker.errors
+            mock_docker.from_env.return_value.images.get.side_effect = (
+                docker.errors.ImageNotFound("nope")
+            )
+            result = discover_prepare_images(compose)
+
+        assert result == []
+
+    def test_includes_existing_infra_images(self):
+        compose = MagicMock()
+        compose.crs_list = []
+        compose.llm.exists.return_value = False
+
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
+            client = mock_docker.from_env.return_value
+            client.images.get.return_value = _make_image(["oss-crs-deps:latest"])
+
+            result = discover_prepare_images(compose)
+
+        assert "oss-crs-deps:latest" in result
+
+    def test_includes_existing_target_independent_runner_images(self):
+        """Target-independent run-phase images built during prepare are discovered."""
+        from oss_crs.src.config.crs import CRSRunPhaseModule
+
+        crs = MagicMock()
+        crs.name = "atlantis-c"
+        crs.get_bake_image_tags.return_value = []
+
+        independent_module = CRSRunPhaseModule(
+            dockerfile="oss-crs/dockerfiles/runner.Dockerfile",
+            target_dependent=False,
+        )
+        dependent_module = CRSRunPhaseModule(
+            dockerfile="oss-crs/dockerfiles/lsp.Dockerfile",
+            target_dependent=True,
+        )
+        crs.config.crs_run_phase.modules = {
+            "fuzzer": independent_module,
+            "lsp": dependent_module,
+        }
+
+        compose = MagicMock()
+        compose.crs_list = [crs]
+        compose.llm.exists.return_value = False
+
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
+            mock_docker.errors = docker.errors
+            client = mock_docker.from_env.return_value
+
+            runner_tag = "oss-crs-runner:atlantis-c-fuzzer"
+            client.images.get.side_effect = lambda tag: (
+                _make_image([tag])
+                if tag == runner_tag
+                else (_ for _ in ()).throw(docker.errors.ImageNotFound("nope"))
+            )
+
+            result = discover_prepare_images(compose)
+
+        assert runner_tag in result
+
+    def test_excludes_target_dependent_runner_images(self):
+        """Target-dependent runner images are not included in prepare images."""
+        from oss_crs.src.config.crs import CRSRunPhaseModule
+
+        crs = MagicMock()
+        crs.name = "atlantis-c"
+        crs.get_bake_image_tags.return_value = []
+
+        dependent_module = CRSRunPhaseModule(
+            dockerfile="oss-crs/dockerfiles/lsp.Dockerfile",
+            target_dependent=True,
+        )
+        crs.config.crs_run_phase.modules = {
+            "lsp": dependent_module,
+        }
+
+        compose = MagicMock()
+        compose.crs_list = [crs]
+        compose.llm.exists.return_value = False
+
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
+            mock_docker.errors = docker.errors
+            client = mock_docker.from_env.return_value
+            client.images.get.side_effect = docker.errors.ImageNotFound("nope")
+
+            result = discover_prepare_images(compose)
+
+        assert result == []
+
+    def test_skips_missing_target_independent_runner_images(self):
+        """Missing runner images are not included in the result."""
+        from oss_crs.src.config.crs import CRSRunPhaseModule
+
+        crs = MagicMock()
+        crs.name = "atlantis-c"
+        crs.get_bake_image_tags.return_value = []
+
+        independent_module = CRSRunPhaseModule(
+            dockerfile="oss-crs/dockerfiles/runner.Dockerfile",
+            target_dependent=False,
+        )
+        crs.config.crs_run_phase.modules = {
+            "fuzzer": independent_module,
+        }
+
+        compose = MagicMock()
+        compose.crs_list = [crs]
+        compose.llm.exists.return_value = False
+
+        with patch("oss_crs.src.cli.discovery.docker") as mock_docker:
+            mock_docker.errors = docker.errors
+            client = mock_docker.from_env.return_value
+            client.images.get.side_effect = docker.errors.ImageNotFound("nope")
+
             result = discover_prepare_images(compose)
 
         assert result == []

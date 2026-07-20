@@ -8,15 +8,22 @@ from pathlib import Path
 import docker
 import docker.errors
 
-from ..constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
+from ..constants import (
+    OSS_CRS_ALPINE_TAG,
+)
 from ..utils import (
     confirm,
     get_console,
     green,
-    log_warning,
     red,
     yellow,
     rm_with_docker,
+)
+from .discovery import (
+    discover_artifact_dirs,
+    discover_build_target_images,
+    discover_prepare_images,
+    discover_run_images,
 )
 
 
@@ -52,162 +59,6 @@ class CleanPlan:
 
 
 # ---------------------------------------------------------------------------
-# Discovery helpers
-# ---------------------------------------------------------------------------
-
-
-def discover_prepare_images(crs_compose) -> list[str]:
-    """Discover images produced by prepare-phase bake for all CRSs."""
-    candidate_tags: list[str] = []
-    for crs in crs_compose.crs_list:
-        try:
-            candidate_tags.extend(crs.get_bake_image_tags())
-        except Exception as exc:
-            log_warning(f"Could not discover prepare images for {crs.name}: {exc}")
-
-    # Only include images that actually exist locally
-    client = docker.from_env()
-    existing: list[str] = []
-    for tag in _dedupe(candidate_tags):
-        try:
-            client.images.get(tag)
-            existing.append(tag)
-        except docker.errors.ImageNotFound:
-            pass
-    return existing
-
-
-def discover_build_target_images(
-    crs_compose, target=None
-) -> tuple[list[str], list[str], list[str]]:
-    """Discover builder, snapshot, and target-base images scoped to this compose config.
-
-    Uses CRS names from the compose config and build-ids from the workdir to
-    match only images belonging to this configuration.
-
-    Returns (builder_tags, snapshot_tags, target_tags).
-    """
-    client = docker.from_env()
-    builder_tags: list[str] = []
-    snapshot_tags: list[str] = []
-    target_tags: list[str] = []
-
-    crs_names = {crs.name for crs in crs_compose.crs_list}
-    build_ids = {b.build_id for b in crs_compose.work_dir.iter_builds()}
-
-    # Preserved builders: oss-crs-builder:{crs_name}-{build_name}-{build_id}
-    # Filter by matching crs_name prefix AND build_id suffix
-    for img in client.images.list(name=PRESERVED_BUILDER_REPO):
-        for tag in img.tags:
-            _, _, tag_suffix = tag.partition(":")
-            if not tag_suffix:
-                continue
-            # tag_suffix is "{crs_name}-{build_name}-{build_id}"
-            # Check if it starts with any known CRS name and ends with a known build_id
-            for crs_name in crs_names:
-                prefix = f"{crs_name}-"
-                if tag_suffix.startswith(prefix):
-                    remainder = tag_suffix[len(prefix) :]
-                    # remainder is "{build_name}-{build_id}"
-                    for bid in build_ids:
-                        if remainder.endswith(f"-{bid}"):
-                            builder_tags.append(tag)
-                            break
-                    break
-
-    # Snapshots: oss-crs-snapshot:{kind}-{crs_name}-{build_name}-{build_id}
-    # Same scoping logic
-    for img in client.images.list(name="oss-crs-snapshot"):
-        for tag in img.tags:
-            _, _, tag_suffix = tag.partition(":")
-            if not tag_suffix:
-                continue
-            for crs_name in crs_names:
-                if f"-{crs_name}-" in tag_suffix:
-                    for bid in build_ids:
-                        if tag_suffix.endswith(f"-{bid}"):
-                            snapshot_tags.append(tag)
-                            break
-                    break
-            # Also match content-hash snapshots if they're under our build dirs
-            # These use format "content-{hash}" and aren't CRS-scoped, but we
-            # include them since they were created by builds in this workdir
-            if tag_suffix.startswith("test-"):
-                for bid in build_ids:
-                    if tag_suffix == f"test-{bid}":
-                        snapshot_tags.append(tag)
-                        break
-
-    # Target base images (only if target provided)
-    if target is not None:
-        tag = target.get_docker_image_name()
-        try:
-            client.images.get(tag)
-            target_tags.append(tag)
-        except docker.errors.ImageNotFound:
-            pass
-
-    # Preserved runner images: oss-crs-runner:{crs_name}-{module}-{repo_hash}
-    # Produced by build-target for target-dependent run modules. Scope by CRS
-    # name (and by target repo hash when a target is provided).
-    repo_hash = target.get_docker_image_name().rsplit(":", 1)[-1] if target else None
-    for img in client.images.list(name=PRESERVED_RUNNER_REPO):
-        for tag in img.tags:
-            if not tag.startswith(f"{PRESERVED_RUNNER_REPO}:"):
-                continue
-            _, _, tag_suffix = tag.partition(":")
-            if not tag_suffix:
-                continue
-            for crs_name in crs_names:
-                if tag_suffix.startswith(f"{crs_name}-"):
-                    if repo_hash is None or tag_suffix.endswith(f"-{repo_hash}"):
-                        builder_tags.append(tag)
-                    break
-
-    return (
-        _dedupe(builder_tags),
-        _dedupe(snapshot_tags),
-        _dedupe(target_tags),
-    )
-
-
-def discover_run_images(crs_compose) -> list[str]:
-    """Discover run-phase images scoped to this compose config.
-
-    Enumerates run-ids from the workdir and matches compose project images
-    with the pattern ``crs_compose_{run_id}*``.
-    """
-    run_ids = {r.run_id for r in crs_compose.work_dir.iter_runs()}
-    if not run_ids:
-        return []
-
-    client = docker.from_env()
-    tags: list[str] = []
-    for img in client.images.list():
-        for tag in img.tags:
-            for rid in run_ids:
-                if tag.startswith(f"crs_compose_{rid}"):
-                    tags.append(tag)
-                    break
-    return _dedupe(tags)
-
-
-def discover_artifact_dirs(work_dir, phase: str) -> list[Path]:
-    """Find builds/ and/or runs/ directories under each sanitizer dir.
-
-    Args:
-        work_dir: A WorkDir instance.
-        phase: One of "prepare", "build-target", "run", or "all".
-    """
-    dirs: list[Path] = []
-    if phase in ("build-target", "all"):
-        dirs.extend(b.path for b in work_dir.iter_builds())
-    if phase in ("run", "all"):
-        dirs.extend(r.path for r in work_dir.iter_runs())
-    return dirs
-
-
-# ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
 
@@ -230,7 +81,7 @@ def _dir_size(path: Path) -> str:
                 "--rm",
                 "-v",
                 f"{path}:/data:ro",
-                "alpine",
+                OSS_CRS_ALPINE_TAG,
                 "du",
                 "-sb",
                 "/data",
@@ -503,13 +354,3 @@ def add_clean_command(
     _add_clean_flags(run_p)
     add_common_arguments_fn(run_p)
     _add_optional_target_args(run_p)
-
-
-def _dedupe(lst: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in lst:
-        if item not in seen:
-            seen.add(item)
-            out.append(item)
-    return out
