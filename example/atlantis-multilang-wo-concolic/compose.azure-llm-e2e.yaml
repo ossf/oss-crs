@@ -1,0 +1,25 @@
+##############################################################################
+#       Azure E2E Config for atlantis-multilang-wo-concolic with LLM          #
+##############################################################################
+
+run_env: azure
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "4G"
+
+# Small live-test shape for Spot VM validation. The CRS itself still gets four
+# CPUs; the LLM budget is intentionally low to bound external proxy spend.
+atlantis-multilang-wo-concolic:
+  cpuset: "0-3"
+  memory: "16G"
+  llm_budget: 2
+
+llm_config:
+  litellm:
+    mode: external
+    model_check: true
+    external:
+      url_env: LITELLM_URL
+      key_env: LITELLM_KEY

@@ -106,11 +106,11 @@ Features that will significantly improve the platform's utility for real-world c
 
 ### Azure Deployment
 
-| Item | Status | Notes |
-|---|---|---|
-| `azure` run environment | Declared in config enum, **not implemented** | Currently prints `TODO: Support run env` |
-| `AzureCRSUtils` in libCRS | Planned | Azure Blob Storage + ACI backend for libCRS operations |
-| Zero-modification portability | Design goal | CRSs should run on Azure without any changes |
+| Item                          | Status                | Notes                                                                                                                   |
+| ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `azure` run environment       | Partially implemented | `run_env: azure` runs supported libFuzzer bug-finding paths on Azure Spot VMs; broader CRS parity is still pending      |
+| `AzureCRSUtils` in libCRS     | Planned               | Azure Blob Storage + ACI backend for libCRS operations                                                                  |
+| Zero-modification portability | Design goal           | CRSs should run on Azure without any changes                                                                            |
 
 ### Standalone CRS CLI
 

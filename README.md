@@ -68,6 +68,71 @@ uv run oss-crs run \
   --target-harness xml
 ```
 
+For the same `crs-libfuzzer` example, `run_env: azure` now supports a limited
+Azure Spot VM backend. The same backend also supports no-LLM, single-runtime
+Atlantis runs such as `atlantis-multilang-given_fuzzer`.
+
+- `prepare` and `build-target` still run locally.
+- `run` uploads the built libFuzzer artifacts, provisions a Spot VM, runs the
+  libFuzzer container remotely, checkpoints artifacts to Blob Storage, restores
+  results locally, and tears the VM down.
+- Stable run inputs (`BUILD_OUT`, fuzz project files, and target source) are
+  cached in Blob Storage by build/target/harness metadata so repeated Azure runs
+  do not re-upload the same large artifacts.
+- The VM polls Azure Scheduled Events and immediately uploads a serialized
+  checkpoint when it receives a disruptive event such as Spot `Preempt`.
+- Checkpoints are built from an incrementally maintained rsync snapshot. They
+  are intended for practical partial recovery after Spot eviction, not a
+  transactionally consistent filesystem snapshot.
+- `--resume-run-id <previous-run-id>` starts a new Azure run with seeds restored
+  from the previous run's final archive or latest checkpoint. Compatible runs
+  also hydrate cached `rebuild_out` intermediates when available.
+- The Azure path supports single-container bug-finding runtimes with no LLM and
+  the expected five-container `atlantis-multilang-wo-concolic` module set when
+  it uses external LiteLLM. Internal LiteLLM sidecars, ensembles, and other
+  general multi-container CRS runtimes still require `run_env: local`.
+
+Set these environment variables before `uv run oss-crs run` with `run_env: azure`:
+
+- `OSS_CRS_AZURE_RESOURCE_GROUP`
+- `OSS_CRS_AZURE_LOCATION`
+- `OSS_CRS_AZURE_STORAGE_ACCOUNT`
+- `OSS_CRS_AZURE_STORAGE_CONTAINER`
+- `OSS_CRS_AZURE_ACR_NAME`
+- `OSS_CRS_AZURE_VM_ADMIN_USERNAME`
+- `OSS_CRS_AZURE_SSH_PUBLIC_KEY_PATH`
+
+Optional Azure runtime tuning:
+
+- `OSS_CRS_AZURE_VM_SIZE`
+- `OSS_CRS_AZURE_VM_SIZE_CANDIDATES`
+- `OSS_CRS_AZURE_VM_ZONES`
+- `OSS_CRS_AZURE_VM_OS_DISK_SIZE_GB` (default `256`)
+- `OSS_CRS_AZURE_KEEP_FAILED_VM`
+- `OSS_CRS_AZURE_SYNC_INTERVAL_SECONDS`
+- `OSS_CRS_AZURE_DOCKER_COMPOSE_VERSION`
+- `OSS_CRS_AZURE_SPOT_MAX_PRICE` (default `0.50`; set `-1` explicitly to cap at
+  the on-demand price)
+- `OSS_CRS_AZURE_ENABLE_SSH` (default `false`; run-command does not require SSH)
+- `OSS_CRS_AZURE_INPUT_CACHE_ENABLED` (default `true`)
+- `OSS_CRS_AZURE_REBUILD_CACHE_ENABLED` (default `true`)
+- `OSS_CRS_AZURE_REQUIRE_PREBUILT_IMAGES` (default `false`; when `true`, fail
+  instead of building a missing runtime image locally)
+
+The transient `run-inputs/<run-id>/inputs.tgz` blob is deleted after its run.
+Result, checkpoint, cache, and runner-image artifacts are never pruned
+automatically.
+
+If the controller is terminated during final cleanup, rerun the idempotent,
+run-scoped cleanup explicitly:
+
+```sh
+uv run oss-crs azure-cleanup --run-id <run-id>
+```
+
+This deletes only the VM, disk, and network resources derived from that run ID;
+it preserves all Blob Storage artifacts.
+
 ### 4. Run an LLM-Powered CRS
 
 For a more advanced CRS that leverages LLMs, you can use **atlantis-multilang**. This CRS supports multiple languages and uses an LLM to generate and refine fuzz harnesses.

@@ -1,0 +1,17 @@
+##############################################################################
+#        Azure E2E Config for atlantis-multilang-given_fuzzer                 #
+##############################################################################
+
+run_env: azure
+docker_registry: local
+
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "4G"
+
+# The upstream local example uses cpuset "2-17". This smaller Azure smoke-test
+# shape fits common D4 Spot VM candidates while still exercising the multilang
+# single-runtime path.
+atlantis-multilang-given_fuzzer:
+  cpuset: "0-3"
+  memory: "16G"
