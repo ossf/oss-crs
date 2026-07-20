@@ -13,7 +13,7 @@ from typing import Optional
 import questionary
 from rich.console import Console
 
-from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
+from .constants import OSS_CRS_ALPINE_TAG, PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
 
 
 RAND_CHARS = string.ascii_lowercase + string.digits
@@ -218,7 +218,7 @@ def rm_with_docker(path: Path) -> None:
                 "--rm",
                 "-v",
                 f"{path.parent}:/data",
-                "alpine",
+                OSS_CRS_ALPINE_TAG,
                 "rm",
                 "-rf",
                 f"/data/{path.name}",

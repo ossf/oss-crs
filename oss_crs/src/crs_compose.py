@@ -39,6 +39,7 @@ from .cgroup import (
 )
 from .constants import (
     ALPINE_IMAGE,
+    OSS_CRS_ALPINE_TAG,
     OSS_CRS_INFRA_SIDECAR_IMAGES,
     OSS_CRS_INTERNAL_LLM_IMAGES,
     OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
@@ -668,11 +669,10 @@ class CRSCompose:
         """Pull the pinned alpine cleanup image once, at prepare time.
 
         ``rm_with_docker`` and the ``oss-crs clean`` size fallback shell out to
-        ``docker run --rm ... alpine ...`` to delete/measure root-owned files
-        during run teardown and clean. Those run regardless of LLM mode, so this
-        is pulled unconditionally. The pinned digest is tagged back to the bare
-        ``alpine`` handle the helpers reference (tagging is additive -- the image
-        keeps its RepoDigest), so offline teardown/clean resolve it locally
+        ``docker run --rm ... oss-crs-alpine ...`` to delete/measure root-owned
+        files during run teardown and clean. Those run regardless of LLM mode, so
+        this is pulled unconditionally. The pinned digest is tagged with
+        ``OSS_CRS_ALPINE_TAG`` so offline teardown/clean resolve it locally
         instead of pulling per invocation.
         """
 
@@ -689,7 +689,7 @@ class CRSCompose:
                 ),
             )
         tag_result = subprocess.run(
-            ["docker", "tag", ALPINE_IMAGE, "alpine"],
+            ["docker", "tag", ALPINE_IMAGE, OSS_CRS_ALPINE_TAG],
             capture_output=True,
             text=True,
         )
@@ -698,7 +698,7 @@ class CRSCompose:
                 success=False,
                 error=(
                     f"Failed to tag cleanup image '{ALPINE_IMAGE}' as "
-                    f"'alpine':\n{tag_result.stderr}"
+                    f"'{OSS_CRS_ALPINE_TAG}':\n{tag_result.stderr}"
                 ),
             )
         return TaskResult(success=True)

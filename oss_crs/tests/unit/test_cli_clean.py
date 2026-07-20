@@ -7,14 +7,23 @@ Verifies that:
 3. All expected image patterns are correctly matched.
 """
 
+import docker.errors
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from oss_crs.src.cli.clean import (
     discover_build_target_images,
+    discover_infra_images,
     discover_prepare_images,
     discover_run_images,
+)
+from oss_crs.src.constants import (
+    ALPINE_IMAGE,
+    OSS_CRS_ALPINE_TAG,
+    OSS_CRS_DEPS_IMAGE,
+    OSS_CRS_INTERNAL_LLM_IMAGES,
+    OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
 )
 from oss_crs.src.workdir import BuildEntry, RunEntry, WorkDir
 
@@ -332,8 +341,6 @@ class TestTargetImageDiscovery:
         target = MagicMock()
         target.get_docker_image_name.return_value = "oss-fuzz-target:address"
 
-        import docker.errors
-
         with patch("oss_crs.src.cli.clean.docker") as mock_docker:
             mock_docker.errors = docker.errors
             client = mock_docker.from_env.return_value
@@ -559,6 +566,36 @@ class TestCrossConfigIsolation:
 
 
 class TestPrepareImageDiscovery:
+    def test_infra_images_include_oss_crs_deps(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = False
+        result = discover_infra_images(crs_compose)
+        assert f"{OSS_CRS_DEPS_IMAGE}:latest" in result
+        assert OSS_CRS_ALPINE_TAG in result
+
+    def test_infra_images_include_internal_llm(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = True
+        crs_compose.llm.mode = "internal"
+        result = discover_infra_images(crs_compose)
+        for tag in OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES.values():
+            assert tag in result
+        for tag in OSS_CRS_INTERNAL_LLM_IMAGES.values():
+            assert tag in result
+
+    def test_infra_images_exclude_internal_llm_when_not_internal(self):
+        crs_compose = MagicMock()
+        crs_compose.crs_list = []
+        crs_compose.llm.exists.return_value = True
+        crs_compose.llm.mode = "external"
+        result = discover_infra_images(crs_compose)
+        for tag in OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES.values():
+            assert tag not in result
+        for tag in OSS_CRS_INTERNAL_LLM_IMAGES.values():
+            assert tag not in result
+
     def test_returns_existing_images_from_bake_tags(self):
         crs = MagicMock()
         crs.name = "atlantis-c"
@@ -566,8 +603,6 @@ class TestPrepareImageDiscovery:
 
         compose = MagicMock()
         compose.crs_list = [crs]
-
-        import docker.errors
 
         with patch("oss_crs.src.cli.clean.docker") as mock_docker:
             mock_docker.errors = docker.errors
@@ -602,8 +637,15 @@ class TestPrepareImageDiscovery:
             patch("oss_crs.src.cli.clean.docker") as mock_docker,
             patch("oss_crs.src.cli.clean.log_warning") as mock_warn,
         ):
+            mock_docker.errors = docker.errors
             client = mock_docker.from_env.return_value
-            client.images.get.return_value = _make_image(["roboduck:latest"])
+
+            def fake_get(tag):
+                if tag == "roboduck:latest":
+                    return _make_image([tag])
+                raise docker.errors.ImageNotFound("nope")
+
+            client.images.get.side_effect = fake_get
 
             result = discover_prepare_images(compose)
 
@@ -613,7 +655,7 @@ class TestPrepareImageDiscovery:
         # Healthy CRS images are still discovered
         assert result == ["roboduck:latest"]
 
-    def test_empty_when_no_bake_tags(self):
+    def test_empty_when_no_prepare_images_exist(self):
         crs = MagicMock()
         crs.name = "atlantis-c"
         crs.get_bake_image_tags.return_value = []
@@ -621,10 +663,27 @@ class TestPrepareImageDiscovery:
         compose = MagicMock()
         compose.crs_list = [crs]
 
-        with patch("oss_crs.src.cli.clean.docker"):
+        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+            mock_docker.errors = docker.errors
+            mock_docker.from_env.return_value.images.get.side_effect = (
+                docker.errors.ImageNotFound("nope")
+            )
             result = discover_prepare_images(compose)
 
         assert result == []
+
+    def test_includes_existing_infra_images(self):
+        compose = MagicMock()
+        compose.crs_list = []
+        compose.llm.exists.return_value = False
+
+        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
+            client = mock_docker.from_env.return_value
+            client.images.get.return_value = _make_image(["oss-crs-deps:latest"])
+
+            result = discover_prepare_images(compose)
+
+        assert "oss-crs-deps:latest" in result
 
 
 # ---------------------------------------------------------------------------
