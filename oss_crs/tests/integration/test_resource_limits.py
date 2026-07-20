@@ -103,6 +103,19 @@ def test_run_enforces_memory_limits_in_active_mode(
     run_id = "resource-run"
     expected_memory = parse_memory("192M")
 
+    # The run modules (fuzzer/analyzer/monitor) are target-independent, so their
+    # images are built during prepare. Run it first or the run phase has no
+    # images to start and produces no memory logs.
+    prepare_result = cli_runner(
+        "prepare",
+        "--compose-file",
+        str(dummy_compose_file),
+        "--work-dir",
+        str(work_dir),
+        timeout=300,
+    )
+    assert prepare_result.returncode == 0, f"prepare failed: {prepare_result.stderr}"
+
     build_result = cli_runner(
         "build-target",
         "--compose-file",
@@ -187,6 +200,18 @@ def test_containers_within_crs_share_memory_limit(
     """
     build_id = "shared-mem-build"
     run_id = "shared-mem-run"
+
+    # Target-independent run modules are built during prepare; run it first so
+    # the run phase has images to start.
+    prepare_result = cli_runner(
+        "prepare",
+        "--compose-file",
+        str(dummy_compose_file),
+        "--work-dir",
+        str(work_dir),
+        timeout=300,
+    )
+    assert prepare_result.returncode == 0, f"prepare failed: {prepare_result.stderr}"
 
     build_result = cli_runner(
         "build-target",
@@ -418,6 +443,18 @@ def test_multi_crs_different_resource_limits(
     """
     build_id = "multi-crs-build"
     run_id = "multi-crs-run"
+
+    # Target-independent run modules are built during prepare; run it first so
+    # the run phase has images to start.
+    prepare_result = cli_runner(
+        "prepare",
+        "--compose-file",
+        str(multi_crs_compose_file),
+        "--work-dir",
+        str(work_dir),
+        timeout=300,
+    )
+    assert prepare_result.returncode == 0, f"prepare failed: {prepare_result.stderr}"
 
     build_result = cli_runner(
         "build-target",
