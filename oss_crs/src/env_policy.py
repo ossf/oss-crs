@@ -47,6 +47,61 @@ def additional_env_value_is_resolved(value: object, host_envs: set[str]) -> bool
     return not unresolved_env_references(value, host_envs)
 
 
+# Substitution variant of ENV_INTERPOLATION_RE that also captures the
+# default/alternate word so ${VAR:-default} style references can be resolved.
+_ENV_SUBST_RE = re.compile(
+    r"(?<!\$)\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:(?P<op>:?[-?+])(?P<word>[^}]*))?\}"
+    r"|(?P<simple>[A-Za-z_][A-Za-z0-9_]*))"
+)
+
+
+def resolve_env_references(
+    value: object, host_env: Mapping[str, str]
+) -> tuple[str, set[str]]:
+    """Substitute ``$VAR`` / ``${VAR}`` references in ``value`` from ``host_env``.
+
+    Follows shell/compose semantics for the ``${VAR:-default}`` / ``${VAR-default}``,
+    ``${VAR:+alt}`` / ``${VAR+alt}`` and ``${VAR:?msg}`` / ``${VAR?msg}`` operators
+    (``:`` variants treat an empty value as unset). ``$$`` is left untouched.
+
+    Returns ``(resolved_string, unresolved_names)`` where ``unresolved_names`` are
+    bare references with no default that are absent from ``host_env`` — the caller
+    can warn about these and leave them for downstream resolution.
+
+    Used to bake controller-side environment values (e.g. ``CLAUDE_CODE_OAUTH_TOKEN``)
+    into a compose that will run on a *remote* host whose shell does not carry the
+    launching environment.
+    """
+    unresolved: set[str] = set()
+
+    def _repl(match: "re.Match[str]") -> str:
+        name = match.group("braced") or match.group("simple")
+        op = match.group("op")
+        word = match.group("word") or ""
+        raw = host_env.get(name)
+        set_any = raw is not None
+        set_nonempty = bool(raw)
+        if op in ("-", ":-"):
+            use = set_nonempty if op == ":-" else set_any
+            return raw if use and raw is not None else word
+        if op in ("+", ":+"):
+            use = set_nonempty if op == ":+" else set_any
+            return word if use else ""
+        if op in ("?", ":?"):
+            use = set_nonempty if op == ":?" else set_any
+            if use and raw is not None:
+                return raw
+            unresolved.add(name)
+            return match.group(0)
+        if raw is not None:
+            return raw
+        unresolved.add(name)
+        return match.group(0)
+
+    return _ENV_SUBST_RE.sub(_repl, str(value)), unresolved
+
+
 def _merge_envs(*env_maps: Mapping[str, str] | None) -> dict[str, str]:
     merged: dict[str, str] = {}
     for env_map in env_maps:

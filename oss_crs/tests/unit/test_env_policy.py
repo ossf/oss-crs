@@ -4,8 +4,28 @@ from oss_crs.src.env_policy import (
     build_prepare_env,
     build_run_service_env,
     build_target_builder_env,
+    resolve_env_references,
     unresolved_env_references,
 )
+
+
+def test_resolve_env_references_semantics() -> None:
+    host = {"TOKEN": "sk-secret", "EMPTY": ""}
+    # Present var is substituted; nothing left for downstream resolution.
+    assert resolve_env_references("${TOKEN}", host) == ("sk-secret", set())
+    assert resolve_env_references("$TOKEN", host) == ("sk-secret", set())
+    # Absent bare reference is preserved and reported as unresolved.
+    assert resolve_env_references("${MISSING}", host) == ("${MISSING}", {"MISSING"})
+    # Default operators: ':-' treats empty as unset, '-' treats empty as set.
+    assert resolve_env_references("${MISSING:-d}", host) == ("d", set())
+    assert resolve_env_references("${EMPTY:-d}", host) == ("d", set())
+    assert resolve_env_references("${EMPTY-d}", host) == ("", set())
+    # Alternate operator.
+    assert resolve_env_references("${TOKEN:+set}", host) == ("set", set())
+    assert resolve_env_references("${MISSING:+set}", host) == ("", set())
+    # Literals and escaped '$$' are untouched.
+    assert resolve_env_references("plain", host) == ("plain", set())
+    assert resolve_env_references("a$$b", host) == ("a$$b", set())
 
 
 def test_prepare_env_keeps_version_pinned() -> None:
