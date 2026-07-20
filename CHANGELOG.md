@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
 - `--offline` flag for all subcommands: disables git fetch
 - `oss-crs build-target` now validates `--bug-candidate`/`--bug-candidate-dir` the same way `oss-crs run` does: a missing path, or a directory passed to `--bug-candidate` (or a file passed to `--bug-candidate-dir`), fails before any container starts instead of being silently ignored.
