@@ -63,10 +63,26 @@ class TestBuildConfig:
 class TestCRSRunPhaseModule:
     """Tests for CRSRunPhaseModule - run phase service configuration."""
 
-    def test_module_requires_dockerfile_always(self):
-        """All modules must specify a Dockerfile."""
-        with pytest.raises(ValidationError, match="dockerfile is required"):
+    def test_module_requires_dockerfile(self):
+        """A module must specify a dockerfile."""
+        with pytest.raises(ValidationError):
             CRSRunPhaseModule()
+
+    def test_module_defaults_to_target_independent(self):
+        """Without target_dependent the image is built at prepare."""
+        module = CRSRunPhaseModule(dockerfile="run.Dockerfile")
+        assert module.dockerfile == "run.Dockerfile"
+        assert module.target_dependent is False
+
+    def test_module_target_dependent_flag(self):
+        """target_dependent opts the module into the build-target phase."""
+        module = CRSRunPhaseModule(dockerfile="run.Dockerfile", target_dependent=True)
+        assert module.target_dependent is True
+
+    def test_module_accepts_infra_reference(self):
+        """An oss-crs-infra:<module> reference is a valid dockerfile."""
+        module = CRSRunPhaseModule(dockerfile="oss-crs-infra:runner-sidecar")
+        assert module.dockerfile == "oss-crs-infra:runner-sidecar"
 
     def test_rejects_invalid_additional_env_key(self):
         with pytest.raises(ValidationError, match="invalid env var key"):

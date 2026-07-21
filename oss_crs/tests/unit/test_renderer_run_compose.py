@@ -63,6 +63,7 @@ def _make_crs(
     """
     module_config = SimpleNamespace(
         dockerfile="patcher.Dockerfile",
+        target_dependent=False,
         additional_env={},
     )
     config = SimpleNamespace(
@@ -109,6 +110,7 @@ def _make_target(
     return SimpleNamespace(
         get_target_env=lambda: {"harness": harness},
         get_docker_image_name=lambda: image_name,
+        get_repo_hash=lambda: image_name.rsplit(":", 1)[-1],
         base_runner_image="gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04",
         proj_path=tmp_path / "proj",
         repo_path=tmp_path / "repo",
@@ -128,10 +130,15 @@ def _render(crs_compose, target, tmp_path: Path):
     )
 
 
-def test_runner_module_receives_base_runner_image_build_arg(
+def test_target_independent_module_renders_consume_only_image(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Runner build args carry the OS-matched base-runner image (issue #101)."""
+    """A default (target_dependent: false) run module is consume-only.
+
+    The run compose references the prepare-built image by its framework-derived
+    tag (``oss-crs-runner:<crs>-<module>``) and emits no ``build:`` block; the
+    base-runner build arg is applied at build time, not at run time.
+    """
     _patch_renderer(monkeypatch)
 
     crs = _make_crs(tmp_path, "crs-libfuzzer")
@@ -140,13 +147,9 @@ def test_runner_module_receives_base_runner_image_build_arg(
 
     rendered, _ = _render(crs_compose, target, tmp_path)
 
-    build_args = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]["build"][
-        "args"
-    ]
-    assert "target_base_image=memcached:abc123" in build_args
-    assert (
-        "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04" in build_args
-    )
+    service = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]
+    assert service["image"] == "oss-crs-runner:crs-libfuzzer-patcher"
+    assert "build" not in service
 
 
 def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
@@ -185,6 +188,39 @@ def test_single_bug_fixing_run_keeps_fetch_mount_and_exchange_sidecar(
     # Always-on sidecar services (CFG-03)
     assert "oss-crs-builder-sidecar" in services
     assert "oss-crs-runner-sidecar" in services
+
+
+def test_infra_sidecars_use_stable_run_independent_image_tags(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Infra sidecars reference stable, run-independent image tags.
+
+    The tags must not embed the per-run project name, so that images built
+    once at prepare time are reused across runs (and offline runs find them).
+    """
+    from oss_crs.src.constants import OSS_CRS_INFRA_SIDECAR_IMAGES
+
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-codex")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path, has_repo=False)
+
+    rendered, _warnings = _render(crs_compose, target, tmp_path)
+    services = yaml.safe_load(rendered)["services"]
+
+    expected = OSS_CRS_INFRA_SIDECAR_IMAGES
+    assert services["oss-crs-exchange"]["image"] == expected["exchange"]
+    assert services["oss-crs-builder-sidecar"]["image"] == expected["builder-sidecar"]
+    assert services["oss-crs-runner-sidecar"]["image"] == expected["runner-sidecar"]
+
+    # None of the infra sidecar tags embed the per-run project name ("proj").
+    for svc in (
+        "oss-crs-exchange",
+        "oss-crs-builder-sidecar",
+        "oss-crs-runner-sidecar",
+    ):
+        assert "proj" not in services[svc]["image"]
 
 
 @pytest.mark.parametrize(
@@ -321,6 +357,7 @@ def _make_triage_crs(tmp_path: Path, name: str) -> SimpleNamespace:
 
     module_config = SimpleNamespace(
         dockerfile="triage.Dockerfile",
+        target_dependent=False,
         additional_env={},
     )
     config = SimpleNamespace(
@@ -349,6 +386,7 @@ def _make_bug_finding_crs(tmp_path: Path, name: str) -> SimpleNamespace:
 
     module_config = SimpleNamespace(
         dockerfile="finder.Dockerfile",
+        target_dependent=False,
         additional_env={},
     )
     config = SimpleNamespace(
@@ -680,3 +718,80 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
     assert any(
         f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v for v in finder_volumes
     ), f"finder must mount raw patches; got: {finder_volumes}"
+
+
+# ---------------------------------------------------------------------------
+# Consume-only run images: modules render `image:` and never a `build:` block
+# ---------------------------------------------------------------------------
+
+
+def _make_run_module_crs(
+    tmp_path: Path, name: str, *, target_dependent: bool
+) -> SimpleNamespace:
+    """A bug-finding CRS with a single consume-only run module."""
+    from oss_crs.src.config.crs import CRSType
+
+    module_config = SimpleNamespace(
+        dockerfile="lsp.Dockerfile",
+        target_dependent=target_dependent,
+        additional_env={},
+    )
+    config = SimpleNamespace(
+        version="1.0",
+        type=[CRSType.BUG_FINDING],
+        is_bug_fixing=False,
+        is_bug_fixing_ensemble=False,
+        is_triage=False,
+        is_seed_filter=False,
+        crs_run_phase=SimpleNamespace(modules={"lsp": module_config}),
+        target_build_phase=None,
+    )
+    return SimpleNamespace(
+        name=name,
+        crs_path=tmp_path,
+        resource=SimpleNamespace(
+            cpuset="2-7", memory="8G", additional_env={}, llm_budget=1
+        ),
+        config=config,
+    )
+
+
+def test_target_dependent_module_renders_hashed_image_no_build(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A target_dependent module references the build-target image by hash.
+
+    The framework-derived tag embeds the target's repo hash so the rendered tag
+    matches what the build-target phase produced; no ``build:`` block is emitted.
+    """
+    _patch_renderer(monkeypatch)
+
+    crs = _make_run_module_crs(tmp_path, "crs-shelley", target_dependent=True)
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    # repo hash is the part after ':' in the docker image name.
+    target = _make_target(tmp_path, image_name="proj:deadbeef99")
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    service = yaml.safe_load(rendered)["services"]["crs-shelley_lsp"]
+    assert service["image"] == "oss-crs-runner:crs-shelley-lsp-deadbeef99"
+    assert "build" not in service
+
+
+def test_target_independent_module_renders_unhashed_image_no_build(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A default module references the prepare image (no target hash)."""
+    _patch_renderer(monkeypatch)
+
+    crs = _make_run_module_crs(tmp_path, "crs-shelley", target_dependent=False)
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    target = _make_target(tmp_path, image_name="proj:deadbeef99")
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    service = yaml.safe_load(rendered)["services"]["crs-shelley_lsp"]
+    assert service["image"] == "oss-crs-runner:crs-shelley-lsp"
+    assert "build" not in service

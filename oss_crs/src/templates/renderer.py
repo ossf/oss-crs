@@ -9,6 +9,8 @@ from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
 from ..constants import (
     LITELLM_IMAGE,
     LITELLM_INTERNAL_URL,
+    OSS_CRS_INFRA_SIDECAR_IMAGES,
+    OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
     POSTGRES_HOST,
     POSTGRES_IMAGE,
     POSTGRES_PORT,
@@ -16,7 +18,11 @@ from ..constants import (
 )
 from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
-from ..utils import generate_random_key, preserved_builder_image_name
+from ..utils import (
+    generate_random_key,
+    preserved_builder_image_name,
+    preserved_runner_image_name,
+)
 
 if TYPE_CHECKING:
     from ..crs import CRS
@@ -378,7 +384,18 @@ def render_run_crs_compose_docker_compose(
         "build_id": build_id,
         "sanitizer": sanitizer,
         "oss_crs_infra_root_path": str(OSS_CRS_ROOT_PATH / "oss-crs-infra"),
+        "infra_sidecar_images": {
+            **OSS_CRS_INFRA_SIDECAR_IMAGES,
+            **OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
+        },
         "resolve_dockerfile": _resolve_module_dockerfile,
+        "run_module_image": lambda crs_name, module_name, module_config: (
+            preserved_runner_image_name(
+                crs_name,
+                module_name,
+                target.get_repo_hash() if module_config.target_dependent else None,
+            )
+        ),
         "fetch_dir": fetch_dir,
         "exchange_dir": exchange_dir,
         "processed_exchange_dir": processed_exchange_dir,

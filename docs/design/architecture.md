@@ -79,8 +79,8 @@ CRS Compose is the top-level orchestrator that manages the entire lifecycle of a
 
 | Phase | Command | Description |
 |---|---|---|
-| **Prepare** | `oss-crs prepare` | Pulls CRS source repositories, builds Docker images using `docker buildx bake` |
-| **Build Target** | `oss-crs build-target` | Builds the target project (OSS-Fuzz format) and runs each CRS's target build pipeline |
+| **Prepare** | `oss-crs prepare` | Pulls CRS source repositories and builds target-independent Docker images |
+| **Build Target** | `oss-crs build-target` | Builds the target project (OSS-Fuzz format), runs each CRS's target build pipeline, and builds any target-dependent run images once per target |
 | **Run** | `oss-crs run` | Launches all CRSs and infrastructure via Docker Compose |
 
 **Configuration (`crs-compose.yaml`)** file declares:
@@ -102,7 +102,7 @@ Every CRS repository contains an `oss-crs/crs.yaml` file that declares:
 
 - **Prepare phase** — An HCL file for `docker buildx bake` to build the CRS images
 - **Target build phase** — A list of build steps, each with a Dockerfile and expected outputs
-- **Run phase** — A set of named modules (containers) that constitute the CRS at runtime
+- **Run phase** — A set of named modules (containers) that constitute the CRS at runtime. Each module is built from a `dockerfile:` ahead of the run (by prepare for target-independent modules, or build-target for `target_dependent: true` modules) and consumed read-only at run time (see [docs/config/crs.md](../config/crs.md#crsrunphasemodule))
 - **Supported targets** — Languages, sanitizers, and architectures the CRS supports
 - **Required LLMs** — Model names the CRS needs (validated against the LiteLLM config before launch)
 - **Required Inputs** — Input channels the CRS depends on (validated before container launch; e.g., `diff`, `bug-candidate`)

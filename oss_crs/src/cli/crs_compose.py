@@ -38,6 +38,12 @@ def add_common_arguments(parser):
         default=DEFAULT_WORK_DIR,
         help="Working directory for CRS Compose operations",
     )
+    parser.add_argument(
+        "--offline",
+        required=False,
+        help="Disables network access for CRS Compose operations",
+        action="store_true",
+    )
 
 
 def add_target_arguments(parser):
@@ -834,7 +840,10 @@ def cli() -> bool | int:
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command in ("artifacts", "archive")
     crs_compose = CRSCompose.from_yaml_file(
-        args.compose_file, args.work_dir, skip_crs_init=skip_crs_init
+        args.compose_file,
+        args.work_dir,
+        skip_crs_init=skip_crs_init,
+        offline=args.offline,
     )
 
     if args.command == "prepare":

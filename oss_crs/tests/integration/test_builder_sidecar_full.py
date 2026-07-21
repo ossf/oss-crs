@@ -59,7 +59,7 @@ def test_builder_sidecar_full(cli_runner, sidecar_full_compose, mock_repo):
         "prepare",
         "--compose-file",
         compose,
-        timeout=120,
+        timeout=600,
     )
     assert result.returncode == 0, f"prepare failed:\n{result.stdout[-2000:]}"
 

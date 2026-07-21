@@ -386,23 +386,6 @@ class TestRunImageDiscovery:
             "crs_compose_1700000000ab-litellm:latest",
         }
 
-    def test_matches_litellm_key_gen_image(self):
-        compose = _make_crs_compose(
-            crs_names=["atlantis-c"],
-            build_ids=[],
-            run_ids=["run123"],
-        )
-        images = [
-            _make_image(["run123-oss-crs-litellm-key-gen:latest"]),
-        ]
-        with patch("oss_crs.src.cli.clean.docker") as mock_docker:
-            client = mock_docker.from_env.return_value
-            client.images.list.return_value = images
-
-            result = discover_run_images(compose)
-
-        assert result == ["run123-oss-crs-litellm-key-gen:latest"]
-
     def test_ignores_images_from_different_run_id(self):
         compose = _make_crs_compose(
             crs_names=["atlantis-c"],

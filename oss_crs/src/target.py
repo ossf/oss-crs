@@ -233,7 +233,7 @@ class Target:
         return hashlib.sha256(key_source.encode()).hexdigest()[:12]
 
     def get_docker_image_name(self) -> str:
-        repo_hash = self.__get_repo_hash()
+        repo_hash = self.get_repo_hash()
         return f"{self.name}:{repo_hash}"
 
     @property
@@ -255,7 +255,7 @@ class Target:
     def build_docker_image(self) -> str | None:
         if self._has_repo and not self.init_repo():
             return None
-        repo_hash = self.__get_repo_hash()
+        repo_hash = self.get_repo_hash()
         image_tag = self.get_docker_image_name()
 
         # Skip rebuild if the image already exists locally
@@ -288,7 +288,6 @@ class Target:
                 return self.__build_docker_image_plain(image_tag, progress)
 
             head_items = [
-                ui.bold(f"Proj hash: {repo_hash} (calculated from {self.proj_path})"),
                 ui.bold(f"Image tag: {image_tag}"),
             ]
 
@@ -378,7 +377,7 @@ class Target:
                 hasher.update(fp.read_bytes())
         return hasher.hexdigest()[:12]
 
-    def __get_repo_hash(self) -> str:
+    def get_repo_hash(self) -> str:
         """
         Get a hash representing the current state of the repository.
 

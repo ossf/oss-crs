@@ -12,7 +12,13 @@ from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
 from .templates import renderer
-from .utils import TmpDockerCompose, log_dim, log_warning, preserved_builder_image_name
+from .utils import (
+    TmpDockerCompose,
+    log_dim,
+    log_warning,
+    preserved_builder_image_name,
+    preserved_runner_image_name,
+)
 from .workdir import WorkDir
 
 CRS_YAML_PATH = "oss-crs/crs.yaml"
@@ -24,6 +30,7 @@ def init_crs_repo(
     branch: str,
     dest_path: Path,
     skip_if_exists: bool = False,
+    offline: bool = False,
 ) -> TaskResult:
     # Use file lock to prevent race conditions when multiple runs access same CRS repo
     lock_path = dest_path.parent / f".{name}.lock"
@@ -33,40 +40,51 @@ def init_crs_repo(
             return TaskResult(success=True)
 
         tasks = []
-        if dest_path.exists():
-            tasks = [
-                (
-                    "Git Fetch",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
-                        cwd=dest_path,
-                    ),
-                ),
-                (
-                    "Git Reset",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=["git", "reset", "--hard", f"origin/{branch}"],
-                        cwd=dest_path,
-                    ),
-                ),
-            ]
+
+        fetch_task = (
+            "Git Fetch",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=["git", "fetch", "--recurse-submodules", "origin", branch],
+                cwd=dest_path,
+            ),
+        )
+
+        reset_task = (
+            "Git Reset",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=["git", "reset", "--hard", f"origin/{branch}"],
+                cwd=dest_path,
+            ),
+        )
+
+        clone_task = (
+            "Cloning CRS repository",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=[
+                    "git",
+                    "clone",
+                    "--recurse-submodules",
+                    "--branch",
+                    branch,
+                    repo_url,
+                    str(dest_path),
+                ]
+            ),
+        )
+
+        if offline and not dest_path.exists():
+            return TaskResult(
+                success=False,
+                error=f"Repository at {dest_path} does not exist and --offline is enabled.",
+            )
+        elif offline and dest_path.exists():
+            tasks.append(reset_task)
+        elif not offline and dest_path.exists():
+            tasks.append(fetch_task)
+            tasks.append(reset_task)
         else:
-            tasks = [
-                (
-                    "Cloning CRS repository",
-                    lambda progress: progress.run_command_with_streaming_output(
-                        cmd=[
-                            "git",
-                            "clone",
-                            "--recurse-submodules",
-                            "--branch",
-                            branch,
-                            repo_url,
-                            str(dest_path),
-                        ]
-                    ),
-                ),
-            ]
+            tasks.append(clone_task)
+
         with MultiTaskProgress(tasks, title=f"Init CRS: {name}") as progress:
             return progress.run_added_tasks()
 
@@ -85,6 +103,7 @@ class CRS:
         work_dir: "WorkDir",
         crs_compose_env: CRSComposeEnv,
         skip_init: bool = False,
+        offline: bool = False,
     ) -> "CRS":
         source = entry.source
         if source is None:
@@ -105,6 +124,7 @@ class CRS:
             branch,
             path,
             skip_if_exists=skip_init,
+            offline=offline,
         )
         if init_result.success:
             return cls(name, path, work_dir, entry, crs_compose_env)
@@ -267,6 +287,26 @@ class CRS:
         Returns:
             True if bake succeeded, False otherwise.
         """
+        bake_result = self.__prepare_bake(
+            multi_task_progress,
+            publish=publish,
+            docker_registry=docker_registry,
+            no_pull=no_pull,
+        )
+        if not bake_result.success:
+            return bake_result
+        # After baking (or pulling) the CRS images, build the target-independent
+        # run-phase images so the run phase can consume them read-only. Target-
+        # dependent run images are built later by build_target.
+        return self.__prepare_run_images(multi_task_progress)
+
+    def __prepare_bake(
+        self,
+        multi_task_progress: MultiTaskProgress,
+        publish: bool = False,
+        docker_registry: Optional[str] = None,
+        no_pull: bool = False,
+    ) -> "TaskResult":
         if self.config.prepare_phase is None:
             return TaskResult(success=True)
 
@@ -327,6 +367,108 @@ class CRS:
             cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
         )
 
+    def __target_independent_run_modules(self):
+        """Run-phase modules built by the prepare phase (``target_dependent: false``)."""
+        return [
+            (name, cfg)
+            for name, cfg in self.config.crs_run_phase.modules.items()
+            if not cfg.target_dependent
+        ]
+
+    def __target_dependent_run_modules(self):
+        """Run-phase modules built by the build-target phase (``target_dependent: true``).
+
+        These images depend on the specific target (e.g. ``FROM
+        ${target_base_image}``) and are keyed by the target hash.
+        """
+        return [
+            (name, cfg)
+            for name, cfg in self.config.crs_run_phase.modules.items()
+            if cfg.target_dependent
+        ]
+
+    def __prepare_run_images(
+        self, multi_task_progress: MultiTaskProgress
+    ) -> "TaskResult":
+        """Build all target-independent run-phase images during prepare."""
+        modules = self.__target_independent_run_modules()
+        if not modules:
+            return TaskResult(success=True)
+        for module_name, module_config in modules:
+            image_tag = preserved_runner_image_name(self.name, module_name)
+            multi_task_progress.add_task(
+                f"run image: {module_name}",
+                lambda p, mn=module_name, mc=module_config, tag=image_tag: (
+                    self.__build_run_image(
+                        module_name=mn,
+                        module_config=mc,
+                        image_tag=tag,
+                        progress=p,
+                        scope=f"{self.name}:prepare:{mn}",
+                    )
+                ),
+            )
+        return multi_task_progress.run_added_tasks()
+
+    def __build_run_image(
+        self,
+        module_name: str,
+        module_config,
+        image_tag: str,
+        progress: MultiTaskProgress,
+        scope: str,
+        build_args: Optional[dict[str, str]] = None,
+    ) -> "TaskResult":
+        """Build (and tag) one run-phase image directly with ``docker buildx build``.
+
+        The framework owns the image tag (``preserved_runner_image_name``) and
+        builds the module's run Dockerfile directly, exposing the framework
+        libCRS as the ``libcrs`` build context (mirroring the run compose).
+        Skips the build when the image already exists locally.
+        """
+        inspect = subprocess.run(
+            ["docker", "image", "inspect", image_tag],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if inspect.returncode == 0:
+            progress.add_note(f"{image_tag} already exists; skipping build")
+            return TaskResult(success=True)
+
+        dockerfile = renderer._resolve_module_dockerfile(
+            self.crs_path, module_config.dockerfile
+        )
+        env = build_prepare_env(
+            base_env=os.environ.copy(),
+            crs_additional_env=(
+                self.resource.additional_env if self.resource else None
+            ),
+            version=self.config.version,
+            scope=scope,
+        ).effective_env
+
+        args = {"crs_version": self.config.version, **(build_args or {})}
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "-f",
+            dockerfile,
+            "-t",
+            image_tag,
+            "--build-context",
+            f"libcrs={renderer.LIBCRS_PATH}",
+            "--load",
+        ]
+        for key, value in args.items():
+            cmd += ["--build-arg", f"{key}={value}"]
+        cmd.append(str(self.crs_path))
+
+        info_text = f"Module: {module_name}\nImage: {image_tag}"
+        return progress.run_command_with_streaming_output(
+            cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
+        )
+
     def __is_supported_target(self, target: Target) -> bool:
         _ = target
         return True
@@ -344,41 +486,64 @@ class CRS:
         input_hash: Optional[str] = None,
         target_source_path: Optional[Path] = None,
     ) -> "TaskResult":
-        if (
-            self.config.target_build_phase is None
-            or not self.config.target_build_phase.builds
-        ):
-            return TaskResult(success=True)
         if not self.__is_supported_target(target):
             return TaskResult(
                 success=True,
                 output=f"Skipping target {target.name} for CRS {self.name} as it is not supported.",
             )
-        builds = self.config.target_build_phase.builds
-        if not builds:
-            return TaskResult(success=True)
-        build_work_dir = self.work_dir.get_crs_build_dir(
-            self.name, target, build_id, sanitizer
+        builds = (
+            self.config.target_build_phase.builds
+            if self.config.target_build_phase is not None
+            else []
         )
-        for build_config in builds:
-            build_name = build_config.name
+        run_image_modules = self.__target_dependent_run_modules()
+        if not builds and not run_image_modules:
+            return TaskResult(success=True)
+        if builds:
+            build_work_dir = self.work_dir.get_crs_build_dir(
+                self.name, target, build_id, sanitizer
+            )
+            for build_config in builds:
+                build_name = build_config.name
+                progress.add_task(
+                    build_name,
+                    lambda p, build_name=build_name, build_config=build_config: (
+                        self.__build_target_one(
+                            target,
+                            target_base_image,
+                            build_name,
+                            build_config,
+                            build_work_dir,
+                            build_id,
+                            sanitizer,
+                            p,
+                            build_fetch_dir=build_fetch_dir,
+                            diff_path=diff_path,
+                            bug_candidate_dir=bug_candidate_dir,
+                            input_hash=input_hash,
+                            target_source_path=target_source_path,
+                        )
+                    ),
+                )
+        for module_name, module_config in run_image_modules:
+            target_repo_hash = target.get_docker_image_name().rsplit(":", 1)[-1]
+            image_tag = preserved_runner_image_name(
+                self.name, module_name, target_repo_hash
+            )
+            build_args = {
+                "target_base_image": target_base_image,
+                "base_runner_image": target.base_runner_image,
+            }
             progress.add_task(
-                build_name,
-                lambda p, build_name=build_name, build_config=build_config: (
-                    self.__build_target_one(
-                        target,
-                        target_base_image,
-                        build_name,
-                        build_config,
-                        build_work_dir,
-                        build_id,
-                        sanitizer,
-                        p,
-                        build_fetch_dir=build_fetch_dir,
-                        diff_path=diff_path,
-                        bug_candidate_dir=bug_candidate_dir,
-                        input_hash=input_hash,
-                        target_source_path=target_source_path,
+                f"run image: {module_name}",
+                lambda p, mn=module_name, mc=module_config, tag=image_tag, args=build_args: (
+                    self.__build_run_image(
+                        module_name=mn,
+                        module_config=mc,
+                        image_tag=tag,
+                        progress=p,
+                        scope=f"{self.name}:build-target:{mn}",
+                        build_args=args,
                     )
                 ),
             )
