@@ -102,7 +102,7 @@ Every CRS repository contains an `oss-crs/crs.yaml` file that declares:
 
 - **Prepare phase** — An HCL file for `docker buildx bake` to build the CRS images
 - **Target build phase** — A list of build steps, each with a Dockerfile and expected outputs
-- **Run phase** — A set of named modules (containers) that constitute the CRS at runtime. Each module is built from a `dockerfile:` ahead of the run (by prepare for target-independent modules, or build-target for `target_dependent: true` modules) and consumed read-only at run time (see [docs/config/crs.md](../config/crs.md#crsrunphasemodule))
+- **Run phase** — A set of named modules (containers) that constitute the CRS at runtime. By default, each module is built by build-target once per target. Modules that set `target_dependent: false` are built once during prepare. Run images are consumed read-only (see [docs/config/crs.md](../config/crs.md#crsrunphasemodule)).
 - **Supported targets** — Languages, sanitizers, and architectures the CRS supports
 - **Required LLMs** — Model names the CRS needs (validated against the LiteLLM config before launch)
 - **Required Inputs** — Input channels the CRS depends on (validated before container launch; e.g., `diff`, `bug-candidate`)

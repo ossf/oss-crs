@@ -327,7 +327,7 @@ def test_prepare_no_pull_skips_pull_and_builds(tmp_path):
 
 def _write_run_module_crs_yaml(crs_root, *, target_dependent: bool):
     """A crs.yaml whose single run module is built directly from a Dockerfile."""
-    flag = "\n            target_dependent: true" if target_dependent else ""
+    flag = f"\n            target_dependent: {str(target_dependent).lower()}"
     crs_yaml = textwrap.dedent(
         f"""\
         name: test-crs
@@ -465,8 +465,8 @@ def test_target_dependent_run_modules_selects_flagged_module(tmp_path):
     assert [name for name, _ in modules] == ["lsp"]
 
 
-def test_target_dependent_run_modules_excludes_default_modules(tmp_path):
-    """Default (target-independent) run modules are built by prepare."""
+def test_target_dependent_run_modules_excludes_opted_out_modules(tmp_path):
+    """Explicitly target-independent run modules are built by prepare."""
     crs = _make_run_module_crs(tmp_path, target_dependent=False)
     assert crs._CRS__target_dependent_run_modules() == []
     independent = crs._CRS__target_independent_run_modules()

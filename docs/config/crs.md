@@ -173,13 +173,13 @@ Every run module is built from a `dockerfile` by the framework ahead of the run 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `dockerfile` | `string` | Yes | - | Path to the Dockerfile (must contain "Dockerfile" or end with `.Dockerfile`). Can use `oss-crs-infra:` prefix for framework-provided services. |
-| `target_dependent` | `bool` | No | `false` | Whether the image depends on the specific target. `false` → built once during **prepare**; `true` → built during **build-target**, once per target. |
+| `target_dependent` | `bool` | No | `true` | Whether the image depends on the specific target. `true` → built during **build-target**, once per target; `false` → built once during **prepare**. |
 | `additional_env` | `dict[string, string]` | No | `{}` | Additional environment variables to pass to the module. Keys must match `[A-Za-z_][A-Za-z0-9_]*`. |
 
 #### Build phase: `target_dependent`
 
-- **`target_dependent: false`** (default) — the image is *target-independent* (e.g. `FROM` a fixed base; the target is mounted at run time, not baked in). The framework builds it once during the **prepare** phase and tags it `oss-crs-runner:<crs>-<module>`. The `crs_version` build-arg and the `libcrs` build context are provided.
-- **`target_dependent: true`** — the image depends on the specific target (e.g. `FROM ${target_base_image}`). The framework builds it during the **build-target** phase, once per target, and tags it `oss-crs-runner:<crs>-<module>-<target_hash>`. In addition to `crs_version` and `libcrs`, the `target_base_image` and `base_runner_image` build-args are provided.
+- **`target_dependent: true`** (default) — the image depends on the specific target (e.g. `FROM ${target_base_image}`). The framework builds it during the **build-target** phase, once per target, and tags it `oss-crs-runner:<crs>-<module>-<target_hash>`. In addition to `crs_version` and `libcrs`, the `target_base_image` and `base_runner_image` build-args are provided.
+- **`target_dependent: false`** — the image is *target-independent* (e.g. `FROM` a fixed base; the target is mounted at run time, not baked in). The framework builds it once during the **prepare** phase and tags it `oss-crs-runner:<crs>-<module>`. The `crs_version` build-arg and the `libcrs` build context are provided.
 
 The `oss-crs-runner:` prefix keeps these images out of the run-time teardown sweep. The images must be resolvable at run time — present locally (from prepare/build-target) or pullable from a registry when the run is online.
 
@@ -187,16 +187,16 @@ The `oss-crs-runner:` prefix keeps these images out of the run-time teardown swe
 
 ```yaml
 crs_run_phase:
-  # Target-independent: built once by prepare.
+  # Target-independent: opt out of the default and build once during prepare.
   fuzzer:
     dockerfile: oss-crs/dockerfiles/runner.Dockerfile
+    target_dependent: false
     additional_env:
       RUNNING_TIME_ENV: "XXX"
-  # Target-dependent: built once per target by build-target
+  # Target-dependent (default): built once per target by build-target
   # (e.g. its Dockerfile is `FROM ${target_base_image}`).
   lsp:
     dockerfile: oss-crs/dockerfiles/lsp.Dockerfile
-    target_dependent: true
 ```
 
 **Note:** Builder and runner sidecars are injected automatically by the framework during the run phase. CRS developers do not need to declare them in `crs_run_phase`. The `BUILDER_MODULE` environment variable is set automatically.
