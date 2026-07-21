@@ -263,7 +263,7 @@ def publish_final_snapshot(
     (``constants.WEBUI_DEFAULT_PORT``); a WebUI on a custom port simply won't
     receive this reconciliation.
     """
-    data_types = ("povs", "seeds", "bug-candidates", "patches", "diffs")
+    data_types = ("povs", "seeds", "bug-candidates", "reports", "patches", "diffs")
 
     def scan(root: Path) -> dict[str, int]:
         return {d: compose.work_dir.count_data_files(root / d) for d in data_types}

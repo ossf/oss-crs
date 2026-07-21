@@ -79,6 +79,7 @@
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .num.povs { color: var(--red); }
   .num.seeds { color: var(--green); }
+  .num.reports { color: var(--orange); }
   .num.patches { color: var(--accent); }
   .num.cov { color: var(--green); }
   .num.cost { color: var(--orange); }
@@ -149,6 +150,7 @@
         <th class="num">Elapsed</th>
         <th class="num">POVs</th>
         <th class="num">Seeds</th>
+        <th class="num">Reports</th>
         <th class="num">Patches</th>
         <th class="num">Coverage</th>
         <th class="num">LLM Cost</th>
@@ -237,6 +239,7 @@ function updateTable(runs) {
       '<td class="num elapsed">' + formatElapsed(r.elapsed_seconds) + '</td>' +
       '<td class="num povs">' + r.povs + '</td>' +
       '<td class="num seeds">' + r.seeds + '</td>' +
+      '<td class="num reports">' + (r.reports || 0) + '</td>' +
       '<td class="num patches">' + r.patches + '</td>' +
       '<td class="num cov">' + (r.coverage_pct != null ? r.coverage_pct + "%" : "-") + '</td>' +
       '<td class="num cost">' + formatCost(r.cost) + '</td>';

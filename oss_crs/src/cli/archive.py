@@ -25,7 +25,7 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
     non_triage_crs = [crs for crs in crs_compose.crs_list if not crs.config.is_triage]
 
     # Collect (arcname, src_path) pairs for each artifact subdir
-    artifact_subdirs = ["povs", "seeds", "patches", "bug-candidates"]
+    artifact_subdirs = ["povs", "seeds", "patches", "bug-candidates", "reports"]
 
     def _add_dir(collected: list, src_dir: Path, arcname_prefix: str) -> None:
         """Recursively add files from src_dir under arcname_prefix."""
@@ -60,6 +60,13 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
             )
             for subdir in ["seeds", "patches", "bug-candidates"]:
                 _add_dir(collected, submit_dir / subdir, subdir)
+        # Reports are generic analysis artifacts; include them from every CRS,
+        # including triage/audit-style CRSs that may emit root-cause reports.
+        for crs in crs_compose.crs_list:
+            submit_dir = work_dir.get_submit_dir(
+                crs.name, target, run_id, sanitizer, create=False
+            )
+            _add_dir(collected, submit_dir / "reports", "reports")
     else:
         # No triage: collect all submitted artifact types from every CRS
         for crs in crs_compose.crs_list:

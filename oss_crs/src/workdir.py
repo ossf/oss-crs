@@ -513,6 +513,7 @@ class WorkDir:
             "seeds": self.count_data_files(submit_dir / "seeds"),
             "patches": self.count_data_files(submit_dir / "patches"),
             "bug_candidates": self.count_data_files(submit_dir / "bug-candidates"),
+            "reports": self.count_data_files(submit_dir / "reports"),
         }
 
     def read_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:

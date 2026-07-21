@@ -238,6 +238,7 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
                         "seeds": 4,
                         "patches": 1,
                         "bug_candidates": 2,
+                        "reports": 3,
                     },
                     "llm": {"credits_used": 1.65},
                     "sidecar": {
@@ -253,6 +254,7 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
                             "seeds": 3,
                             "patches": 1,
                             "bug_candidates": 0,
+                            "reports": 1,
                         },
                         "llm": {"credits_used": 1.25},
                         "sidecar": {
@@ -281,6 +283,7 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
     assert '"patch_tests": 2' in out
     assert '"pov_runs": 8' in out
     assert '"bug_candidates": 2' in out
+    assert '"reports": 3' in out
 
 
 def test_artifacts_advertises_per_crs_sidecar_metrics_path(tmp_path, capsys) -> None:

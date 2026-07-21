@@ -15,6 +15,7 @@ class ExchangeDir(BaseModel):
     pov: Optional[str] = None
     seed: Optional[str] = None
     bug_candidate: Optional[str] = None
+    report: Optional[str] = None
     patch: Optional[str] = None
     diff: Optional[str] = None
 
@@ -33,6 +34,7 @@ class ExchangeDir(BaseModel):
             pov=str(base_path / "povs"),
             seed=str(base_path / "seeds"),
             bug_candidate=str(base_path / "bug-candidates"),
+            report=str(base_path / "reports"),
             patch=str(base_path / "patches"),
             diff=str(base_path / "diffs"),
         )
@@ -68,6 +70,7 @@ class MetaArtifactCounts(BaseModel):
     seeds: int = 0
     patches: int = 0
     bug_candidates: int = 0
+    reports: int = 0
 
 
 class MetaLLMStats(BaseModel):
@@ -134,6 +137,7 @@ class CRSArtifacts(BaseModel):
     pov: Optional[str] = None
     seed: Optional[str] = None
     bug_candidate: Optional[str] = None
+    report: Optional[str] = None
     patch: Optional[str] = None
     harness: Optional[str] = None
     fetch: Optional[str] = None
@@ -169,6 +173,7 @@ class CRSArtifacts(BaseModel):
         artifacts.pov = str(submit_path / "povs")
         artifacts.seed = str(submit_path / "seeds")
         artifacts.bug_candidate = str(submit_path / "bug-candidates")
+        artifacts.report = str(submit_path / "reports")
         artifacts.patch = str(submit_path / "patches")
         artifacts.harness = str(submit_path / "harnesses")
         artifacts.fetch = exchange_dir_base

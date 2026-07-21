@@ -2,8 +2,46 @@
 """Unit tests for oss_crs.src.utils module."""
 
 import pytest
+import questionary
 import re
-from oss_crs.src.utils import normalize_run_id
+from prompt_toolkit.keys import Keys
+
+from oss_crs.src.utils import _checkbox_enter_selects_current, normalize_run_id
+
+
+class _FakeApp:
+    def __init__(self):
+        self.result = None
+
+    def exit(self, result=None, **kwargs):
+        self.result = result
+
+
+class _FakeEvent:
+    def __init__(self):
+        self.app = _FakeApp()
+
+
+def test_checkbox_enter_selects_highlighted_item_when_none_checked():
+    question = _checkbox_enter_selects_current(
+        "Select:",
+        [
+            questionary.Choice("first", "first"),
+            questionary.Choice("second", "second"),
+        ],
+        instruction=None,
+        validate=lambda _selected: True,
+    )
+    enter_binding = next(
+        binding
+        for binding in question.application.key_bindings.bindings
+        if binding.keys == (Keys.ControlM,)
+    )
+
+    event = _FakeEvent()
+    enter_binding.handler(event)
+
+    assert event.app.result == ["first"]
 
 
 class TestNormalizeRunId:

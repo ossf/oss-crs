@@ -124,11 +124,17 @@ class TestRequiredInputs:
         """All valid input names are accepted."""
         config = CRSConfig.from_dict(
             _minimal_crs_config(
-                required_inputs=["diff", "pov", "seed", "bug-candidate"]
+                required_inputs=["diff", "pov", "seed", "bug-candidate", "report"]
             )
         )
         assert config.required_inputs is not None
-        assert set(config.required_inputs) == {"diff", "pov", "seed", "bug-candidate"}
+        assert set(config.required_inputs) == {
+            "diff",
+            "pov",
+            "seed",
+            "bug-candidate",
+            "report",
+        }
 
     def test_removes_duplicates(self):
         """Duplicate input names are removed."""

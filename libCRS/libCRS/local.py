@@ -13,7 +13,7 @@ from .base import CRSUtils, DataType, SourceType
 from .common import rsync_copy, get_env
 from .fetch import FetchHelper
 from .sync import DirSyncHelper
-from .submit import SubmitHelper
+from .submit import SubmitHelper, submit_report
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,11 @@ class LocalCRSUtils(CRSUtils):
             self.submit_build_output(tmp_file.name, skip_file_path)
 
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
+        if data_type == DataType.REPORT:
+            raise ValueError(
+                "register-submit-dir is not supported for reports; submit each "
+                "report explicitly with `libCRS submit report <file-or-dir>`."
+            )
         path.mkdir(parents=True, exist_ok=True)
         helper = self.__init_submit_helper(data_type)
         helper.register_dir(path, batch_time=10, batch_size=100)
@@ -102,6 +107,11 @@ class LocalCRSUtils(CRSUtils):
         helper.register_dir(path)
 
     def submit(self, data_type: DataType, src: Path) -> None:
+        if data_type == DataType.REPORT:
+            OSS_CRS_SUBMIT_DIR = Path(get_env("OSS_CRS_SUBMIT_DIR"))
+            reports_dir = OSS_CRS_SUBMIT_DIR / data_type.dir_name
+            submit_report(Path(src), reports_dir)
+            return
         helper = self.__init_submit_helper(data_type)
         helper.submit_file(src)
 

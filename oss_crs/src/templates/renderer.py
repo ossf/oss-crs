@@ -256,7 +256,14 @@ _DATA_TYPE_PROCESSOR: dict[str, str] = {
 }
 
 # All data types that can appear in the exchange.
-_ALL_EXCHANGE_TYPES = {"povs", "seeds", "diffs", "bug-candidates"}
+_ALL_EXCHANGE_TYPES = {
+    "povs",
+    "seeds",
+    "diffs",
+    "bug-candidates",
+    "reports",
+    "patches",
+}
 
 
 def _has_post_processor(crs_list: list) -> bool:

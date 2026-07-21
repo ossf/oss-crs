@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 import os
 import logging
+import tarfile
+import tempfile
 import time
 import threading
 from dataclasses import dataclass
@@ -13,6 +15,69 @@ from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from .common import file_hash, is_data_file, rsync_copy
 
 logger = logging.getLogger(__name__)
+
+
+def _unique_tarball_path(reports_dir: Path, base: str) -> Path:
+    """Return `<reports_dir>/<base>.tar.gz`, appending `_N` on collision.
+
+    So a second submission of the same name yields `<base>_1.tar.gz`, a third
+    `<base>_2.tar.gz`, and so on.
+    """
+    candidate = reports_dir / f"{base}.tar.gz"
+    counter = 1
+    while candidate.exists():
+        candidate = reports_dir / f"{base}_{counter}.tar.gz"
+        counter += 1
+    return candidate
+
+
+def submit_report(src: Path, reports_dir: Path) -> Path:
+    """Bundle a report file or directory into a gzip tarball under reports_dir.
+
+    - Directory: archived *without* its top-level directory component, so its
+      contents sit at the tarball root; the tarball is named after the
+      directory.
+    - File: archived on its own; the tarball is named after the file's stem
+      (the name minus its final suffix).
+
+    Name collisions are resolved with a `_N` counter suffix, so submitting
+    `foo.md` twice yields `foo.tar.gz` then `foo_1.tar.gz`. Returns the path of
+    the created tarball.
+    """
+    src = Path(src)
+    if not src.exists():
+        raise FileNotFoundError(f"submit report: path does not exist: {src}")
+
+    if src.is_dir():
+        base = src.name
+    elif src.is_file():
+        base = src.stem or src.name
+    else:
+        raise ValueError(f"submit report: not a regular file or directory: {src}")
+
+    if not base or base in (".", ".."):
+        raise ValueError(f"submit report: cannot derive a tarball name from {src}")
+
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    dst = _unique_tarball_path(reports_dir, base)
+
+    # Build into a temp file in the same dir, then atomically rename, so a
+    # partial archive is never observed under the final name.
+    fd, tmp_name = tempfile.mkstemp(dir=reports_dir, prefix=f".{base}.", suffix=".tmp")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with tarfile.open(tmp_path, "w:gz") as tar:
+            if src.is_dir():
+                for item in sorted(src.iterdir()):
+                    tar.add(item, arcname=item.name)
+            else:
+                tar.add(src, arcname=src.name)
+        tmp_path.replace(dst)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return dst
 
 
 @dataclass

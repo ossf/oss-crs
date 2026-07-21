@@ -344,6 +344,7 @@ def list_runs():
                     else 0,
                     "povs": _headline_count(per_crs, exchange, "povs"),
                     "seeds": _headline_count(per_crs, exchange, "seeds"),
+                    "reports": _headline_count(per_crs, exchange, "reports"),
                     "patches": _headline_count(per_crs, exchange, "patches"),
                     "snapshots": len(run.history),
                     "coverage_pct": round(coverage["lines"]["pct"], 1)

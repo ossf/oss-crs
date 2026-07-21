@@ -157,8 +157,17 @@ def main():
     # Data registration commands (auto-sync directories)
     # =========================================================================
 
-    # Valid types for submit vs fetch commands
-    submit_types = [DataType.POV, DataType.SEED, DataType.BUG_CANDIDATE, DataType.PATCH]
+    # Valid types for submit vs fetch commands. `report` is submit-only via the
+    # one-shot `submit` command (it is bundled into a tarball); it is not a
+    # valid target for `register-submit-dir`.
+    submit_types = [
+        DataType.POV,
+        DataType.SEED,
+        DataType.BUG_CANDIDATE,
+        DataType.REPORT,
+        DataType.PATCH,
+    ]
+    register_submit_types = [t for t in submit_types if t != DataType.REPORT]
     fetch_types = list(DataType)
 
     # register-submit-dir command (auto-submit data to oss-crs-infra)
@@ -169,7 +178,7 @@ def main():
     register_submit_dir_parser.add_argument(
         "type",
         type=DataType,
-        choices=submit_types,
+        choices=register_submit_types,
         metavar="TYPE",
         help="Type of data: pov, seed, bug-candidate, patch",
     )
@@ -229,7 +238,7 @@ def main():
         type=DataType,
         choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch, diff",
+        help="Type of data: pov, seed, bug-candidate, report, patch, diff",
     )
     register_fetch_dir_parser.add_argument(
         "path", type=Path, help="Directory path to receive shared data"
@@ -258,9 +267,13 @@ def main():
         type=DataType,
         choices=submit_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch",
+        help="Type of data: pov, seed, bug-candidate, report, patch",
     )
-    submit_parser.add_argument("path", type=Path, help="File path to submit")
+    submit_parser.add_argument(
+        "path",
+        type=Path,
+        help="File to submit (for `report`, a file or directory bundled into a tarball)",
+    )
     submit_parser.set_defaults(func=lambda args: crs_utils.submit(args.type, args.path))
 
     # submit-harness command (harness-gen output: fuzz-proj dir + optional target source dir)
@@ -306,7 +319,7 @@ def main():
         type=DataType,
         choices=fetch_types,
         metavar="TYPE",
-        help="Type of data: pov, seed, bug-candidate, patch, diff",
+        help="Type of data: pov, seed, bug-candidate, report, patch, diff",
     )
     fetch_parser.add_argument("path", type=Path, help="Output directory path")
     fetch_parser.set_defaults(

@@ -53,7 +53,7 @@ SPEND_REPORT_PATH = Path("/litellm-spend-report.json")
 POLL_INTERVAL = 5  # seconds
 COVERAGE_INTERVAL = 30  # seconds
 
-ALLOWED_DATA_TYPES = ("povs", "seeds", "bug-candidates", "patches", "diffs")
+ALLOWED_DATA_TYPES = ("povs", "seeds", "bug-candidates", "reports", "patches", "diffs")
 
 logging.basicConfig(
     level=logging.INFO,
