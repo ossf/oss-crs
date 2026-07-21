@@ -314,7 +314,8 @@ libCRS register-shared-dir /shared-corpus corpus
 libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
-libCRS register-submit-dir report /output/reports &
+# Reports are not auto-submitted; bundle each one explicitly (see below):
+#   libCRS submit report /output/reports/run-1
 
 # 3b. Persist agent logs to the host (visible via oss-crs artifacts)
 libCRS register-log-dir /var/log/agent
@@ -386,7 +387,7 @@ libCRS download-source <type> <dst_path>         # type: fuzz-proj, target-sourc
 libCRS skip-build-output <dst_path>
 
 # Automatic directory submission (runs as daemon)
-libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, report, patch
+libCRS register-submit-dir <type> <path>      # type: pov, seed, bug-candidate, patch
 libCRS register-shared-dir <local_path> <shared_path>
 libCRS register-log-dir <local_path>             # persist logs to host
 
@@ -397,7 +398,7 @@ libCRS register-fetch-dir <type> <path>       # type: pov, seed, bug-candidate, 
 libCRS fetch <type> <path>                    # type: pov, seed, bug-candidate, report, patch, diff
 
 # Manual submission
-libCRS submit <type> <file_path>
+libCRS submit <type> <file_path>              # for `report`, path may be a file or directory (bundled into a tarball)
 
 # Network
 libCRS get-service-domain <service_name>
@@ -790,7 +791,7 @@ Your CRS should submit findings through libCRS:
 | **Seeds** | Interesting fuzzing inputs | `libCRS register-submit-dir seed /output/seeds` or `libCRS submit seed <file>` |
 | **PoVs** | Crash-triggering inputs | `libCRS register-submit-dir pov /output/povs` or `libCRS submit pov <file>` |
 | **Bug Candidates** | Bug reports for verification | `libCRS register-submit-dir bug-candidate /output/bugs` or `libCRS submit bug-candidate <file>` |
-| **Reports** | CRS-native analysis/root-cause/verification reports | `libCRS register-submit-dir report /output/reports` or `libCRS submit report <file>` |
+| **Reports** | CRS-native analysis/root-cause/verification reports | `libCRS submit report <file-or-dir>` (bundled into a tarball; not auto-submitted) |
 | **Patches** | Fixes for discovered bugs | `libCRS register-submit-dir patch /output/patches` or `libCRS submit patch <file>` |
 
 ### Directory Registration vs. Manual Submission

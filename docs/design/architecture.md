@@ -136,7 +136,6 @@ $ libCRS skip-build-output <path in output fs>
 $ libCRS register-submit-dir pov /povs
 $ libCRS register-submit-dir seed /seeds
 $ libCRS register-submit-dir bug-candidate /bug-candidates
-$ libCRS register-submit-dir report /reports
 $ libCRS register-submit-dir patch /patches
 
 $ libCRS submit pov <pov_file_path>

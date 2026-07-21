@@ -248,7 +248,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 
 | Argument | Description |
 |---|---|
-| `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, or `patch` |
+| `type` | Data type: `pov`, `seed`, `bug-candidate`, or `patch` (`report` is not supported — use `submit`) |
 | `path` | Local directory to watch |
 | `--log` | *(Optional)* Log file path for the daemon |
 
@@ -263,7 +263,6 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 ```bash
 $ libCRS register-submit-dir seed /output/seeds
 $ libCRS register-submit-dir --log /var/log/pov-submit.log pov /output/povs
-$ libCRS register-submit-dir report /output/reports
 ```
 
 #### `register-shared-dir` ✅
@@ -358,14 +357,21 @@ $ libCRS submit <type> <file_path>
 | Argument | Description |
 |---|---|
 | `type` | Data type: `pov`, `seed`, `bug-candidate`, `report`, or `patch` |
-| `file_path` | Path to the file to submit |
+| `file_path` | Path to the file to submit. For `report`, this may be a file or a directory. |
+
+For `report`, the path is bundled into a gzip tarball under `SUBMIT_DIR/reports/`:
+a directory is archived without its top-level component (contents at the tarball
+root) and named after the directory; a file is archived on its own and named
+after its stem. Name collisions get a `_N` counter suffix, so submitting
+`foo.md` twice produces `foo.tar.gz` then `foo_1.tar.gz`.
 
 **Example:**
 ```bash
 $ libCRS submit pov /tmp/crash-input
 $ libCRS submit seed /tmp/interesting-input
 $ libCRS submit bug-candidate /tmp/bug-report
-$ libCRS submit report /tmp/audit-report.json
+$ libCRS submit report /tmp/audit-report.json      # → reports/audit-report.tar.gz
+$ libCRS submit report /tmp/run-1-analysis/        # → reports/run-1-analysis.tar.gz
 ```
 
 #### `submit-harness` ✅
@@ -583,7 +589,8 @@ libCRS register-shared-dir /shared-corpus corpus
 libCRS register-submit-dir seed /output/seeds &
 libCRS register-submit-dir pov /output/povs &
 libCRS register-submit-dir bug-candidate /output/bugs &
-libCRS register-submit-dir report /output/reports &
+# Reports are not auto-submitted; bundle each explicitly:
+#   libCRS submit report /output/reports/run-1
 
 # Resolve service endpoints
 ANALYZER_HOST=$(libCRS get-service-domain analyzer)
