@@ -133,7 +133,7 @@ def _render(crs_compose, target, tmp_path: Path):
 def test_target_independent_module_renders_consume_only_image(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """A default (target_dependent: false) run module is consume-only.
+    """A target-independent (target_dependent: false) run module is consume-only.
 
     The run compose references the prepare-built image by its framework-derived
     tag (``oss-crs-runner:<crs>-<module>``) and emits no ``build:`` block; the

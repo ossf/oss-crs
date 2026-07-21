@@ -68,16 +68,16 @@ class TestCRSRunPhaseModule:
         with pytest.raises(ValidationError):
             CRSRunPhaseModule()
 
-    def test_module_defaults_to_target_independent(self):
-        """Without target_dependent the image is built at prepare."""
+    def test_module_defaults_to_target_dependent(self):
+        """Without target_dependent the image is built during build-target."""
         module = CRSRunPhaseModule(dockerfile="run.Dockerfile")
         assert module.dockerfile == "run.Dockerfile"
-        assert module.target_dependent is False
-
-    def test_module_target_dependent_flag(self):
-        """target_dependent opts the module into the build-target phase."""
-        module = CRSRunPhaseModule(dockerfile="run.Dockerfile", target_dependent=True)
         assert module.target_dependent is True
+
+    def test_module_target_independent_flag(self):
+        """target_dependent: false opts the module into the prepare phase."""
+        module = CRSRunPhaseModule(dockerfile="run.Dockerfile", target_dependent=False)
+        assert module.target_dependent is False
 
     def test_module_accepts_infra_reference(self):
         """An oss-crs-infra:<module> reference is a valid dockerfile."""

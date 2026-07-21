@@ -104,20 +104,20 @@ class CRSRunPhaseModule(BaseModel):
     A module's run image is always *prebuilt* by the framework and consumed
     read-only at run time. The build phase is selected by ``target_dependent``:
 
-    - ``target_dependent: false`` (default): the image is target-independent
-      and is built once during the prepare phase. Its tag is derived by the
-      framework as ``oss-crs-runner:<crs>-<module>``.
-    - ``target_dependent: true``: the image depends on the specific target
+    - ``target_dependent: true`` (default): the image depends on the specific target
       (e.g. ``FROM ${target_base_image}``) and is built during the
       build-target phase, keyed by the target hash. Its tag is derived as
       ``oss-crs-runner:<crs>-<module>-<target_hash>``.
+    - ``target_dependent: false``: the image is target-independent and is built
+      once during the prepare phase. Its tag is derived by the framework as
+      ``oss-crs-runner:<crs>-<module>``.
 
     ``dockerfile`` is always required and may be a file path or an
     ``oss-crs-infra:<module>`` reference.
     """
 
     dockerfile: str
-    target_dependent: bool = False
+    target_dependent: bool = True
     additional_env: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("dockerfile")
