@@ -16,6 +16,8 @@ from .artifacts import handle_artifacts
 from .archive import handle_archive
 from .clean import add_clean_command, handle_clean
 from .setup import add_setup_command, handle_setup
+from .export import handle_export
+from .import_cmd import handle_import
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -492,6 +494,35 @@ def handle_web_ui(args) -> bool:
     return False
 
 
+def add_export_command(subparsers):
+    export = subparsers.add_parser(
+        "export",
+        help="Bundle prepared images and CRS source into a tarball",
+    )
+    add_common_arguments(export)
+    export.add_argument(
+        "--out",
+        type=str,
+        required=True,
+        help="Output path for the bundle (e.g. prepared.tar).",
+    )
+
+
+def add_import_command(subparsers):
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Restore prepared images and CRS source from a bundle",
+    )
+    add_common_arguments(import_parser)
+    import_parser.add_argument(
+        "--in",
+        dest="in_path",
+        type=str,
+        required=True,
+        help="Path to the bundle produced by 'export' (e.g. prepared.tar).",
+    )
+
+
 def add_gen_compose_command(subparsers):
     gen_compose = subparsers.add_parser(
         "gen-compose",
@@ -761,6 +792,8 @@ def cli() -> bool | int:
     add_artifacts_command(subparsers)
     add_archive_command(subparsers)
     add_check_command(subparsers)
+    add_export_command(subparsers)
+    add_import_command(subparsers)
     add_gen_compose_command(subparsers)
     add_clean_command(subparsers, add_common_arguments, add_target_arguments)
     add_setup_command(subparsers)
@@ -801,6 +834,11 @@ def cli() -> bool | int:
     # Handle clean early - it manages its own CRSCompose initialization
     if args.command == "clean":
         return handle_clean(args)
+
+    # Handle import early - it must NOT clone CRS repos (the bundle carries the
+    # source), so it derives the work-dir itself instead of building a CRSCompose.
+    if args.command == "import":
+        return handle_import(args)
 
     # Skip CRS repo init for commands that don't need it
     skip_crs_init = args.command in ("artifacts", "archive")
@@ -882,6 +920,8 @@ def cli() -> bool | int:
     elif args.command == "archive":
         target = init_target_from_args(args)
         return handle_archive(args, crs_compose, target)
+    elif args.command == "export":
+        return handle_export(args, crs_compose)
     elif args.command == "check":
         pass
     return True

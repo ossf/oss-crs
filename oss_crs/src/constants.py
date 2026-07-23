@@ -3,13 +3,20 @@
 LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:64d3547e0b131bf4638342e52c12bc46d6f1d9b8498e4b731ff31be5ab316ea9"  # v1.92.0
 POSTGRES_IMAGE = "postgres@sha256:b913fd5699b8bd23fa4b06d72ecdd939fad43b80fb8651bac06caa0e6d135cac"  # 18.4
 
+# Stable local tags for the internal LiteLLM stack images. ``prepare`` pulls
+# each by its immutable digest and applies the local tag; the run template
+# references these local tags so offline runs resolve them locally.
+OSS_CRS_LITELLM_TAG = "oss-crs-litellm:latest"
+OSS_CRS_POSTGRES_TAG = "oss-crs-postgres:latest"
+
 # Alpine image used by the cleanup helpers (``rm_with_docker`` and the
-# ``oss-crs clean`` size fallback), which shell out to ``docker run --rm alpine``
-# to delete/measure root-owned files during run teardown and clean. ``prepare``
-# pulls this pinned digest once (unconditionally, since cleanup runs regardless
-# of LLM mode) and tags it back to the bare ``alpine`` handle the helpers use, so
+# ``oss-crs clean`` size fallback), which shell out to ``docker run --rm``
+# to delete/measure root-owned files during run teardown and clean.
+# ``prepare`` pulls this pinned digest once (unconditionally, since cleanup
+# runs regardless of LLM mode) and tags it with ``OSS_CRS_ALPINE_TAG`` so
 # offline teardown/clean resolve it locally instead of pulling per invocation.
 ALPINE_IMAGE = "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"  # 3.x latest
+OSS_CRS_ALPINE_TAG = "oss-crs-alpine:latest"
 
 # Pinned-digest images pulled (not built) for the internal LiteLLM stack, each
 # mapped to a stable, infra-owned local tag. ``prepare`` pulls each by its
@@ -19,8 +26,8 @@ ALPINE_IMAGE = "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198
 # the run template still resolve to the same local image, while the tag makes it
 # visible in ``docker images`` and gives it a usable, stable handle.
 OSS_CRS_INTERNAL_LLM_IMAGES = {
-    LITELLM_IMAGE: "oss-crs-litellm:latest",
-    POSTGRES_IMAGE: "oss-crs-postgres:latest",
+    LITELLM_IMAGE: OSS_CRS_LITELLM_TAG,
+    POSTGRES_IMAGE: OSS_CRS_POSTGRES_TAG,
 }
 
 # Internal-LLM-only sidecars that are *built* from oss-crs-infra contexts (as

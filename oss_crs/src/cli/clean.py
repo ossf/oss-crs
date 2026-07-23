@@ -8,7 +8,16 @@ from pathlib import Path
 import docker
 import docker.errors
 
-from ..constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
+from ..constants import (
+    OSS_CRS_ALPINE_TAG,
+    OSS_CRS_DEPS_IMAGE,
+    OSS_CRS_INFRA_SIDECAR_IMAGES,
+    OSS_CRS_INTERNAL_LLM_IMAGES,
+    OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
+    PRESERVED_BUILDER_REPO,
+    PRESERVED_RUNNER_REPO,
+)
+from ..crs_compose import _lifecycle_needed
 from ..utils import (
     confirm,
     get_console,
@@ -56,9 +65,34 @@ class CleanPlan:
 # ---------------------------------------------------------------------------
 
 
+def discover_infra_images(crs_compose) -> list[str]:
+    """Return framework-level image tags produced during prepare.
+
+    Mirrors ``CRSCompose.__prepare_oss_crs_infra``: always includes
+    oss-crs-deps, alpine, and the shared infra sidecars (minus lifecycle
+    when it will never be started); adds internal-LLM images when the LLM
+    stack is in internal mode.
+    """
+    tags = [
+        f"{OSS_CRS_DEPS_IMAGE}:latest",
+        OSS_CRS_ALPINE_TAG,
+    ]
+
+    sidecars = dict(OSS_CRS_INFRA_SIDECAR_IMAGES)
+    if not _lifecycle_needed(crs_compose.crs_list):
+        sidecars.pop("lifecycle", None)
+    tags.extend(sidecars.values())
+
+    if crs_compose.llm.exists() and crs_compose.llm.mode == "internal":
+        tags.extend(OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES.values())
+        tags.extend(OSS_CRS_INTERNAL_LLM_IMAGES.values())
+
+    return _dedupe(tags)
+
+
 def discover_prepare_images(crs_compose) -> list[str]:
-    """Discover images produced by prepare-phase bake for all CRSs."""
-    candidate_tags: list[str] = []
+    """Discover framework and CRS images produced during prepare."""
+    candidate_tags = discover_infra_images(crs_compose)
     for crs in crs_compose.crs_list:
         try:
             candidate_tags.extend(crs.get_bake_image_tags())
@@ -230,7 +264,7 @@ def _dir_size(path: Path) -> str:
                 "--rm",
                 "-v",
                 f"{path}:/data:ro",
-                "alpine",
+                OSS_CRS_ALPINE_TAG,
                 "du",
                 "-sb",
                 "/data",

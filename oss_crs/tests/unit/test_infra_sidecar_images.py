@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from oss_crs.src.constants import (
     ALPINE_IMAGE,
+    OSS_CRS_ALPINE_TAG,
     OSS_CRS_INFRA_SIDECAR_IMAGES,
     OSS_CRS_INTERNAL_LLM_IMAGES,
     OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
@@ -210,10 +211,10 @@ def test_cleanup_image_is_pulled_by_digest_and_tagged_alpine():
         result = _pull_cleanup_image()
 
     assert result.success is True
-    # One `docker pull <digest>` and one `docker tag <digest> alpine`.
+    # One `docker pull <digest>` and one `docker tag <digest> <stable tag>`.
     assert calls == [
         ["docker", "pull", ALPINE_IMAGE],
-        ["docker", "tag", ALPINE_IMAGE, "alpine"],
+        ["docker", "tag", ALPINE_IMAGE, OSS_CRS_ALPINE_TAG],
     ]
 
 

@@ -13,6 +13,7 @@ stricter subset of Keep a Changelog).
 - `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
 
 ### Added
+- `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - `oss-crs web-ui {start,stop,status}` command — manages a standalone WebUI dashboard for monitoring CRS run status (served on port 9090; `start` accepts `--port`).
 - `--web-ui` flag for `oss-crs run` — launches the WebUI dashboard to monitor the run live and publishes authoritative final artifact and cost totals to it after teardown.
 - `--coverage` flag for `oss-crs build-target` — builds an additional coverage-instrumented binary (best-effort; never fails the build) used by the WebUI coverage panel at run time.

@@ -7,12 +7,12 @@ import yaml
 
 from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
 from ..constants import (
-    LITELLM_IMAGE,
     LITELLM_INTERNAL_URL,
     OSS_CRS_INFRA_SIDECAR_IMAGES,
     OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
+    OSS_CRS_LITELLM_TAG,
+    OSS_CRS_POSTGRES_TAG,
     POSTGRES_HOST,
-    POSTGRES_IMAGE,
     POSTGRES_PORT,
     POSTGRES_USER,
 )
@@ -407,10 +407,10 @@ def render_run_crs_compose_docker_compose(
                 target, build_id, sanitizer, create=False
             )
         ),
-        "litellm_image": LITELLM_IMAGE,
+        "litellm_image": OSS_CRS_LITELLM_TAG,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
         "litellm_spend_report_path": litellm_spend_report_path,
-        "postgres_image": POSTGRES_IMAGE,
+        "postgres_image": OSS_CRS_POSTGRES_TAG,
         "postgres_user": POSTGRES_USER,
         "postgres_port": POSTGRES_PORT,
         "postgres_host": POSTGRES_HOST,
