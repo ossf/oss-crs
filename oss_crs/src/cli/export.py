@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Export prepared Docker images and CRS source trees into a tarball.
 
-The bundle contains an export manifest, an optional ``images.tar`` produced by
-``docker save``, and each configured CRS source tree under ``crs_src/``. Docker
-images are optional because a CRS may not produce any prepare-phase images.
+The bundle contains an export manifest, an optional ``images.tar.zst``
+produced by streaming ``docker save`` through ``zstd``, and each
+configured CRS source tree under ``crs_src/``.  Docker images are
+optional because a CRS may not produce any prepare-phase images.
 """
 
 import json
@@ -17,12 +18,37 @@ from pathlib import Path
 from .clean import discover_prepare_images
 
 
-def _save_images(image_tags: list[str], dest: Path) -> bool:
-    """Save Docker images to *dest*."""
-    print(f"Saving {len(image_tags)} image(s) with 'docker save'...")
-    proc = subprocess.run(["docker", "save", "-o", str(dest), *image_tags])
-    if proc.returncode != 0:
-        print("Error: 'docker save' failed.", file=sys.stderr)
+def _stream_images(image_tags: list[str], dest: Path) -> bool:
+    """Stream ``docker save`` through ``zstd`` into *dest*.
+
+    The zstd compression eliminates the need for an uncompressed
+    temporary ``images.tar`` file, reducing peak disk usage by roughly
+    half.
+    """
+    print(f"Saving {len(image_tags)} image(s) with 'docker save | zstd'...")
+    save = subprocess.Popen(
+        ["docker", "save", *image_tags],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if save.stdout is None:
+        print("Error: 'docker save' produced no output pipe.", file=sys.stderr)
+        return False
+    zstd = subprocess.Popen(
+        ["zstd", "-T0", "-10", "-o", str(dest), "-q"],
+        stdin=save.stdout,
+        stderr=subprocess.PIPE,
+    )
+    save.stdout.close()
+    save_rc = save.wait()
+    zstd_rc = zstd.wait()
+    if save_rc != 0:
+        save_err = save.stderr.read() if save.stderr else "unknown"
+        print(f"Error: 'docker save' failed: {save_err}", file=sys.stderr)
+        return False
+    if zstd_rc != 0:
+        zstd_err = zstd.stderr.read() if zstd.stderr else "unknown"
+        print(f"Error: 'zstd' failed: {zstd_err}", file=sys.stderr)
         return False
     return True
 
@@ -58,15 +84,17 @@ def handle_export(args, crs_compose) -> bool:
         "platform": platform.machine(),
         "images": image_tags,
         "crs_sources": [name for name, _ in crs_sources],
+        "compression": "zstd",
     }
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as staging_str:
         staging = Path(staging_str)
-        images_tar: Path | None = None
+
+        images_tar_zst: Path | None = None
         if image_tags:
-            images_tar = staging / "images.tar"
-            if not _save_images(image_tags, images_tar):
+            images_tar_zst = staging / "images.tar.zst"
+            if not _stream_images(image_tags, images_tar_zst):
                 return False
 
         manifest_json = staging / "export-manifest.json"
@@ -75,8 +103,8 @@ def handle_export(args, crs_compose) -> bool:
         print(f"Writing bundle to {out_path}...")
         with tarfile.open(out_path, "w") as tar:
             tar.add(manifest_json, arcname="export-manifest.json")
-            if images_tar is not None:
-                tar.add(images_tar, arcname="images.tar")
+            if images_tar_zst is not None:
+                tar.add(images_tar_zst, arcname="images.tar.zst")
             for name, src in crs_sources:
                 tar.add(src, arcname=f"crs_src/{name}")
 

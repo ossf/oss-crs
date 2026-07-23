@@ -19,7 +19,6 @@ from oss_crs.src.cli.clean import (
     discover_run_images,
 )
 from oss_crs.src.constants import (
-    ALPINE_IMAGE,
     OSS_CRS_ALPINE_TAG,
     OSS_CRS_DEPS_IMAGE,
     OSS_CRS_INTERNAL_LLM_IMAGES,

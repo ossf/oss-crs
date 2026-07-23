@@ -15,13 +15,50 @@ from ..utils import rm_with_docker
 from ..workdir import WorkDir
 
 
-def _load_images(images_tar: Path) -> bool:
-    """Load bundled images into the local Docker daemon."""
-    print("Loading images with 'docker load'...")
-    proc = subprocess.run(["docker", "load", "-i", str(images_tar)])
-    if proc.returncode != 0:
-        print("Error: 'docker load' failed.", file=sys.stderr)
-        return False
+def _load_images(staging: Path) -> bool:
+    """Load bundled images into the local Docker daemon.
+
+    Streams ``zstd -d`` directly into ``docker load`` with no
+    intermediate uncompressed file.
+    """
+    images_tar_zst = staging / "images.tar.zst"
+
+    if images_tar_zst.exists():
+        print("Loading images with 'zstd -d | docker load'...")
+        decompress = subprocess.Popen(
+            ["zstd", "-d", "-c", str(images_tar_zst)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if decompress.stdout is None:
+            print(
+                "Error: 'zstd -d' produced no output pipe.",
+                file=sys.stderr,
+            )
+            return False
+        load = subprocess.Popen(
+            ["docker", "load"],
+            stdin=decompress.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        decompress.stdout.close()
+        dc_rc = decompress.wait()
+        load_out = load.stdout.read().decode() if load.stdout else ""
+        load_err = load.stderr.read().decode() if load.stderr else ""
+        ld_rc = load.wait()
+        if dc_rc != 0:
+            dc_err = decompress.stderr.read() if decompress.stderr else "unknown"
+            print(f"Error: 'zstd -d' failed: {dc_err}", file=sys.stderr)
+            return False
+        if ld_rc != 0:
+            print(f"Error: 'docker load' failed:\n{load_err}", file=sys.stderr)
+            return False
+        if load_out:
+            print(load_out)
+        return True
+
+    print("No images in bundle; skipping 'docker load'.")
     return True
 
 
@@ -51,7 +88,7 @@ def handle_import(args) -> bool:
     try:
         print(f"Extracting bundle {bundle}...")
         with tarfile.open(bundle, "r") as tar:
-            tar.extractall(staging, filter="fully_trusted")
+            tar.extractall(staging, filter="data")
 
         manifest_file = staging / "export-manifest.json"
         if not manifest_file.exists():
@@ -75,12 +112,8 @@ def handle_import(args) -> bool:
             )
             return False
 
-        images_tar = staging / "images.tar"
-        if images_tar.exists():
-            if not _load_images(images_tar):
-                return False
-        else:
-            print("No images in bundle; skipping 'docker load'.")
+        if not _load_images(staging):
+            return False
 
         restored_sources: list[str] = []
         src_crs_root = staging / "crs_src"

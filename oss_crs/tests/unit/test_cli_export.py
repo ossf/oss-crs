@@ -50,17 +50,17 @@ def test_export_includes_images_and_source(tmp_path: Path, monkeypatch) -> None:
         lambda _c: ["oss-crs-deps:latest", "crs-image:latest"],
     )
 
-    def fake_save(tags, dest):
+    def fake_stream(tags, dest):
         assert tags == ["oss-crs-deps:latest", "crs-image:latest"]
         Path(dest).write_bytes(b"FAKE_DOCKER_SAVE")
         return True
 
-    monkeypatch.setattr(export_mod, "_save_images", fake_save)
+    monkeypatch.setattr(export_mod, "_stream_images", fake_stream)
     out = tmp_path / "prepared.tar"
 
     assert handle_export(SimpleNamespace(out=str(out)), compose) is True
     members = _members(out)
-    assert "images.tar" in members
+    assert "images.tar.zst" in members
     assert "crs_src/crs-codex/build.sh" in members
     assert not any(name.startswith("libcrs/") for name in members)
 
@@ -68,6 +68,7 @@ def test_export_includes_images_and_source(tmp_path: Path, monkeypatch) -> None:
         manifest = json.loads(tar.extractfile("export-manifest.json").read())
     assert manifest["images"] == ["oss-crs-deps:latest", "crs-image:latest"]
     assert manifest["crs_sources"] == ["crs-codex"]
+    assert manifest["compression"] == "zstd"
 
 
 def test_export_nothing_to_export(tmp_path: Path, monkeypatch) -> None:
@@ -81,7 +82,7 @@ def test_export_nothing_to_export(tmp_path: Path, monkeypatch) -> None:
 def test_export_save_failure_returns_false(tmp_path: Path, monkeypatch) -> None:
     compose = _make_compose([_make_crs(tmp_path, "crs-codex")])
     monkeypatch.setattr(export_mod, "discover_prepare_images", lambda _c: ["img:1"])
-    monkeypatch.setattr(export_mod, "_save_images", lambda tags, dest: False)
+    monkeypatch.setattr(export_mod, "_stream_images", lambda tags, dest: False)
     out = tmp_path / "prepared.tar"
 
     assert handle_export(SimpleNamespace(out=str(out)), compose) is False

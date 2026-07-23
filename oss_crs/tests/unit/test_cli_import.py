@@ -39,8 +39,8 @@ def _patch_config(monkeypatch) -> None:
 def _capture_load(monkeypatch) -> list[Path]:
     loaded: list[Path] = []
 
-    def fake_load(images_tar: Path) -> bool:
-        loaded.append(Path(images_tar))
+    def fake_load(staging: Path) -> bool:
+        loaded.append(Path(staging))
         return True
 
     monkeypatch.setattr(import_mod, "_load_images", fake_load)
@@ -62,6 +62,7 @@ def _make_bundle(
         "platform": machine,
         "images": ["oss-crs-deps:latest", "crs-image:latest"] if images else [],
         "crs_sources": list(crs_sources),
+        "compression": "zstd",
     }
 
     with tarfile.open(path, "w") as tar:
@@ -70,9 +71,9 @@ def _make_bundle(
             manifest_file.write_text(json.dumps(manifest))
             tar.add(manifest_file, arcname="export-manifest.json")
         if images:
-            images_tar = stage / "images.tar"
+            images_tar = stage / "images.tar.zst"
             images_tar.write_bytes(b"FAKE_DOCKER_SAVE")
-            tar.add(images_tar, arcname="images.tar")
+            tar.add(images_tar, arcname="images.tar.zst")
         for name in crs_sources:
             src = stage / "crs_src" / name
             src.mkdir(parents=True, exist_ok=True)
@@ -141,7 +142,9 @@ def test_import_source_only_allows_platform_mismatch(
     _make_bundle(bundle, machine="aarch64", images=False)
 
     assert handle_import(_args(bundle, tmp_path)) is True
-    assert loaded == []
+    # _load_images is still called, but the bundle has no images.tar.zst,
+    # so it should return True without actually loading anything.
+    assert len(loaded) == 1
     assert (_crs_src_base(tmp_path) / "crs-foo" / "build.sh").exists()
 
 
