@@ -477,8 +477,14 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
                 "host",
                 "-e",
                 f"WEBUI_PORT={port}",
+                "-e",
+                "WEBUI_WORKDIR=/workdir",
                 "-v",
                 f"{webui_log_dir}:/webui_logs",
+                # Workdir mounted read-only so the dashboard can list and serve
+                # a run's artifact files for download.
+                "-v",
+                f"{DEFAULT_WORK_DIR}:/workdir:ro",
                 "--restart",
                 "unless-stopped",
                 image_name,

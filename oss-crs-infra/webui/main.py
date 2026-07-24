@@ -6,6 +6,7 @@ Manages multiple concurrent runs with per-run history.
 Serves a run list page and per-run drill-down dashboards.
 """
 
+import glob as _glob
 import json
 import logging
 import os
@@ -17,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,10 @@ from jinja2 import Environment, FileSystemLoader
 # ---------------------------------------------------------------------------
 WEBUI_PORT = int(os.environ.get("WEBUI_PORT", "9090"))
 LOG_DIR = Path(os.environ.get("WEBUI_LOG_DIR", "/webui_logs"))
+# Host oss-crs workdir mounted read-only so the dashboard can list and serve
+# artifact files for download (see ensure_web_ui_running).
+WORKDIR = Path(os.environ.get("WEBUI_WORKDIR", "/workdir"))
+ARTIFACT_TYPES = {"povs", "seeds", "bug-candidates", "reports", "patches", "diffs"}
 HISTORY_SIZE = 720  # ~1 hour at 5s intervals
 # A run with no snapshot for this long is considered "stale" (publisher gone /
 # unreachable). Publishers push every ~5s, so this tolerates a few missed polls.
@@ -228,6 +233,17 @@ async def register_run(run_id: str, request: Request):
     body = await request.json()
     with _lock:
         run = _get_or_create_run(run_id)
+        # A register marks the start of a run lifecycle. If this run_id was used
+        # by an earlier (possibly failed) run, clear its terminal state and stale
+        # telemetry so the dashboard shows this run as live from a clean slate,
+        # rather than inheriting the previous run's outcome (e.g. "error").
+        now = time.time()
+        run.done = False
+        run.outcome = None
+        run.registered_at = now
+        run.last_snapshot_at = now
+        run.history.clear()
+        run.latest = {}
         run.target = body.get("target", "")
         run.crs_names = body.get("crs_names", [])
         run.crs_resources = body.get("crs_resources", {})
@@ -246,6 +262,16 @@ async def receive_snapshot(run_id: str, request: Request):
     is_final = bool(body.pop("done", False))
     with _lock:
         run = _get_or_create_run(run_id)
+        # A live (non-final) snapshot on a run we already marked done means a
+        # NEW run is reusing this id (the register call may have been missed or
+        # the old state was rehydrated from disk). Clear the previous run's
+        # terminal state so an in-progress run shows "live", not the stale
+        # outcome (e.g. "error").
+        if not is_final and run.done:
+            run.done = False
+            run.outcome = None
+            run.history.clear()
+            run.registered_at = time.time()
         # Fill in metadata from snapshot if register was missed
         learned_meta = False
         if meta and not run.target:
@@ -405,6 +431,71 @@ def run_detail(run_id: str):
         crs_names=run.crs_names,
         crs_resources=run.crs_resources,
     )
+
+
+# --- Artifact listing + download -------------------------------------------
+# The host workdir is mounted read-only at WORKDIR; net artifacts for a run live
+# in its EXCHANGE_DIR (and PROCESSED_EXCHANGE_DIR for triaged types). We glob
+# there by run id so the dashboard can list files and serve them for download.
+
+
+def _find_artifact_files(run_id: str, atype: str) -> list[Path]:
+    if atype not in ARTIFACT_TYPES:
+        return []
+    run_glob = str(WORKDIR / "crs_compose" / "*" / "*" / "runs" / f"{run_id}*")
+    # Match the Net Artifacts count: when a post-processor (triage -> povs,
+    # seed-filter -> seeds) handled this type, its PROCESSED_EXCHANGE_DIR type
+    # dir exists and holds the DEDUPED set — list only that. Otherwise the raw
+    # shared EXCHANGE_DIR is the net set. Never union the two (that double-counts
+    # raw + deduped povs).
+    processed_type_dirs = _glob.glob(f"{run_glob}/PROCESSED_EXCHANGE_DIR/*/*/{atype}")
+    base = "PROCESSED_EXCHANGE_DIR" if processed_type_dirs else "EXCHANGE_DIR"
+    by_name: dict[str, Path] = {}
+    for p in _glob.glob(f"{run_glob}/{base}/*/*/{atype}/*"):
+        fp = Path(p)
+        if fp.is_file() and not fp.name.startswith("."):
+            by_name.setdefault(fp.name, fp)
+    return sorted(by_name.values(), key=lambda f: f.name.lower())
+
+
+@app.get("/api/runs/{run_id}/artifacts")
+def artifact_counts(run_id: str):
+    # Live per-type counts read straight from the workdir, so Net Artifacts
+    # always matches what's actually downloadable (and catches late artifacts
+    # like a report produced right at teardown, which the publisher can miss).
+    return {"counts": {t: len(_find_artifact_files(run_id, t)) for t in ARTIFACT_TYPES}}
+
+
+@app.get("/api/runs/{run_id}/artifacts/{atype}")
+def list_artifacts(run_id: str, atype: str):
+    if atype not in ARTIFACT_TYPES:
+        raise HTTPException(status_code=404, detail="unknown artifact type")
+    files = _find_artifact_files(run_id, atype)
+    return {
+        "run_id": run_id,
+        "type": atype,
+        "artifacts": [{"name": f.name, "size": f.stat().st_size} for f in files],
+    }
+
+
+@app.get("/api/runs/{run_id}/artifacts/{atype}/download")
+def download_artifact(run_id: str, atype: str, name: str):
+    # Only serve a file whose name exactly matches one we listed — this both
+    # resolves the real path and prevents path traversal via `name`.
+    for f in _find_artifact_files(run_id, atype):
+        if f.name == name:
+            return FileResponse(
+                str(f), filename=name, media_type="application/octet-stream"
+            )
+    raise HTTPException(status_code=404, detail="artifact not found")
+
+
+@app.get("/run/{run_id}/artifacts/{atype}", response_class=HTMLResponse)
+def artifacts_page(run_id: str, atype: str):
+    if atype not in ARTIFACT_TYPES:
+        return HTMLResponse(status_code=404, content="unknown artifact type")
+    template = _templates.get_template("artifacts.html")
+    return template.render(run_id=run_id, atype=atype)
 
 
 # ---------------------------------------------------------------------------
