@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Container images used by the infrastructure sidecar stack.
-LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:64d3547e0b131bf4638342e52c12bc46d6f1d9b8498e4b731ff31be5ab316ea9"  # v1.92.0
-POSTGRES_IMAGE = "postgres@sha256:b913fd5699b8bd23fa4b06d72ecdd939fad43b80fb8651bac06caa0e6d135cac"  # 18.4
+LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:72360d8bd5602faa49be5098a8ac3dd069d9fb74503d6bd014242d96dc753e43"  # v1.93.0
+POSTGRES_IMAGE = "postgres@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a"  # 18.4
 
 # Alpine image used by the cleanup helpers (``rm_with_docker`` and the
 # ``oss-crs clean`` size fallback), which shell out to ``docker run --rm alpine``
