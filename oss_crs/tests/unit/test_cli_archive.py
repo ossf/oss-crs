@@ -195,6 +195,7 @@ def test_archive_collects_all_subdirs_from_all_crs(tmp_path: Path) -> None:
     _write_file(submit / "seeds" / "seed-001")
     _write_file(submit / "patches" / "patch-001.diff")
     _write_file(submit / "bug-candidates" / "bug-001")
+    _write_file(submit / "reports" / "audit-001.json")
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
@@ -206,6 +207,7 @@ def test_archive_collects_all_subdirs_from_all_crs(tmp_path: Path) -> None:
     assert "seeds/seed-001" in members
     assert "patches/patch-001.diff" in members
     assert "bug-candidates/bug-001" in members
+    assert "reports/audit-001.json" in members
 
 
 def test_archive_returns_false_when_no_artifacts(tmp_path: Path, capsys) -> None:
@@ -306,6 +308,11 @@ def test_archive_triage_non_pov_artifacts_from_non_triage(tmp_path: Path) -> Non
         / "bug-candidates"
         / "bug-001"
     )
+    _write_file(
+        work_dir.get_submit_dir("crs-triage", None, run_id, "address")
+        / "reports"
+        / "triage-report.json"
+    )
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out))
@@ -315,6 +322,7 @@ def test_archive_triage_non_pov_artifacts_from_non_triage(tmp_path: Path) -> Non
     members = _tar_members(out)
     assert "patches/patch-001.diff" in members
     assert "bug-candidates/bug-001" in members
+    assert "reports/triage-report.json" in members
 
 
 # ---------------------------------------------------------------------------

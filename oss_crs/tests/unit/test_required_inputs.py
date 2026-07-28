@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for required_inputs validation in CRSCompose."""
 
-from oss_crs.src.crs_compose import CRSCompose
+from oss_crs.src.crs_compose import ArtifactInput, CRSCompose
 
 
 class _FakeCRSConfig:
@@ -48,29 +48,76 @@ def test_required_pov_passes_with_pov_file(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["pov"])])
     pov_file = tmp_path / "crash.pov"
     pov_file.write_text("data")
-    assert compose._validate_required_inputs(pov=pov_file).success is True
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"pov": ArtifactInput(file=pov_file)}
+        ).success
+        is True
+    )
 
 
 def test_required_pov_passes_with_pov_dir(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["pov"])])
-    assert compose._validate_required_inputs(pov_dir=tmp_path).success is True
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"pov": ArtifactInput(directory=tmp_path)}
+        ).success
+        is True
+    )
 
 
 def test_required_seed_passes_when_provided(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["seed"])])
-    assert compose._validate_required_inputs(seed_dir=tmp_path).success is True
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"seed": ArtifactInput(directory=tmp_path)}
+        ).success
+        is True
+    )
+
+
+def test_required_report_passes_with_file(tmp_path):
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"report": ArtifactInput(file=report)}
+        ).success
+        is True
+    )
+
+
+def test_required_report_passes_with_dir(tmp_path):
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"report": ArtifactInput(directory=tmp_path)}
+        ).success
+        is True
+    )
 
 
 def test_required_bug_candidate_passes_with_file(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["bug-candidate"])])
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
-    assert compose._validate_required_inputs(bug_candidate=bc).success is True
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"bug-candidate": ArtifactInput(file=bc)}
+        ).success
+        is True
+    )
 
 
 def test_required_bug_candidate_passes_with_dir(tmp_path):
     compose = _make_compose([_FakeCRS("crs-a", ["bug-candidate"])])
-    assert compose._validate_required_inputs(bug_candidate_dir=tmp_path).success is True
+    assert (
+        compose._validate_required_inputs(
+            artifact_inputs={"bug-candidate": ArtifactInput(directory=tmp_path)}
+        ).success
+        is True
+    )
 
 
 def test_multiple_crs_all_satisfied(tmp_path):
@@ -85,7 +132,10 @@ def test_multiple_crs_all_satisfied(tmp_path):
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
     assert (
-        compose._validate_required_inputs(diff=diff_file, bug_candidate=bc).success
+        compose._validate_required_inputs(
+            diff=diff_file,
+            artifact_inputs={"bug-candidate": ArtifactInput(file=bc)},
+        ).success
         is True
     )
 
@@ -114,6 +164,11 @@ def test_required_seed_fails_when_missing():
     assert compose._validate_required_inputs().success is False
 
 
+def test_required_report_fails_when_missing():
+    compose = _make_compose([_FakeCRS("crs-a", ["report"])])
+    assert compose._validate_required_inputs().success is False
+
+
 def test_required_bug_candidate_fails_when_missing():
     compose = _make_compose([_FakeCRS("crs-a", ["bug-candidate"])])
     assert compose._validate_required_inputs().success is False
@@ -121,7 +176,7 @@ def test_required_bug_candidate_fails_when_missing():
 
 def test_all_four_inputs_required_and_satisfied(tmp_path):
     compose = _make_compose(
-        [_FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate"])]
+        [_FakeCRS("crs-a", ["diff", "pov", "seed", "bug-candidate", "report"])]
     )
     diff_file = tmp_path / "ref.diff"
     diff_file.write_text("patch")
@@ -131,9 +186,17 @@ def test_all_four_inputs_required_and_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
     assert (
         compose._validate_required_inputs(
-            diff=diff_file, pov=pov_file, seed_dir=seed_subdir, bug_candidate=bc
+            diff=diff_file,
+            artifact_inputs={
+                "pov": ArtifactInput(file=pov_file),
+                "seed": ArtifactInput(directory=seed_subdir),
+                "bug-candidate": ArtifactInput(file=bc),
+                "report": ArtifactInput(file=report),
+            },
         ).success
         is True
     )
@@ -168,7 +231,7 @@ def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     compose = _make_compose(
         [
             _FakeCRS("crs-a", ["diff", "seed"]),
-            _FakeCRS("crs-b", ["pov", "bug-candidate"]),
+            _FakeCRS("crs-b", ["pov", "bug-candidate", "report"]),
         ]
     )
     diff_file = tmp_path / "ref.diff"
@@ -179,12 +242,17 @@ def test_multiple_crs_different_inputs_all_satisfied(tmp_path):
     seed_subdir.mkdir()
     bc = tmp_path / "report.sarif"
     bc.write_text("{}")
+    report = tmp_path / "audit.json"
+    report.write_text("{}")
     assert (
         compose._validate_required_inputs(
             diff=diff_file,
-            pov=pov_file,
-            seed_dir=seed_subdir,
-            bug_candidate=bc,
+            artifact_inputs={
+                "pov": ArtifactInput(file=pov_file),
+                "seed": ArtifactInput(directory=seed_subdir),
+                "bug-candidate": ArtifactInput(file=bc),
+                "report": ArtifactInput(file=report),
+            },
         ).success
         is True
     )

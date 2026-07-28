@@ -10,6 +10,7 @@ class DataType(str, Enum):
     POV = "pov"
     SEED = "seed"
     BUG_CANDIDATE = "bug-candidate"
+    REPORT = "report"
     PATCH = "patch"
     DIFF = "diff"
 
@@ -22,6 +23,7 @@ class DataType(str, Enum):
             "pov": "povs",
             "seed": "seeds",
             "bug-candidate": "bug-candidates",
+            "report": "reports",
             "patch": "patches",
             "diff": "diffs",
         }
@@ -80,7 +82,11 @@ class CRSUtils(ABC):
 
     @abstractmethod
     def register_submit_dir(self, data_type: DataType, path: Path) -> None:
-        """Register a directory for automatic submission to oss-crs-infra."""
+        """Register a directory for automatic submission to oss-crs-infra.
+
+        Not supported for ``report`` — reports must be submitted explicitly via
+        ``submit`` so each is bundled into its own named tarball.
+        """
         pass
 
     @abstractmethod
@@ -105,7 +111,12 @@ class CRSUtils(ABC):
 
     @abstractmethod
     def submit(self, data_type: DataType, src: Path) -> None:
-        """Submit a local file to oss-crs-infra."""
+        """Submit a local file to oss-crs-infra.
+
+        For ``report``, ``src`` may be a file or a directory and is bundled
+        into a gzip tarball (a directory is archived without its top-level
+        component). All other types expect a single file.
+        """
         pass
 
     @abstractmethod

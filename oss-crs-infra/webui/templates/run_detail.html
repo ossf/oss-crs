@@ -77,6 +77,7 @@
   .metric.povs .value { color: var(--red); }
   .metric.seeds .value { color: var(--green); }
   .metric.patches .value { color: var(--accent); }
+  .metric.reports .value { color: var(--orange); }
   .metric.diffs .value { color: var(--purple); }
   .metric.bug-candidates .value { color: var(--orange); }
 
@@ -177,12 +178,13 @@
     <div class="metrics">
       <div class="metric povs"><div class="value" data-crs="{{ name }}" data-type="povs">0</div><div class="label">POVs</div></div>
       <div class="metric seeds"><div class="value" data-crs="{{ name }}" data-type="seeds">0</div><div class="label">Seeds</div></div>
+      <div class="metric reports"><div class="value" data-crs="{{ name }}" data-type="reports">0</div><div class="label">Reports</div></div>
       <div class="metric patches"><div class="value" data-crs="{{ name }}" data-type="patches">0</div><div class="label">Patches</div></div>
       <div class="metric diffs"><div class="value" data-crs="{{ name }}" data-type="diffs">0</div><div class="label">Diffs</div></div>
       <div class="metric bug-candidates"><div class="value" data-crs="{{ name }}" data-type="bug-candidates">0</div><div class="label">Bugs</div></div>
     </div>
     <div class="sparkline-row">
-      {% for dtype in ["povs", "seeds", "patches", "diffs", "bug-candidates"] %}
+      {% for dtype in ["povs", "seeds", "reports", "patches", "diffs", "bug-candidates"] %}
       <canvas id="spark-{{ name }}-{{ dtype }}" title="{{ dtype }}"></canvas>
       {% endfor %}
     </div>
@@ -251,6 +253,7 @@
     <div class="metrics" id="metrics-exchange">
       <div class="metric povs"><div class="value" data-type="povs" data-exchange>0</div><div class="label">POVs</div></div>
       <div class="metric seeds"><div class="value" data-type="seeds" data-exchange>0</div><div class="label">Seeds</div></div>
+      <div class="metric reports"><div class="value" data-type="reports" data-exchange>0</div><div class="label">Reports</div></div>
       <div class="metric patches"><div class="value" data-type="patches" data-exchange>0</div><div class="label">Patches</div></div>
       <div class="metric diffs"><div class="value" data-type="diffs" data-exchange>0</div><div class="label">Diffs</div></div>
       <div class="metric bug-candidates"><div class="value" data-type="bug-candidates" data-exchange>0</div><div class="label">Bugs</div></div>
@@ -266,10 +269,31 @@
 <script>
 var RUN_ID = {{ run_id | tojson }};
 var POLL_MS = 5000;
-var DATA_TYPES = ["povs", "seeds", "bug-candidates", "patches", "diffs"];
-var TYPE_COLORS = {"povs":"#f87171","seeds":"#34d399","patches":"#4f8cff","diffs":"#a78bfa","bug-candidates":"#fbbf24"};
+var DATA_TYPES = ["povs", "seeds", "bug-candidates", "reports", "patches", "diffs"];
+var TYPE_COLORS = {"povs":"#f87171","seeds":"#34d399","reports":"#f97316","patches":"#4f8cff","diffs":"#a78bfa","bug-candidates":"#fbbf24"};
 var CRS_NAMES = {{ crs_names | tojson }};
 var historyData = [];
+
+function artifactsUrl(type){
+  return "/run/"+encodeURIComponent(RUN_ID)+"/artifacts/"+encodeURIComponent(type);
+}
+// Make each Net Artifacts box clickable -> its artifact list/download page.
+function wireArtifactLinks(){
+  var boxes = document.querySelectorAll("#metrics-exchange .metric");
+  for(var i=0;i<boxes.length;i++){
+    (function(box){
+      var val = box.querySelector("[data-exchange][data-type]");
+      if(!val) return;
+      var type = val.getAttribute("data-type");
+      box.style.cursor = "pointer";
+      box.title = "View / download " + type;
+      box.addEventListener("click", function(){
+        window.open(artifactsUrl(type), "_blank");
+      });
+    })(boxes[i]);
+  }
+}
+wireArtifactLinks();
 
 function formatElapsed(s) {
   var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
@@ -400,10 +424,27 @@ function updateCharts(history) {
   drawCoverageChart("coverage-chart", history);
 }
 
+// Net Artifacts counts read live from the filesystem so they always match the
+// downloadable list (and catch late artifacts the publisher snapshot can miss).
+function applyArtifactCounts(counts){
+  if(!counts) return;
+  for(var d=0;d<DATA_TYPES.length;d++){
+    var dtype=DATA_TYPES[d];
+    var el=document.querySelector('[data-exchange][data-type="'+dtype+'"]');
+    if(el) el.textContent=counts[dtype]||0;
+  }
+  // Reports: auto-pop a downloadable list window once there is more than one.
+  if((counts.reports||0)>1 && !window.__reportsPopupShown){
+    window.__reportsPopupShown=true;
+    window.open(artifactsUrl("reports"),"reports_"+RUN_ID,"width=760,height=600");
+  }
+}
+
 function poll() {
   var sp=fetch("/api/runs/"+RUN_ID+"/status").then(function(r){return r.json();});
   var hp=fetch("/api/runs/"+RUN_ID+"/history?last=360").then(function(r){return r.json();});
-  Promise.all([sp,hp]).then(function(res){updateDashboard(res[0]);historyData=res[1];updateCharts(historyData);}).catch(function(){document.getElementById("status-dot").className="status-dot error";document.getElementById("status-text").textContent="Connection lost";});
+  var ap=fetch("/api/runs/"+RUN_ID+"/artifacts").then(function(r){return r.json();}).catch(function(){return null;});
+  Promise.all([sp,hp,ap]).then(function(res){updateDashboard(res[0]);historyData=res[1];updateCharts(historyData);if(res[2])applyArtifactCounts(res[2].counts);}).catch(function(){document.getElementById("status-dot").className="status-dot error";document.getElementById("status-text").textContent="Connection lost";});
 }
 poll(); setInterval(poll,POLL_MS);
 window.addEventListener("resize",function(){updateCharts(historyData);});

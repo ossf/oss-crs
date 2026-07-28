@@ -176,37 +176,37 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen --dev
 
-      - name: Create CI compose (bugfixing - codex)
+      - name: Create CI compose (bugfixing - opencode)
         run: |
           mkdir -p /tmp/ci-config
-          cat > /tmp/ci-config/compose-codex.yaml << 'EOF'
+          cat > /tmp/ci-config/compose-opencode.yaml << 'EOF'
           run_env: local
           docker_registry: local
           oss_crs_infra:
             cpuset: "0"
             memory: "4G"
-          crs-codex:
+          crs-opencode:
             cpuset: "1-3"
             memory: "10G"
             llm_budget: 5
             additional_env:
-              CRS_AGENT: codex
-              CODEX_MODEL: gpt-5.2-codex
+              CRS_AGENT: opencode
+              OPENCODE_MODEL: zai-org/GLM-5.1
           llm_config:
             litellm:
               mode: internal
               internal:
-                config_path: /tmp/ci-config/litellm-codex.yaml
+                config_path: /tmp/ci-config/litellm-opencode.yaml
           EOF
 
-      - name: Create CI litellm config (codex)
+      - name: Create CI litellm config (opencode)
         run: |
-          cp example/crs-codex/litellm-config.yaml /tmp/ci-config/litellm-codex.yaml
+          cp example/crs-opencode/litellm-config.yaml /tmp/ci-config/litellm-opencode.yaml
           uv run python -c "
           from oss_crs.src.llm import apply_litellm_proxy_to_file
           from pathlib import Path
           apply_litellm_proxy_to_file(
-              Path('/tmp/ci-config/litellm-codex.yaml'),
+              Path('/tmp/ci-config/litellm-opencode.yaml'),
               key_env='EXTERNAL_LITELLM_API_KEY',
               base_url_env='EXTERNAL_LITELLM_API_BASE',
           )
@@ -224,13 +224,13 @@ jobs:
       - name: Prepare CRSs
         run: |
           uv run oss-crs prepare \
-            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --compose-file /tmp/ci-config/compose-opencode.yaml \
             --work-dir /tmp/oss-crs-work
 
       - name: Build mock-c target for bugfixing
         run: |
           uv run oss-crs build-target \
-            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --compose-file /tmp/ci-config/compose-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
@@ -246,10 +246,10 @@ jobs:
             exit 1
           fi
 
-      - name: Bugfixing (crs-codex)
+      - name: Bugfixing (crs-opencode)
         run: |
           uv run oss-crs run \
-            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --compose-file /tmp/ci-config/compose-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
@@ -263,7 +263,7 @@ jobs:
       - name: Verify patches found
         run: |
           artifacts=$(uv run oss-crs artifacts \
-            --compose-file /tmp/ci-config/compose-codex.yaml \
+            --compose-file /tmp/ci-config/compose-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
@@ -298,7 +298,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 2
 
-  smoke-c-bugfinding-codex:
+  smoke-c-bugfinding-opencode:
     name: Smoke test (C agentic bug-finding)
     permissions:
       contents: read
@@ -320,37 +320,37 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen --dev
 
-      - name: Create CI compose (bugfinding - codex)
+      - name: Create CI compose (bugfinding - opencode)
         run: |
           mkdir -p /tmp/ci-config
-          cat > /tmp/ci-config/compose-bugfinding-codex.yaml << 'EOF'
+          cat > /tmp/ci-config/compose-bugfinding-opencode.yaml << 'EOF'
           run_env: local
           docker_registry: local
           oss_crs_infra:
             cpuset: "0"
             memory: "4G"
-          crs-bug-finding-codex:
+          crs-bug-finding-opencode:
             cpuset: "1-3"
             memory: "10G"
             llm_budget: 5
             additional_env:
-              CRS_AGENT: codex
-              CODEX_MODEL: gpt-5.2-codex
+              CRS_AGENT: opencode
+              OPENCODE_MODEL: zai-org/GLM-5.1
           llm_config:
             litellm:
               mode: internal
               internal:
-                config_path: /tmp/ci-config/litellm-bugfinding-codex.yaml
+                config_path: /tmp/ci-config/litellm-bugfinding-opencode.yaml
           EOF
 
-      - name: Create CI litellm config (bugfinding codex)
+      - name: Create CI litellm config (bugfinding opencode)
         run: |
-          cp example/crs-bug-finding-codex/litellm-config.yaml /tmp/ci-config/litellm-bugfinding-codex.yaml
+          cp example/crs-bug-finding-opencode/litellm-config.yaml /tmp/ci-config/litellm-bugfinding-opencode.yaml
           uv run python -c "
           from oss_crs.src.llm import apply_litellm_proxy_to_file
           from pathlib import Path
           apply_litellm_proxy_to_file(
-              Path('/tmp/ci-config/litellm-bugfinding-codex.yaml'),
+              Path('/tmp/ci-config/litellm-bugfinding-opencode.yaml'),
               key_env='EXTERNAL_LITELLM_API_KEY',
               base_url_env='EXTERNAL_LITELLM_API_BASE',
           )
@@ -368,41 +368,41 @@ jobs:
       - name: Prepare CRSs
         run: |
           uv run oss-crs prepare \
-            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
             --work-dir /tmp/oss-crs-work
 
       - name: Build mock-c target
         run: |
           uv run oss-crs build-target \
-            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
-            --build-id smoke-c-bugfinding-codex
+            --build-id smoke-c-bugfinding-opencode
 
-      - name: Bugfinding (crs-bug-finding-codex)
+      - name: Bugfinding (crs-bug-finding-opencode)
         run: |
           uv run oss-crs run \
-            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
             --target-harness fuzz_parse_buffer \
             --timeout 600 \
-            --build-id smoke-c-bugfinding-codex \
-            --run-id bugfinding-c-codex \
+            --build-id smoke-c-bugfinding-opencode \
+            --run-id bugfinding-c-opencode \
             --early-exit
 
       - name: Verify POVs found
         run: |
           artifacts=$(uv run oss-crs artifacts \
-            --compose-file /tmp/ci-config/compose-bugfinding-codex.yaml \
+            --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
             --target-harness fuzz_parse_buffer \
-            --build-id smoke-c-bugfinding-codex \
-            --run-id bugfinding-c-codex)
+            --build-id smoke-c-bugfinding-opencode \
+            --run-id bugfinding-c-opencode)
           echo "$artifacts" | jq .
           pov_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.pov')
           echo "POV directory: $pov_dir"
@@ -413,21 +413,21 @@ jobs:
           pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
           echo "Found $pov_count POV file(s)"
 
-      - name: Create smoke-c-bugfinding-codex workdir tarball
+      - name: Create smoke-c-bugfinding-opencode workdir tarball
         if: failure()
         run: |
           python scripts/create_workdir_tarball.py \
-            --output /tmp/smoke-c-bugfinding-codex-workdir.tar.gz \
-            --empty-message "No smoke-c-bugfinding-codex workdir artifacts were found."
-          tarball=/tmp/smoke-c-bugfinding-codex-workdir.tar.gz
+            --output /tmp/smoke-c-bugfinding-opencode-workdir.tar.gz \
+            --empty-message "No smoke-c-bugfinding-opencode workdir artifacts were found."
+          tarball=/tmp/smoke-c-bugfinding-opencode-workdir.tar.gz
           ls -lh "$tarball"
 
-      - name: Upload smoke-c-bugfinding-codex workdir artifacts
+      - name: Upload smoke-c-bugfinding-opencode workdir artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: smoke-c-bugfinding-codex-workdir
-          path: /tmp/smoke-c-bugfinding-codex-workdir.tar.gz
+          name: smoke-c-bugfinding-opencode-workdir
+          path: /tmp/smoke-c-bugfinding-opencode-workdir.tar.gz
           if-no-files-found: warn
           retention-days: 2
 

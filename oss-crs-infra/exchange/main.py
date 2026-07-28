@@ -5,7 +5,7 @@ Layout expected:
   /submit/<crs_name>/<data_type_dir>/<hash_file>
   /OSS_CRS_EXCHANGE_DIR/<data_type_dir>/<hash_file>
 
-Directory names are plural (povs, seeds, bug-candidates, patches, diffs).
+Directory names are plural (povs, seeds, bug-candidates, reports, patches, diffs).
 Files are already hash-named, so dedup is by filename.
 
 Uses polling (not inotify) because inotify does not work reliably
@@ -25,7 +25,9 @@ SUBMIT_ROOT = Path("/submit")
 EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
 POLL_INTERVAL = 2  # seconds
 
-ALLOWED_DATA_TYPES = {"povs", "seeds", "bug-candidates", "patches", "diffs"}
+# Keep in sync with EXCHANGE_DIR_NAMES in oss_crs/src/constants.py (this
+# service is built as a standalone image and cannot import oss_crs).
+ALLOWED_DATA_TYPES = {"povs", "seeds", "bug-candidates", "reports", "patches", "diffs"}
 
 logging.basicConfig(
     level=logging.INFO,

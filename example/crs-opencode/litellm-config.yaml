@@ -1,0 +1,26 @@
+model_list:
+# Open-source GLM models served through the external LiteLLM endpoint.
+# `zai` is not one of the providers oss-crs rewrites (see LITELLM_PROVIDERS in
+# oss_crs/src/llm.py), so these entries point at the proxy explicitly instead of
+# relying on `apply_litellm_proxy_to_file`.
+- model_name: zai-org/GLM-5.1
+  litellm_params:
+    model: zai/zai-org/GLM-5.1
+    api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+    api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+- model_name: zai-org/GLM-5.2
+  litellm_params:
+    model: zai/zai-org/GLM-5.2
+    api_base: os.environ/EXTERNAL_LITELLM_API_BASE
+    api_key: os.environ/EXTERNAL_LITELLM_API_KEY
+# OpenAI models. These use the default provider key, so they are rewritten to
+# the external endpoint when `apply_litellm_proxy_to_file` is applied (CI does
+# this); left alone, they call OpenAI directly with OPENAI_API_KEY.
+- model_name: gpt-4o-mini
+  litellm_params:
+    model: openai/gpt-4o-mini
+    api_key: os.environ/OPENAI_API_KEY
+- model_name: gpt-5.3-codex
+  litellm_params:
+    model: openai/gpt-5.3-codex
+    api_key: os.environ/OPENAI_API_KEY

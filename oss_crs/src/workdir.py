@@ -26,7 +26,7 @@ from pathlib import Path
 
 from .target import Target
 from .utils import normalize_run_id
-from .constants import UNHARNESSED
+from .constants import SUBMITTED_ARTIFACT_DIR_NAMES, UNHARNESSED
 
 
 @dataclass
@@ -66,17 +66,21 @@ class WorkDir:
         return target.get_docker_image_name().replace(":", "_")
 
     @staticmethod
-    def count_data_files(dir_path: Path) -> int:
-        """Count non-hidden files in a directory."""
+    def count_data_files(dir_path: Path, recursive: bool = False) -> int:
+        """Count non-hidden files in a directory.
+
+        Hidden files are skipped everywhere: they are sidecar bookkeeping
+        (``.<name>.skip`` markers, partial-write temp files), never artifacts.
+
+        Exchange directories are flat for hash-named submissions, but
+        host-provided inputs (``--bug-candidate-dir``, ``--report-dir``,
+        ``--patch-dir``) preserve their nesting, so callers that must see those
+        pass ``recursive=True``.
+        """
         if not dir_path.exists() or not dir_path.is_dir():
             return 0
-        return len(
-            [
-                f
-                for f in dir_path.iterdir()
-                if f.is_file() and not f.name.startswith(".")
-            ]
-        )
+        entries = dir_path.rglob("*") if recursive else dir_path.iterdir()
+        return sum(1 for f in entries if f.is_file() and not f.name.startswith("."))
 
     # -------------------------------------------------------------------------
     # Base directory helpers
@@ -107,6 +111,19 @@ class WorkDir:
         if not self.path.exists():
             return []
         return sorted(d.name for d in self.path.iterdir() if d.is_dir())
+
+    def iter_sibling_compose_workdirs(self) -> list[tuple[str, "WorkDir"]]:
+        """Enumerate every compose-hash workdir under the shared root.
+
+        A workdir is rooted at ``<work_dir>/crs_compose/<compose_hash>``, so
+        sibling directories hold the runs of other CRS ensembles against the
+        same ``--work-dir``. Returns ``(compose_hash, WorkDir)`` pairs sorted by
+        hash, including this workdir itself.
+        """
+        root = self.path.parent
+        if not root.is_dir():
+            return []
+        return [(d.name, WorkDir(d)) for d in sorted(root.iterdir()) if d.is_dir()]
 
     def iter_builds(self, sanitizer: str | None = None) -> list[BuildEntry]:
         """Enumerate all builds, optionally filtered by sanitizer."""
@@ -158,22 +175,28 @@ class WorkDir:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_existing_id(raw_id: str, ids_dir: Path) -> str | None:
-        """Resolve a user-provided id to an existing directory name.
+    def candidate_ids(raw_id: str) -> list[str]:
+        """Directory names a user-provided run/build id may refer to.
 
-        Prefer exact match first, then try normalized form for backward
-        compatibility.
+        Exact match first, then the normalized form for backward compatibility.
         """
         if not raw_id:
-            return None
-        if (ids_dir / raw_id).is_dir():
-            return raw_id
+            return []
+        candidates = [raw_id]
         try:
             normalized = normalize_run_id(raw_id)
         except ValueError:
-            return None
-        if (ids_dir / normalized).is_dir():
-            return normalized
+            return candidates
+        if normalized != raw_id:
+            candidates.append(normalized)
+        return candidates
+
+    @classmethod
+    def _resolve_existing_id(cls, raw_id: str, ids_dir: Path) -> str | None:
+        """Resolve a user-provided id to an existing directory name."""
+        for candidate in cls.candidate_ids(raw_id):
+            if (ids_dir / candidate).is_dir():
+                return candidate
         return None
 
     def resolve_run_id(self, raw_id: str, sanitizer: str) -> str | None:
@@ -509,10 +532,8 @@ class WorkDir:
             crs_name, target, run_id, sanitizer, create=False
         )
         return {
-            "povs": self.count_data_files(submit_dir / "povs"),
-            "seeds": self.count_data_files(submit_dir / "seeds"),
-            "patches": self.count_data_files(submit_dir / "patches"),
-            "bug_candidates": self.count_data_files(submit_dir / "bug-candidates"),
+            name.replace("-", "_"): self.count_data_files(submit_dir / name)
+            for name in SUBMITTED_ARTIFACT_DIR_NAMES
         }
 
     def read_build_id_for_run(self, run_id: str, sanitizer: str) -> str | None:

@@ -53,7 +53,9 @@ SPEND_REPORT_PATH = Path("/litellm-spend-report.json")
 POLL_INTERVAL = 5  # seconds
 COVERAGE_INTERVAL = 30  # seconds
 
-ALLOWED_DATA_TYPES = ("povs", "seeds", "bug-candidates", "patches", "diffs")
+# Keep in sync with EXCHANGE_DIR_NAMES in oss_crs/src/constants.py (this
+# service is built as a standalone image and cannot import oss_crs).
+ALLOWED_DATA_TYPES = ("povs", "seeds", "bug-candidates", "reports", "patches", "diffs")
 
 logging.basicConfig(
     level=logging.INFO,

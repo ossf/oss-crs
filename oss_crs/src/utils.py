@@ -8,15 +8,21 @@ import string
 import time
 import re
 from pathlib import Path
-from typing import Optional
+from collections.abc import Sequence
+from typing import Any, Callable, Optional, TypeVar, cast
 
 import questionary
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from questionary.prompts.common import InquirerControl, Separator
+from questionary.question import Question
 from rich.console import Console
 
 from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
 
 
 RAND_CHARS = string.ascii_lowercase + string.digits
+T = TypeVar("T")
 
 # Global console instance for unified logging
 _console: Console | None = None
@@ -291,3 +297,73 @@ def select(message: str, choices: list[tuple[str, str]]) -> str | None:
         questionary.Choice(title=title, value=value) for title, value in choices
     ]
     return questionary.select(message, choices=q_choices).ask()
+
+
+def multi_select(
+    message: str,
+    choices: Sequence[tuple[str, T] | tuple[str, T, str]],
+    instruction: str | None = None,
+    validate: Callable[[list[T]], bool | str] | None = None,
+) -> list[T] | None:
+    """Prompt user to select zero or more choices.
+
+    Args:
+        message: The question to ask.
+        choices: List of (display_title, value) tuples, optionally with a
+            description as the third element.
+        instruction: Optional prompt instruction text.
+        validate: Optional selected-value validator.
+
+    Returns:
+        The selected values, the highlighted value if Enter was pressed with
+        no explicit selections, or None if aborted (Ctrl+C).
+    """
+    q_choices = []
+    for choice in choices:
+        title, value = choice[:2]
+        description = choice[2] if len(choice) == 3 else None
+        q_choices.append(
+            questionary.Choice(
+                title=title,
+                value=value,
+                description=description,
+            )
+        )
+    question = questionary.checkbox(
+        message,
+        choices=q_choices,
+        instruction=instruction,
+        # questionary annotates the validator as taking list[str]; it is really
+        # called with the choice values, whatever their type.
+        validate=cast(Any, validate) or (lambda _selected: True),
+    )
+    _enter_selects_pointed_choice(question)
+    return question.ask()
+
+
+def _enter_selects_pointed_choice(question: Question) -> None:
+    """Make Enter fall back to the highlighted row when nothing is checked.
+
+    A plain questionary checkbox submits an empty list in that case, which reads
+    as "skip" when the user meant "take this one". Rather than fork the prompt,
+    seed the selection and delegate to questionary's own Enter handler:
+    prompt_toolkit dispatches the *last* matching binding, so this one shadows
+    it.
+    """
+    bindings = cast(KeyBindings, question.application.key_bindings)
+    ic = next(
+        control
+        for control in question.application.layout.find_all_controls()
+        if isinstance(control, InquirerControl)
+    )
+    questionary_set_answer = next(
+        binding for binding in bindings.bindings if binding.keys == (Keys.ControlM,)
+    ).handler
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def _(event):
+        if not ic.selected_options:
+            pointed = ic.get_pointed_at()
+            if not isinstance(pointed, Separator) and not pointed.disabled:
+                ic.selected_options = [pointed.value]
+        questionary_set_answer(event)

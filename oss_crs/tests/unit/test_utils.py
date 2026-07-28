@@ -2,8 +2,78 @@
 """Unit tests for oss_crs.src.utils module."""
 
 import pytest
+import questionary
 import re
-from oss_crs.src.utils import normalize_run_id
+from prompt_toolkit.keys import Keys
+from questionary.prompts.common import InquirerControl
+
+from oss_crs.src.utils import _enter_selects_pointed_choice, normalize_run_id
+
+
+class _FakeApp:
+    def __init__(self):
+        self.result = None
+
+    def exit(self, result=None, **kwargs):
+        self.result = result
+
+
+class _FakeEvent:
+    def __init__(self):
+        self.app = _FakeApp()
+
+
+def _press_enter(question) -> _FakeApp:
+    """Invoke the binding prompt_toolkit would dispatch for Enter (the last)."""
+    enter_binding = [
+        binding
+        for binding in question.application.key_bindings.bindings
+        if binding.keys == (Keys.ControlM,)
+    ][-1]
+    event = _FakeEvent()
+    enter_binding.handler(event)
+    return event.app
+
+
+def _checkbox(**kwargs):
+    return questionary.checkbox(
+        "Select:",
+        choices=[
+            questionary.Choice("first", "first"),
+            questionary.Choice("second", "second"),
+        ],
+        **kwargs,
+    )
+
+
+def test_checkbox_enter_selects_highlighted_item_when_none_checked():
+    question = _checkbox()
+    _enter_selects_pointed_choice(question)
+
+    assert _press_enter(question).result == ["first"]
+
+
+def test_checkbox_enter_keeps_explicit_selection():
+    question = _checkbox()
+    _enter_selects_pointed_choice(question)
+    # Simulate the user checking the second row before pressing Enter.
+    ic = next(
+        control
+        for control in question.application.layout.find_all_controls()
+        if isinstance(control, InquirerControl)
+    )
+    ic.selected_options = ["second"]
+
+    assert _press_enter(question).result == ["second"]
+
+
+def test_checkbox_enter_respects_validator():
+    question = _checkbox(validate=lambda selected: len(selected) > 1)
+    _enter_selects_pointed_choice(question)
+
+    # The pointed-at fallback is a single value, so validation rejects it and
+    # the prompt stays open (no exit result).
+    assert _press_enter(question).result is None
 
 
 class TestNormalizeRunId:
