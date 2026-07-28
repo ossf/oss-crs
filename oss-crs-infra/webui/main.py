@@ -30,6 +30,8 @@ LOG_DIR = Path(os.environ.get("WEBUI_LOG_DIR", "/webui_logs"))
 # Host oss-crs workdir mounted read-only so the dashboard can list and serve
 # artifact files for download (see ensure_web_ui_running).
 WORKDIR = Path(os.environ.get("WEBUI_WORKDIR", "/workdir"))
+# Keep in sync with EXCHANGE_DIR_NAMES in oss_crs/src/constants.py (this
+# service is built as a standalone image and cannot import oss_crs).
 ARTIFACT_TYPES = {"povs", "seeds", "bug-candidates", "reports", "patches", "diffs"}
 HISTORY_SIZE = 720  # ~1 hour at 5s intervals
 # A run with no snapshot for this long is considered "stale" (publisher gone /
@@ -439,23 +441,51 @@ def run_detail(run_id: str):
 # there by run id so the dashboard can list files and serve them for download.
 
 
+def _artifact_file_glob(run_id: str, base: str, atype: str) -> str:
+    """Glob for one run's artifacts of one type under EXCHANGE/PROCESSED_EXCHANGE.
+
+    Mirrors the workdir layout owned by oss_crs/src/workdir.py:
+    ``<work_dir>/crs_compose/<compose_hash>/<sanitizer>/runs/<run_id>/
+      <base>/<target_key>/<harness>/<type>/``. This service runs in its own
+    image and cannot import WorkDir, so the layout is spelled out here; keep
+    the two in sync.
+    """
+    return str(
+        WORKDIR
+        / "crs_compose"
+        / "*"
+        / "*"
+        / "runs"
+        / f"{run_id}*"
+        / base
+        / "*"
+        / "*"
+        / atype
+        / "*"
+    )
+
+
 def _find_artifact_files(run_id: str, atype: str) -> list[Path]:
     if atype not in ARTIFACT_TYPES:
         return []
-    run_glob = str(WORKDIR / "crs_compose" / "*" / "*" / "runs" / f"{run_id}*")
+
+    def collect(base: str) -> dict[str, Path]:
+        by_name: dict[str, Path] = {}
+        for p in _glob.glob(_artifact_file_glob(run_id, base, atype)):
+            fp = Path(p)
+            if fp.is_file() and not fp.name.startswith("."):
+                by_name.setdefault(fp.name, fp)
+        return by_name
+
     # Match the Net Artifacts count: when a post-processor (triage -> povs,
-    # seed-filter -> seeds) handled this type, its PROCESSED_EXCHANGE_DIR type
-    # dir exists and holds the DEDUPED set — list only that. Otherwise the raw
-    # shared EXCHANGE_DIR is the net set. Never union the two (that double-counts
-    # raw + deduped povs).
-    processed_type_dirs = _glob.glob(f"{run_glob}/PROCESSED_EXCHANGE_DIR/*/*/{atype}")
-    base = "PROCESSED_EXCHANGE_DIR" if processed_type_dirs else "EXCHANGE_DIR"
-    by_name: dict[str, Path] = {}
-    for p in _glob.glob(f"{run_glob}/{base}/*/*/{atype}/*"):
-        fp = Path(p)
-        if fp.is_file() and not fp.name.startswith("."):
-            by_name.setdefault(fp.name, fp)
-    return sorted(by_name.values(), key=lambda f: f.name.lower())
+    # seed-filter -> seeds) handled this type, its PROCESSED_EXCHANGE_DIR holds
+    # the DEDUPED set — list only that. Otherwise the raw shared EXCHANGE_DIR is
+    # the net set. Never union the two (that double-counts raw + deduped povs).
+    # An existing-but-empty processed dir means the processor has not emitted
+    # anything yet, so fall back to raw rather than showing nothing — same rule
+    # as ForwardArtifactSource.source_dir_for in oss_crs.
+    files = collect("PROCESSED_EXCHANGE_DIR") or collect("EXCHANGE_DIR")
+    return sorted(files.values(), key=lambda f: f.name.lower())
 
 
 @app.get("/api/runs/{run_id}/artifacts")

@@ -864,10 +864,9 @@ def cli() -> bool | int:
         bug_candidate_input = build_artifact_inputs.get(
             "bug-candidate", ArtifactInput()
         )
-        if bug_candidate_input.file and bug_candidate_input.directory:
-            print(
-                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
-            )
+        artifact_error = CRSCompose._validate_artifact_inputs(build_artifact_inputs)
+        if artifact_error:
+            print(artifact_error)
             return False
         if not crs_compose.build_target(
             target,

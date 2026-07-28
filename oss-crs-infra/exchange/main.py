@@ -25,6 +25,8 @@ SUBMIT_ROOT = Path("/submit")
 EXCHANGE_ROOT = Path("/OSS_CRS_EXCHANGE_DIR")
 POLL_INTERVAL = 2  # seconds
 
+# Keep in sync with EXCHANGE_DIR_NAMES in oss_crs/src/constants.py (this
+# service is built as a standalone image and cannot import oss_crs).
 ALLOWED_DATA_TYPES = {"povs", "seeds", "bug-candidates", "reports", "patches", "diffs"}
 
 logging.basicConfig(

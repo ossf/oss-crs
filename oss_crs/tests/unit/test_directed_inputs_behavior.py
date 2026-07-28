@@ -2,7 +2,7 @@
 from pathlib import Path
 
 import oss_crs.src.crs_compose as crs_compose_module
-from oss_crs.src.crs_compose import CRSCompose, ForwardArtifactSource
+from oss_crs.src.crs_compose import ArtifactInput, CRSCompose, ForwardArtifactSource
 from oss_crs.src.target import Target
 from oss_crs.src.workdir import WorkDir
 
@@ -123,7 +123,7 @@ def test_existing_build_allows_run_phase_bug_candidate_file(
             run_id="run-1",
             build_id="build-1",
             sanitizer="address",
-            bug_candidate=bug_candidate,
+            artifact_inputs={"bug-candidate": ArtifactInput(file=bug_candidate)},
         )
         is True
     )
@@ -148,7 +148,9 @@ def test_existing_build_allows_run_phase_bug_candidate_dir(
             run_id="run-1",
             build_id="build-1",
             sanitizer="address",
-            bug_candidate_dir=bug_candidate_dir,
+            artifact_inputs={
+                "bug-candidate": ArtifactInput(directory=bug_candidate_dir)
+            },
         )
         is True
     )
@@ -172,7 +174,7 @@ def test_existing_build_allows_run_phase_report_file(
             run_id="run-1",
             build_id="build-1",
             sanitizer="address",
-            report=report,
+            artifact_inputs={"report": ArtifactInput(file=report)},
         )
         is True
     )
@@ -297,7 +299,7 @@ def test_run_without_build_id_reuses_latest_build_with_directed_inputs(
             build_id=None,  # Not provided - should auto-resolve
             sanitizer="address",
             diff=diff,
-            bug_candidate=bug_candidate,
+            artifact_inputs={"bug-candidate": ArtifactInput(file=bug_candidate)},
         )
         is True
     )
@@ -330,7 +332,7 @@ def test_run_without_build_id_triggers_build_and_uses_same_id_for_both_phases(
             build_id=None,
             sanitizer="address",
             diff=diff,
-            bug_candidate=bug_candidate,
+            artifact_inputs={"bug-candidate": ArtifactInput(file=bug_candidate)},
         )
         is True
     )
@@ -367,7 +369,9 @@ def test_run_without_build_id_passes_bug_candidate_dir_to_both_phases(
             run_id="run-1",
             build_id=None,
             sanitizer="address",
-            bug_candidate_dir=bug_candidate_dir,
+            artifact_inputs={
+                "bug-candidate": ArtifactInput(directory=bug_candidate_dir)
+            },
         )
         is True
     )

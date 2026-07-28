@@ -12,20 +12,10 @@ from collections.abc import Sequence
 from typing import Any, Callable, Optional, TypeVar, cast
 
 import questionary
-from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from prompt_toolkit.styles import Style
-from questionary.constants import (
-    DEFAULT_QUESTION_PREFIX,
-    DEFAULT_SELECTED_POINTER,
-    INVALID_INPUT,
-)
-from questionary.prompts import common as questionary_common
 from questionary.prompts.common import InquirerControl, Separator
 from questionary.question import Question
-from questionary.styles import merge_styles_default
 from rich.console import Console
 
 from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
@@ -339,168 +329,41 @@ def multi_select(
                 description=description,
             )
         )
-    return _checkbox_enter_selects_current(
+    question = questionary.checkbox(
         message,
         choices=q_choices,
         instruction=instruction,
-        validate=validate or (lambda _selected: True),
-    ).ask()
-
-
-def _checkbox_enter_selects_current(
-    message: str,
-    choices: list[questionary.Choice],
-    instruction: str | None,
-    validate: Callable[[list[Any]], bool | str],
-) -> Question:
-    """Questionary checkbox variant where Enter selects the highlighted row."""
-    merged_style = merge_styles_default(
-        [
-            Style([("bottom-toolbar", "noreverse")]),
-            None,
-        ]
+        # questionary annotates the validator as taking list[str]; it is really
+        # called with the choice values, whatever their type.
+        validate=cast(Any, validate) or (lambda _selected: True),
     )
-    ic = InquirerControl(
-        choices,
-        pointer=DEFAULT_SELECTED_POINTER,
-        show_description=True,
+    _enter_selects_pointed_choice(question)
+    return question.ask()
+
+
+def _enter_selects_pointed_choice(question: Question) -> None:
+    """Make Enter fall back to the highlighted row when nothing is checked.
+
+    A plain questionary checkbox submits an empty list in that case, which reads
+    as "skip" when the user meant "take this one". Rather than fork the prompt,
+    seed the selection and delegate to questionary's own Enter handler:
+    prompt_toolkit dispatches the *last* matching binding, so this one shadows
+    it.
+    """
+    bindings = cast(KeyBindings, question.application.key_bindings)
+    ic = next(
+        control
+        for control in question.application.layout.find_all_controls()
+        if isinstance(control, InquirerControl)
     )
-
-    def get_prompt_tokens() -> list[tuple[str, str]]:
-        tokens = [
-            ("class:qmark", DEFAULT_QUESTION_PREFIX),
-            ("class:question", f" {message} "),
-        ]
-
-        if ic.is_answered:
-            selected_count = len(ic.selected_options)
-            if selected_count == 0:
-                tokens.append(("class:answer", "done"))
-            elif selected_count == 1:
-                selected_title = ic.get_selected_values()[0].title
-                if isinstance(selected_title, list):
-                    tokens.append(
-                        (
-                            "class:answer",
-                            "".join(token[1] for token in selected_title),
-                        )
-                    )
-                else:
-                    tokens.append(("class:answer", f"[{selected_title}]"))
-            else:
-                tokens.append(("class:answer", f"done ({selected_count} selections)"))
-        else:
-            tokens.append(
-                (
-                    "class:instruction",
-                    instruction
-                    or "(Use arrow keys to move, <space> to select, <a> to toggle, <i> to invert)",
-                )
-            )
-        return tokens
-
-    def get_selected_values() -> list[Any]:
-        return [choice.value for choice in ic.get_selected_values()]
-
-    def perform_validation(selected_values: list[Any]) -> bool:
-        verdict = validate(selected_values)
-        valid = verdict is True
-        if not valid:
-            error_text = INVALID_INPUT if verdict is False else str(verdict)
-            error_message = FormattedText([("class:validation-toolbar", error_text)])
-        else:
-            error_message = None
-        # questionary leaves error_message unannotated, so it infers as None.
-        cast(Any, ic).error_message = (
-            error_message if not valid and ic.submission_attempted else None
-        )
-        return valid
-
-    layout = questionary_common.create_inquirer_layout(ic, get_prompt_tokens)
-    bindings = KeyBindings()
-
-    @bindings.add(Keys.ControlQ, eager=True)
-    @bindings.add(Keys.ControlC, eager=True)
-    def _(event):
-        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
-
-    @bindings.add(" ", eager=True)
-    def toggle(_event):
-        pointed_choice = ic.get_pointed_at().value
-        if pointed_choice in ic.selected_options:
-            ic.selected_options.remove(pointed_choice)
-        else:
-            ic.selected_options.append(pointed_choice)
-        perform_validation(get_selected_values())
-
-    @bindings.add("i", eager=True)
-    def invert(_event):
-        ic.selected_options = [
-            c.value
-            for c in ic.choices
-            if not isinstance(c, Separator)
-            and c.value not in ic.selected_options
-            and not c.disabled
-        ]
-        perform_validation(get_selected_values())
-
-    @bindings.add("a", eager=True)
-    def all(_event):
-        all_selected = True
-        for choice in ic.choices:
-            if (
-                not isinstance(choice, Separator)
-                and choice.value not in ic.selected_options
-                and not choice.disabled
-            ):
-                ic.selected_options.append(choice.value)
-                all_selected = False
-        if all_selected:
-            ic.selected_options = []
-        perform_validation(get_selected_values())
-
-    def move_cursor_down(_event):
-        ic.select_next()
-        while not ic.is_selection_valid():
-            ic.select_next()
-
-    def move_cursor_up(_event):
-        ic.select_previous()
-        while not ic.is_selection_valid():
-            ic.select_previous()
-
-    bindings.add(Keys.Down, eager=True)(move_cursor_down)
-    bindings.add(Keys.Up, eager=True)(move_cursor_up)
-    bindings.add("j", eager=True)(move_cursor_down)
-    bindings.add("k", eager=True)(move_cursor_up)
-    bindings.add(Keys.ControlN, eager=True)(move_cursor_down)
-    bindings.add(Keys.ControlP, eager=True)(move_cursor_up)
+    questionary_set_answer = next(
+        binding for binding in bindings.bindings if binding.keys == (Keys.ControlM,)
+    ).handler
 
     @bindings.add(Keys.ControlM, eager=True)
-    def set_answer(event):
-        selected_values = get_selected_values()
-        if not selected_values:
-            pointed_choice = ic.get_pointed_at()
-            if (
-                not isinstance(pointed_choice, Separator)
-                and not pointed_choice.disabled
-            ):
-                ic.selected_options = [pointed_choice.value]
-                selected_values = [pointed_choice.value]
-
-        ic.submission_attempted = True
-        if perform_validation(selected_values):
-            ic.is_answered = True
-            event.app.exit(result=selected_values)
-
-    @bindings.add(Keys.Any)
-    def other(_event):
-        """Disallow inserting other text."""
-
-    return Question(
-        Application(
-            layout=layout,
-            key_bindings=bindings,
-            style=merged_style,
-        )
-    )
+    def _(event):
+        if not ic.selected_options:
+            pointed = ic.get_pointed_at()
+            if not isinstance(pointed, Separator) and not pointed.disabled:
+                ic.selected_options = [pointed.value]
+        questionary_set_answer(event)

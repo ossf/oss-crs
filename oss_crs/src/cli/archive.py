@@ -6,6 +6,7 @@ import tarfile
 from pathlib import Path
 
 from .artifacts import resolve_run_context
+from ..constants import SUBMITTED_ARTIFACT_DIR_NAMES
 from ..target import Target
 
 
@@ -25,7 +26,9 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
     non_triage_crs = [crs for crs in crs_compose.crs_list if not crs.config.is_triage]
 
     # Collect (arcname, src_path) pairs for each artifact subdir
-    artifact_subdirs = ["povs", "seeds", "patches", "bug-candidates", "reports"]
+    artifact_subdirs = list(SUBMITTED_ARTIFACT_DIR_NAMES)
+    # In a triage run, POVs come from the triage CRS instead (see below).
+    non_pov_subdirs = [s for s in artifact_subdirs if s not in ("povs", "reports")]
 
     def _add_dir(collected: list, src_dir: Path, arcname_prefix: str) -> None:
         """Recursively add files from src_dir under arcname_prefix."""
@@ -58,7 +61,7 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
             submit_dir = work_dir.get_submit_dir(
                 crs.name, target, run_id, sanitizer, create=False
             )
-            for subdir in ["seeds", "patches", "bug-candidates"]:
+            for subdir in non_pov_subdirs:
                 _add_dir(collected, submit_dir / subdir, subdir)
         # Reports are generic analysis artifacts; include them from every CRS,
         # including triage/audit-style CRSs that may emit root-cause reports.

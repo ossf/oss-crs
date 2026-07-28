@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -46,6 +47,7 @@ from .constants import (
     OSS_CRS_INFRA_SIDECAR_IMAGES,
     OSS_CRS_INTERNAL_LLM_IMAGES,
     OSS_CRS_INTERNAL_LLM_SIDECAR_IMAGES,
+    SUBMITTED_ARTIFACT_DIR_NAMES,
 )
 from .templates.renderer import OSS_CRS_ROOT_PATH
 from .libcrs_nix import build_deps_image
@@ -96,6 +98,19 @@ FORWARD_ARTIFACT_DIRS: tuple[str, ...] = tuple(
 PROCESSED_FORWARD_ARTIFACT_DIRS = {"povs", "seeds"}
 
 
+def count_forwardable_files(path: Path | None) -> int:
+    """Count artifacts in an exchange subdirectory.
+
+    Recursive, because host-provided inputs (``--bug-candidate-dir`` and
+    friends) keep their nesting when copied into the exchange. Shares
+    ``WorkDir.count_data_files`` so these counts agree with the ones the
+    archive/WebUI report for the same directory.
+    """
+    if path is None:
+        return 0
+    return WorkDir.count_data_files(path, recursive=True)
+
+
 @dataclass(frozen=True)
 class ArtifactInput:
     """Resolved host paths for one exchange artifact input type."""
@@ -129,11 +144,7 @@ class ForwardArtifactSource:
         if (
             artifact_dir in PROCESSED_FORWARD_ARTIFACT_DIRS
             and self.processed_exchange_dir is not None
-            and (self.processed_exchange_dir / artifact_dir).is_dir()
-            and any(
-                p.is_file()
-                for p in (self.processed_exchange_dir / artifact_dir).rglob("*")
-            )
+            and count_forwardable_files(self.processed_exchange_dir / artifact_dir)
         ):
             return self.processed_exchange_dir / artifact_dir
         if (
@@ -1077,16 +1088,7 @@ class CRSCompose:
         run_id: str | None = None,
         build_id: str | None = None,
         sanitizer: str | None = None,
-        pov: Optional[Path] = None,
-        pov_dir: Optional[Path] = None,
         diff: Optional[Path] = None,
-        seed_dir: Optional[Path] = None,
-        patch: Optional[Path] = None,
-        patch_dir: Optional[Path] = None,
-        report: Optional[Path] = None,
-        report_dir: Optional[Path] = None,
-        bug_candidate: Optional[Path] = None,
-        bug_candidate_dir: Optional[Path] = None,
         artifact_inputs: ArtifactInputs | None = None,
         forward_artifacts: list[str] | None = None,
         prompt_forward_artifacts: bool = False,
@@ -1119,40 +1121,7 @@ class CRSCompose:
         if diff is not None and not diff.is_file():
             print(f"Error: Diff file does not exist: {diff}")
             return 1
-        if bug_candidate is not None and bug_candidate_dir is not None:
-            print(
-                "Error: --bug-candidate and --bug-candidate-dir are mutually exclusive."
-            )
-            return 1
-        if bug_candidate is not None and not bug_candidate.exists():
-            print(f"Error: --bug-candidate path does not exist: {bug_candidate}")
-            return 1
-        if bug_candidate is not None and not bug_candidate.is_file():
-            print(
-                "Error: --bug-candidate must be a file. "
-                "Use --bug-candidate-dir for directories."
-            )
-            return 1
-        if bug_candidate_dir is not None and not bug_candidate_dir.exists():
-            print(
-                f"Error: --bug-candidate-dir path does not exist: {bug_candidate_dir}"
-            )
-            return 1
-        if bug_candidate_dir is not None and not bug_candidate_dir.is_dir():
-            print("Error: --bug-candidate-dir must be a directory.")
-            return 1
-        artifact_inputs = self._merge_legacy_artifact_inputs(
-            artifact_inputs,
-            pov=pov,
-            pov_dir=pov_dir,
-            seed_dir=seed_dir,
-            bug_candidate=bug_candidate,
-            bug_candidate_dir=bug_candidate_dir,
-            report=report,
-            report_dir=report_dir,
-            patch=patch,
-            patch_dir=patch_dir,
-        )
+        artifact_inputs = artifact_inputs or {}
         artifact_error = self._validate_artifact_inputs(artifact_inputs)
         if artifact_error:
             print(artifact_error)
@@ -1185,12 +1154,14 @@ class CRSCompose:
                 build_id = generate_run_id()
             # Normalize so run() and build_target() use the same directory
             build_id = normalize_run_id(build_id)
+            # Directed build inputs come from the same run-phase flags.
+            bug_candidate_input = artifact_inputs.get("bug-candidate", ArtifactInput())
             if not self.build_target(
                 target,
                 build_id,
                 sanitizer,
-                bug_candidate=bug_candidate,
-                bug_candidate_dir=bug_candidate_dir,
+                bug_candidate=bug_candidate_input.file,
+                bug_candidate_dir=bug_candidate_input.directory,
                 diff=diff,
                 coverage=web_ui,
             ):
@@ -1234,29 +1205,8 @@ class CRSCompose:
         diff: Optional[Path] = None,
         artifact_inputs: ArtifactInputs | None = None,
         forwarded_artifact_names: set[str] | None = None,
-        pov: Optional[Path] = None,
-        pov_dir: Optional[Path] = None,
-        seed_dir: Optional[Path] = None,
-        report: Optional[Path] = None,
-        report_dir: Optional[Path] = None,
-        bug_candidate: Optional[Path] = None,
-        bug_candidate_dir: Optional[Path] = None,
-        patch: Optional[Path] = None,
-        patch_dir: Optional[Path] = None,
     ) -> TaskResult:
         """Validate that all CRS-declared required_inputs are provided."""
-        artifact_inputs = self._merge_legacy_artifact_inputs(
-            artifact_inputs,
-            pov=pov,
-            pov_dir=pov_dir,
-            seed_dir=seed_dir,
-            report=report,
-            report_dir=report_dir,
-            bug_candidate=bug_candidate,
-            bug_candidate_dir=bug_candidate_dir,
-            patch=patch,
-            patch_dir=patch_dir,
-        )
         provided: set[str] = set()
         if diff is not None:
             provided.add("diff")
@@ -1280,40 +1230,6 @@ class CRSCompose:
         if errors:
             return TaskResult(success=False, error="\n".join(errors))
         return TaskResult(success=True)
-
-    @staticmethod
-    def _merge_legacy_artifact_inputs(
-        artifact_inputs: ArtifactInputs | None,
-        *,
-        pov: Optional[Path] = None,
-        pov_dir: Optional[Path] = None,
-        seed_dir: Optional[Path] = None,
-        bug_candidate: Optional[Path] = None,
-        bug_candidate_dir: Optional[Path] = None,
-        report: Optional[Path] = None,
-        report_dir: Optional[Path] = None,
-        patch: Optional[Path] = None,
-        patch_dir: Optional[Path] = None,
-    ) -> ArtifactInputs:
-        merged: ArtifactInputs = dict(artifact_inputs or {})
-        legacy: dict[str, ArtifactInput] = {
-            "pov": ArtifactInput(file=pov, directory=pov_dir),
-            "seed": ArtifactInput(directory=seed_dir),
-            "bug-candidate": ArtifactInput(
-                file=bug_candidate,
-                directory=bug_candidate_dir,
-            ),
-            "report": ArtifactInput(file=report, directory=report_dir),
-            "patch": ArtifactInput(file=patch, directory=patch_dir),
-        }
-        for name, value in legacy.items():
-            if value.provided:
-                existing = merged.get(name, ArtifactInput())
-                merged[name] = ArtifactInput(
-                    file=existing.file or value.file,
-                    directory=existing.directory or value.directory,
-                )
-        return merged
 
     @staticmethod
     def _validate_artifact_inputs(artifact_inputs: ArtifactInputs) -> str | None:
@@ -1351,18 +1267,17 @@ class CRSCompose:
         return None
 
     @staticmethod
-    def _count_files(path: Path | None) -> int:
-        if path is None or not path.is_dir():
-            return 0
-        return sum(1 for p in path.rglob("*") if p.is_file())
-
     def _artifact_counts_for_forward_source(
-        self, source: ForwardArtifactSource
+        source: ForwardArtifactSource,
     ) -> dict[str, int]:
         return {
-            artifact_dir: self._count_files(source.source_dir_for(artifact_dir))
+            artifact_dir: count_forwardable_files(source.source_dir_for(artifact_dir))
             for artifact_dir in FORWARD_ARTIFACT_DIRS
         }
+
+    @classmethod
+    def _has_forwardable_artifacts(cls, source: ForwardArtifactSource) -> bool:
+        return any(cls._artifact_counts_for_forward_source(source).values())
 
     @staticmethod
     def _forward_source_count_text(counts: dict[str, int]) -> str:
@@ -1393,94 +1308,84 @@ class CRSCompose:
             return "unknown"
         return ", ".join(crs_names)
 
-    def _forward_source_compact_display(self, source: ForwardArtifactSource) -> str:
-        counts = self._artifact_counts_for_forward_source(source)
+    def _forward_source_display(
+        self, source: ForwardArtifactSource, compact: bool = False
+    ) -> str:
+        """One-line description of an artifact source.
+
+        ``compact`` drops the fields that are constant across a single prompt
+        (sanitizer, target) — it is the selectable row, with the full form shown
+        as that row's detail.
+        """
+        crs = self._forward_source_crs_text(source)
+        counts = self._forward_source_count_text(
+            self._artifact_counts_for_forward_source(source)
+        )
+        if compact:
+            return (
+                f"{source.run_id} | harness: {source.harness} | crs: {crs} | {counts}"
+            )
         return (
-            f"{source.run_id} | harness: {source.harness} | "
-            f"crs: {self._forward_source_crs_text(source)} | "
-            f"{self._forward_source_count_text(counts)}"
+            f"{source.run_id} | sanitizer={source.sanitizer} | crs: {crs} | "
+            f"target: {source.target_key} | harness: {source.harness} | {counts}"
         )
 
-    def _forward_source_display(self, source: ForwardArtifactSource) -> str:
-        counts = self._artifact_counts_for_forward_source(source)
-        return (
-            f"{source.run_id} | sanitizer={source.sanitizer} | "
-            f"crs: {self._forward_source_crs_text(source)} | "
-            f"target: {source.target_key} | harness: {source.harness} | "
-            f"{self._forward_source_count_text(counts)}"
-        )
+    def _iter_forward_sources(
+        self,
+        *,
+        run_ids: Sequence[str] | None = None,
+        requested_run_id: str | None = None,
+    ) -> list[ForwardArtifactSource]:
+        """Enumerate artifact sources across every compose-hash workdir.
+
+        Runs of other CRS ensembles live in sibling compose-hash workdirs under
+        the same ``--work-dir``, so artifacts can be forwarded even when the
+        current compose file differs. ``run_ids`` restricts the walk to those
+        run directories; ``requested_run_id`` records what the user actually
+        typed (which may be an un-normalized form of the directory name).
+        """
+        wanted = set(run_ids) if run_ids is not None else None
+        sources: list[ForwardArtifactSource] = []
+        for compose_hash, work_dir in self.work_dir.iter_sibling_compose_workdirs():
+            for entry in sorted(
+                work_dir.iter_runs(), key=lambda e: (e.sanitizer, e.run_id)
+            ):
+                if wanted is not None and entry.run_id not in wanted:
+                    continue
+                sources.extend(
+                    self._iter_forward_sources_for_run_dir(
+                        requested_run_id=requested_run_id or entry.run_id,
+                        run_id=entry.run_id,
+                        sanitizer=entry.sanitizer,
+                        compose_hash=compose_hash,
+                        run_dir=entry.path,
+                    )
+                )
+        return sources
 
     def _iter_forward_artifact_candidates(
         self, requested_run_id: str
     ) -> list[ForwardArtifactSource]:
-        crs_compose_root = self.work_dir.path.parent
-        if not crs_compose_root.is_dir():
-            return []
-        try:
-            normalized_run_id = normalize_run_id(requested_run_id)
-        except ValueError:
-            normalized_run_id = None
-        matching_run_ids = {requested_run_id}
-        if normalized_run_id is not None:
-            matching_run_ids.add(normalized_run_id)
-
-        candidates: list[ForwardArtifactSource] = []
-        for compose_dir in sorted(crs_compose_root.iterdir()):
-            if not compose_dir.is_dir():
-                continue
-            compose_hash = compose_dir.name
-            for sanitizer_dir in sorted(compose_dir.iterdir()):
-                runs_dir = sanitizer_dir / "runs"
-                if not runs_dir.is_dir():
-                    continue
-                for run_id in sorted(matching_run_ids):
-                    run_dir = runs_dir / run_id
-                    if not run_dir.is_dir():
-                        continue
-                    candidates.extend(
-                        self._iter_forward_sources_for_run_dir(
-                            requested_run_id=requested_run_id,
-                            run_id=run_id,
-                            sanitizer=sanitizer_dir.name,
-                            compose_hash=compose_hash,
-                            run_dir=run_dir,
-                        )
-                    )
-        return candidates
+        """Sources matching one user-supplied run id, in any compose hash."""
+        return [
+            source
+            for source in self._iter_forward_sources(
+                run_ids=WorkDir.candidate_ids(requested_run_id),
+                requested_run_id=requested_run_id,
+            )
+            if self._has_forwardable_artifacts(source)
+        ]
 
     def _iter_forward_artifact_project_candidates(
         self, target: Target
     ) -> list[ForwardArtifactSource]:
+        """Every prior source for this target project, in any compose hash."""
         target_key = WorkDir._get_target_key(target)
-        crs_compose_root = self.work_dir.path.parent
-        if not crs_compose_root.is_dir():
-            return []
-
-        candidates: list[ForwardArtifactSource] = []
-        for compose_dir in sorted(crs_compose_root.iterdir()):
-            if not compose_dir.is_dir():
-                continue
-            compose_hash = compose_dir.name
-            for sanitizer_dir in sorted(compose_dir.iterdir()):
-                runs_dir = sanitizer_dir / "runs"
-                if not runs_dir.is_dir():
-                    continue
-                for run_dir in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
-                    candidates.extend(
-                        self._iter_forward_sources_for_run_dir(
-                            requested_run_id=run_dir.name,
-                            run_id=run_dir.name,
-                            sanitizer=sanitizer_dir.name,
-                            compose_hash=compose_hash,
-                            run_dir=run_dir,
-                        )
-                    )
-
         return [
-            c
-            for c in candidates
-            if c.target_key == target_key
-            and any(self._artifact_counts_for_forward_source(c).values())
+            source
+            for source in self._iter_forward_sources()
+            if source.target_key == target_key
+            and self._has_forwardable_artifacts(source)
         ]
 
     def _prompt_forward_artifact_sources(
@@ -1495,7 +1400,7 @@ class CRSCompose:
 
         choices = [
             (
-                self._forward_source_compact_display(candidate),
+                self._forward_source_display(candidate, compact=True),
                 candidate,
                 self._forward_source_display(candidate),
             )
@@ -1570,11 +1475,6 @@ class CRSCompose:
         selected_sources: ForwardArtifactSources = []
         for requested_run_id in requested_run_ids:
             candidates = self._iter_forward_artifact_candidates(requested_run_id)
-            candidates = [
-                c
-                for c in candidates
-                if any(self._artifact_counts_for_forward_source(c).values())
-            ]
             if not candidates:
                 print(
                     f"Error: No fetchable artifacts found for run id "
@@ -1634,7 +1534,7 @@ class CRSCompose:
             copied_counts: dict[str, int] = {}
             for artifact_dir in FORWARD_ARTIFACT_DIRS:
                 src_dir = source.source_dir_for(artifact_dir)
-                count = self._count_files(src_dir)
+                count = count_forwardable_files(src_dir)
                 if count == 0 or src_dir is None:
                     continue
                 dst_dir = exchange_dir / artifact_dir
@@ -2219,12 +2119,9 @@ class CRSCompose:
         llm_summary = self._read_litellm_spend_summary(run_id, sanitizer)
 
         totals = {
+            # Keys match WorkDir.get_submit_artifact_counts().
             "artifacts": {
-                "povs": 0,
-                "seeds": 0,
-                "patches": 0,
-                "bug_candidates": 0,
-                "reports": 0,
+                name.replace("-", "_"): 0 for name in SUBMITTED_ARTIFACT_DIR_NAMES
             },
             "llm": {"credits_used": 0.0},
             "sidecar": {
@@ -2413,28 +2310,26 @@ class CRSCompose:
 
         def _copy_artifact_input(
             spec: ArtifactInputSpec, artifact_input: ArtifactInput
-        ) -> int:
+        ) -> None:
             dst_dir = _get_exchange_dir() / spec.dest_dir_name
             dst_dir.mkdir(parents=True, exist_ok=True)
-            copied = 0
             if artifact_input.file is not None:
                 shutil.copy2(artifact_input.file, dst_dir / artifact_input.file.name)
-                copied += 1
-            if artifact_input.directory is not None:
-                if spec.recursive_dir:
-                    for f in artifact_input.directory.rglob("*"):
-                        if f.is_file():
-                            rel = f.relative_to(artifact_input.directory)
-                            dst = dst_dir / rel
-                            dst.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(f, dst)
-                            copied += 1
-                else:
-                    for f in artifact_input.directory.iterdir():
-                        if f.is_file():
-                            shutil.copy2(f, dst_dir / f.name)
-                            copied += 1
-            return copied
+            if artifact_input.directory is None:
+                return
+            if spec.recursive_dir:
+                shutil.copytree(
+                    artifact_input.directory,
+                    dst_dir,
+                    dirs_exist_ok=True,
+                    copy_function=shutil.copy2,
+                )
+            else:
+                # Flat types (povs, seeds) are hash-named files; subdirectories
+                # would break the consumers' flat-listing assumption.
+                for f in artifact_input.directory.iterdir():
+                    if f.is_file():
+                        shutil.copy2(f, dst_dir / f.name)
 
         def copy_artifact_inputs(progress: MultiTaskProgress) -> TaskResult:
             for name, artifact_input in artifact_inputs.items():

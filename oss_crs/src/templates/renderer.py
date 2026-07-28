@@ -7,6 +7,7 @@ import yaml
 
 from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
 from ..constants import (
+    EXCHANGE_DIR_NAMES,
     LITELLM_IMAGE,
     LITELLM_INTERNAL_URL,
     OSS_CRS_INFRA_SIDECAR_IMAGES,
@@ -256,14 +257,7 @@ _DATA_TYPE_PROCESSOR: dict[str, str] = {
 }
 
 # All data types that can appear in the exchange.
-_ALL_EXCHANGE_TYPES = {
-    "povs",
-    "seeds",
-    "diffs",
-    "bug-candidates",
-    "reports",
-    "patches",
-}
+_ALL_EXCHANGE_TYPES = set(EXCHANGE_DIR_NAMES)
 
 
 def _has_post_processor(crs_list: list) -> bool:

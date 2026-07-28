@@ -109,3 +109,25 @@ WEBUI_CONTAINER_NAME = "oss-crs-webui"
 # feeds the WebUI coverage panel (oss-crs-infra/webui). Not a real CRS — it
 # reuses the CRS build/output plumbing under this name.
 COVERAGE_CRS_NAME = "oss-crs-coverage"
+
+# Canonical on-disk directory names for the data types that flow through
+# SUBMIT_DIR / EXCHANGE_DIR / FETCH_DIR. Adding a data type means adding it
+# here (and to libCRS's DataType).
+#
+# The oss-crs-infra sidecars (exchange, webui-publisher, webui) keep their own
+# copies of this list because each is built from its own directory as a
+# standalone image and cannot import oss_crs; keep them in sync.
+EXCHANGE_DIR_NAMES: tuple[str, ...] = (
+    "povs",
+    "seeds",
+    "bug-candidates",
+    "reports",
+    "patches",
+    "diffs",
+)
+
+# Types a CRS submits. `diffs` is host-provided input only (--diff), never a
+# submission, so it is excluded.
+SUBMITTED_ARTIFACT_DIR_NAMES: tuple[str, ...] = tuple(
+    name for name in EXCHANGE_DIR_NAMES if name != "diffs"
+)
