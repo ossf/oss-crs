@@ -69,6 +69,19 @@ def get_service_domain(crs_utils, args):
     print(domain)
 
 
+def _parse_kv(items, parser):
+    """Parse repeatable ``KEY=VALUE`` args into a dict (or None)."""
+    if not items:
+        return None
+    out = {}
+    for item in items:
+        if "=" not in item:
+            parser.error(f"--property must be KEY=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        out[k] = v
+    return out
+
+
 def _register_bug_candidate(subparsers, crs_utils):
     """Register the `bug-candidate` command group (shared-DB interface)."""
     bc = subparsers.add_parser(
@@ -85,76 +98,115 @@ def _register_bug_candidate(subparsers, crs_utils):
         help="Actor id recorded on events (default: $OSS_CRS_AGENT_ID or CRS name)",
     )
 
-    # add
+    # add — flag-based (libCRS builds the SARIF); or --raw to import a SARIF file.
     p_add = bc_sub.add_parser(
-        "add", parents=[actor], help="Register bug-candidate(s) from a SARIF file"
+        "add",
+        parents=[actor],
+        help="Add a bug-candidate from flags (libCRS builds the SARIF), or --raw a SARIF file",
     )
-    p_add.add_argument("sarif_path", type=Path, help="Path to a SARIF 2.1.0 file")
     p_add.add_argument(
-        "--status",
-        default="new",
-        help="Initial status (new/exploring/confirmed/fixed/false_positive)",
+        "--raw", type=Path, default=None, help="Import a SARIF 2.1.0 file verbatim"
+    )
+    p_add.add_argument(
+        "--rule",
+        default=None,
+        help="Bug class (SARIF ruleId), e.g. heap-buffer-overflow",
+    )
+    p_add.add_argument(
+        "--file", default=None, help="Source file (path relative to the source tree)"
+    )
+    p_add.add_argument("--line", type=int, default=None, help="Start line")
+    p_add.add_argument(
+        "--message", default=None, help="Why it's suspicious (SARIF message)"
+    )
+    p_add.add_argument(
+        "--severity", default="warning", help="SARIF level: error/warning/note"
+    )
+    p_add.add_argument("--function", default=None, help="Enclosing function name")
+    p_add.add_argument("--end-line", type=int, default=None, dest="end_line")
+    p_add.add_argument("--column", type=int, default=None)
+    p_add.add_argument("--end-column", type=int, default=None, dest="end_column")
+    p_add.add_argument("--uri-base-id", default=None, dest="uri_base_id")
+    p_add.add_argument(
+        "--version", default=None, help="Program version (SARIF revisionId)"
+    )
+    p_add.add_argument(
+        "--repo", default=None, dest="repository_uri", help="Repository URI"
+    )
+    p_add.add_argument("--branch", default=None)
+    p_add.add_argument(
+        "--id",
+        default=None,
+        dest="candidate_id",
+        help="Correlation id: append a location to this existing candidate, or set a new one",
     )
     p_add.add_argument("--harness", default=None, help="Associated harness name")
     p_add.add_argument("--pov-ref", default=None, dest="pov_ref", help="PoV reference")
+    p_add.add_argument(
+        "--property",
+        action="append",
+        default=None,
+        dest="property",
+        metavar="KEY=VALUE",
+        help="Arbitrary indexed metadata (repeatable), e.g. --property subagent=pov-gen",
+    )
 
     def _add(args):
+        if args.raw is None and not args.file and not args.candidate_id:
+            p_add.error(
+                "provide --file (with --rule/--line/...), or --raw <sarif.json>"
+            )
         ids = crs_utils.bug_candidate_add(
-            args.sarif_path,
-            agent=args.agent,
-            status=args.status,
+            raw=args.raw,
+            rule=args.rule,
+            file=args.file,
+            line=args.line,
+            message=args.message,
+            severity=args.severity,
+            function=args.function,
+            end_line=args.end_line,
+            column=args.column,
+            end_column=args.end_column,
+            uri_base_id=args.uri_base_id,
+            version=args.version,
+            repository_uri=args.repository_uri,
+            branch=args.branch,
+            candidate_id=args.candidate_id,
             harness=args.harness,
             pov_ref=args.pov_ref,
+            properties=_parse_kv(args.property, p_add),
+            agent=args.agent,
         )
         print("\n".join(ids))
 
     p_add.set_defaults(func=_add)
 
-    # add-location
-    p_loc = bc_sub.add_parser(
-        "add-location", parents=[actor], help="Attach a versioned location"
+    # mark-explored
+    p_explored = bc_sub.add_parser(
+        "mark-explored",
+        parents=[actor],
+        help="Record that this CRS tried exploring a candidate (CRS name is automatic)",
     )
-    p_loc.add_argument("candidate_id")
-    p_loc.add_argument(
-        "--version", required=True, help="Program version (SARIF revisionId)"
-    )
-    p_loc.add_argument("--file", required=True, dest="file_path")
-    p_loc.add_argument("--start-line", required=True, type=int, dest="start_line")
-    p_loc.add_argument("--end-line", type=int, default=None, dest="end_line")
-    p_loc.add_argument("--start-col", type=int, default=None, dest="start_column")
-    p_loc.add_argument("--end-col", type=int, default=None, dest="end_column")
-    p_loc.add_argument("--function", default=None, dest="function_name")
-    p_loc.add_argument("--repo", default=None, dest="repository_uri")
-    p_loc.add_argument("--branch", default=None)
-    p_loc.add_argument("--uri-base-id", default=None, dest="uri_base_id")
-
-    def _add_location(args):
-        crs_utils.bug_candidate_add_location(
-            args.candidate_id,
-            args.version,
-            args.file_path,
-            args.start_line,
-            end_line=args.end_line,
-            start_column=args.start_column,
-            end_column=args.end_column,
-            function_name=args.function_name,
-            repository_uri=args.repository_uri,
-            branch=args.branch,
-            uri_base_id=args.uri_base_id,
-            agent=args.agent,
+    p_explored.add_argument("candidate_id")
+    p_explored.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_mark_explored(
+            args.candidate_id, agent=args.agent
         )
-
-    p_loc.set_defaults(func=_add_location)
-
-    # set-status
-    p_status = bc_sub.add_parser(
-        "set-status", parents=[actor], help="Set lifecycle status"
     )
-    p_status.add_argument("candidate_id")
-    p_status.add_argument("status", help="new/exploring/confirmed/fixed/false_positive")
-    p_status.set_defaults(
-        func=lambda args: crs_utils.bug_candidate_set_status(
-            args.candidate_id, args.status, agent=args.agent
+
+    # mark-pov
+    p_pov = bc_sub.add_parser(
+        "mark-pov",
+        parents=[actor],
+        help="Record that a PoV was generated from a candidate",
+    )
+    p_pov.add_argument("candidate_id")
+    p_pov.add_argument(
+        "--pov", required=True, dest="pov_ref", help="The PoV's content hash"
+    )
+    p_pov.set_defaults(
+        func=lambda args: crs_utils.bug_candidate_mark_pov(
+            args.candidate_id, args.pov_ref, agent=args.agent
         )
     )
 
@@ -213,17 +265,59 @@ def _register_bug_candidate(subparsers, crs_utils):
 
     # list
     p_list = bc_sub.add_parser("list", help="List candidates (JSON array)")
-    p_list.add_argument("--status", default=None)
+    p_list.add_argument(
+        "--has-pov", action="store_true", dest="has_pov", help="Only with a PoV"
+    )
+    p_list.add_argument(
+        "--no-pov", action="store_true", dest="no_pov", help="Only without a PoV"
+    )
+    p_list.add_argument(
+        "--explored-by",
+        default=None,
+        dest="explored_by",
+        metavar="CRS",
+        help='CRS that explored it ("me" = this CRS)',
+    )
+    p_list.add_argument(
+        "--not-explored-by",
+        default=None,
+        dest="not_explored_by",
+        metavar="CRS",
+        help='Skip ones this CRS explored ("me" = this CRS) — i.e. what I haven\'t tried',
+    )
     p_list.add_argument("--claimed", action="store_true", help="Only actively claimed")
     p_list.add_argument("--unclaimed", action="store_true", help="Only unclaimed")
     p_list.add_argument(
+        "--scope",
+        choices=["harness", "project", "all"],
+        default="harness",
+        help="Widen the read: 'harness' (default) = this harness; 'project' = all "
+        "harnesses of this target; 'all' = every project. Cross-harness rows are "
+        'flagged "foreign": true.',
+    )
+    p_list.add_argument(
         "--version", default=None, help="Only with a location at this version"
+    )
+    p_list.add_argument(
+        "--property",
+        action="append",
+        default=None,
+        dest="property",
+        metavar="KEY=VALUE",
+        help="Only candidates with this metadata (repeatable, ANDed), e.g. --property subagent=pov-gen",
     )
 
     def _list(args):
         claimed = True if args.claimed else (False if args.unclaimed else None)
+        has_pov = True if args.has_pov else (False if args.no_pov else None)
         rows = crs_utils.bug_candidate_list(
-            status=args.status, claimed=claimed, version=args.version
+            has_pov=has_pov,
+            explored_by=args.explored_by,
+            not_explored_by=args.not_explored_by,
+            claimed=claimed,
+            version=args.version,
+            properties=_parse_kv(args.property, p_list),
+            scope=args.scope,
         )
         print(json.dumps(rows, indent=2))
 
@@ -232,9 +326,18 @@ def _register_bug_candidate(subparsers, crs_utils):
     # get
     p_get = bc_sub.add_parser("get", help="Get one candidate (JSON object)")
     p_get.add_argument("candidate_id")
+    p_get.add_argument(
+        "--scope",
+        choices=["harness", "project", "all"],
+        default="harness",
+        help="Widen the read to another harness ('project') or project ('all')",
+    )
     p_get.set_defaults(
         func=lambda args: print(
-            json.dumps(crs_utils.bug_candidate_get(args.candidate_id), indent=2)
+            json.dumps(
+                crs_utils.bug_candidate_get(args.candidate_id, scope=args.scope),
+                indent=2,
+            )
         )
     )
 

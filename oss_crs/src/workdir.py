@@ -53,13 +53,19 @@ class RunEntry:
 class WorkDir:
     """Centralized path management for CRS Compose work directories."""
 
-    def __init__(self, base_path: Path):
+    def __init__(self, base_path: Path, root: "Path | None" = None):
         """Initialize WorkDir with a base path.
 
         Args:
-            base_path: The root work directory path.
+            base_path: Per-compose work directory (``<root>/crs_compose/<hash>``).
+                Almost all state is partitioned under here.
+            root: The workdir root (``.oss-crs-workdir``). A few artifacts must be
+                shared across *every* compose rather than partitioned by compose
+                hash -- notably the bug-candidate DB -- and hang off the root.
+                Defaults to ``base_path`` when the caller isn't partitioning.
         """
         self.path = base_path
+        self.root = root if root is not None else base_path
         self.path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -392,9 +398,16 @@ class WorkDir:
         deliberately not partitioned by sanitizer/target/harness/run and persists
         across everything.
 
+        Hangs off the workdir **root**, deliberately NOT off ``self.path``
+        (``<root>/crs_compose/<hash>``): partitioning by compose hash would fork
+        the DB whenever the compose config changed at all — a different CRS, or
+        any edit outside ``CRSComposeConfig.md5_hash()``'s exclusion list — so
+        two CRSs on the same target would silently never see each other's
+        candidates. "Global" has to mean global to the workdir, not to a compose.
+
         Structure: <work_dir>/BUG_CANDIDATE_DIR/
         """
-        path = self.path / "BUG_CANDIDATE_DIR"
+        path = self.root / "BUG_CANDIDATE_DIR"
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
@@ -446,6 +459,23 @@ class WorkDir:
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def get_build_revision_file(
+        self, target: "Target", build_id: str, sanitizer: str
+    ) -> Path:
+        """Path to the recorded upstream source REVISION for a target build.
+
+        Sits alongside the extracted target-source, keyed by build_id+target_key
+        (so ``run`` recomputes the same path). Written at build-target time.
+
+        Structure: <sanitizer>/builds/<build_id>/targets/<target_key>/REVISION
+        """
+        return (
+            self.get_build_dir(build_id, sanitizer)
+            / "targets"
+            / self._get_target_key(target)
+            / "REVISION"
+        )
 
     def get_target_source_dir(
         self,

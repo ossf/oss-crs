@@ -76,9 +76,11 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_BUILD_OUT_DIR` | Shared filesystem path for build outputs |
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
-| `OSS_CRS_BUG_CANDIDATE_DIR` | Path to the single global bug-candidate SQLite DB (and its SARIF files), shared read-write across all CRSs and runs |
+| `OSS_CRS_BUG_CANDIDATE_DIR` | Path to the single global bug-candidate SQLite DB, shared read-write across all CRSs and runs (candidate SARIF blobs live in `SUBMIT_DIR/bug-candidates/`, like POVs) |
 | `OSS_CRS_TARGET_KEY` | The target's key (docker image name with `:`→`_`); libCRS scopes bug-candidate rows by it |
 | `OSS_CRS_TARGET_HARNESS` | The harness name (when the target is harnessed); libCRS scopes bug-candidate rows by it |
+| `OSS_CRS_TARGET_REVISION` | Source revision (upstream git HEAD sha) the build was made from; libCRS defaults a bug-candidate location's `version` to it. Best-effort — unset if it could not be resolved at build-target time |
+| `OSS_CRS_TARGET_REPOSITORY` | Upstream repository URL (`main_repo` from the target's `project.yaml`); libCRS defaults a bug-candidate location's `repository_uri` to it, pairing with `version` so the opaque `target_key` is human-identifiable. Unset when `project.yaml` has no `main_repo` |
 | `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
 | `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (written by builder sidecar, read by CRS modules) |
@@ -566,15 +568,28 @@ for potential bug reports. It replaces the raw `submit bug-candidate` file-drop
 ### Model
 
 - **One global SQLite DB for the whole workdir.** A single database at
-  `OSS_CRS_BUG_CANDIDATE_DIR/index.sqlite` (a top-level `BUG_CANDIDATE_DIR/`, not
-  partitioned by run/sanitizer/target) is mounted read-write into *every* CRS
-  module container of *every* run. Every CRS and agent opens the same file, so
+  `OSS_CRS_BUG_CANDIDATE_DIR/index.sqlite` — `.oss-crs-workdir/BUG_CANDIDATE_DIR/`,
+  hanging off the workdir **root** and partitioned by nothing: not by
+  run/sanitizer/target, and deliberately **not by compose hash** either (it sits
+  beside `crs_compose/<hash>/`, not inside it — otherwise a different CRS, or any
+  compose edit outside `CRSComposeConfig.md5_hash()`'s exclusion list, would fork
+  the DB and two CRSs on the same target would silently never see each other's
+  candidates). It is mounted read-write into *every* CRS module container of
+  *every* run. Every CRS and agent opens the same file, so
   state is **immediately consistent** and SQLite's own locking (WAL +
   `busy_timeout`) handles parallel access. The DB is one portable file under
-  `.oss-crs-workdir`, so the "all artifacts are files" model holds. SARIF results
-  are written alongside as plain `sarif/<id>.sarif.json` files. Because it is one
-  global store, bug-candidates naturally **persist across runs**; a prior run's
-  claim leases expire by TTL rather than lingering.
+  `.oss-crs-workdir`, so the "all artifacts are files" model holds. Because it is
+  one global store, bug-candidates naturally **persist across runs**; a prior
+  run's claim leases expire by TTL rather than lingering.
+- **SARIF blobs live with the campaign, like POVs.** A CRS-produced candidate's
+  SARIF is written to `SUBMIT_DIR/bug-candidates/<correlation_id>.sarif.json` — the
+  same parent as POV files — so it appears in `oss-crs artifacts`/`archive`, is
+  forwarded to other CRSs through the exchange, and stays tied to the producing
+  campaign's output. The filename is deterministic from the candidate id, so the
+  DB stores **no path** — reconstruct it from the id, and the `created_run` column
+  locates the producing run's dir. `get`/`list` return `sarif_name`
+  (`<id>.sarif.json`) as a convenience. (Directed-input SARIF already sitting in
+  `FETCH_DIR/bug-candidates` is used in place, not re-published.)
 - **Rows are scoped by `target_key` + `harness` columns.** libCRS reads the
   current CRS's `OSS_CRS_TARGET_KEY` / `OSS_CRS_TARGET_HARNESS` and *automatically*
   stamps them on every insert and filters every query by them, so a CRS only ever
@@ -594,7 +609,35 @@ for potential bug reports. It replaces the raw `submit bug-candidate` file-drop
   whose `file:line` moves across versions stays one candidate with several
   versioned locations. In practice tools rarely emit these fields, so identity is
   usually a minted id resolved by explicit `merge`, and `version` is supplied via
-  `add-location --version`.
+  `add --id <existing> --version <rev> --file ...` (which appends a location).
+- **The shared state carries facts, not judgments.** There is deliberately no
+  `confirmed`/`false_positive`/`fixed`: those are *judgments*, and judgments are
+  precisely what independently-developed CRSs disagree about — a single mutable
+  `status` column silently resolves that disagreement by last-writer-wins, so one
+  CRS's triage would suppress a candidate for everyone. Instead:
+  - `explored_by` is a **monotonic set** of CRSs that tried it (`mark-explored`).
+    Set-union converges regardless of order, so concurrent CRSs never conflict.
+    libCRS derives the CRS name from `OSS_CRS_NAME`; callers never pass it.
+  - `pov_ref` (+ `pov_crs`/`pov_agent`/`pov_at`) records that a PoV came out of
+    the candidate (`mark-pov`), the hash tying it to the artifact.
+  - `status` is therefore **derived, never stored**: `new` until a PoV exists,
+    then `pov_generated`. Two states that are a pure function of `pov_ref` must
+    not be a second source of truth that can drift. `add` has no status argument —
+    a new candidate is always fresh.
+- **Writes are scoped; reads can be widened.** A CRS may only *file* candidates
+  against the target+harness it is working on, but `list`/`get` take a `--scope`
+  to borrow cross-domain knowledge — the same library bug often reaches several
+  harnesses, so a lead found via one entry point is evidence for the others:
+
+  | `--scope` | Reads | Use |
+  |---|---|---|
+  | `harness` *(default)* | this `target_key` + this `harness` | normal operation |
+  | `project` | this `target_key`, **all** harnesses | all harnesses of a project build share a `target_key` (it has no harness component), so this is "everything found in this project" |
+  | `all` | every `target_key` + `harness` in the global DB | cross-project knowledge |
+
+  Rows from outside the current harness are flagged **`"foreign": true`**, so a
+  consumer can tell borrowed leads from its own. A foreign row carries its own
+  real `harness`/`locations`/`properties`, not the reader's.
 - **Directed-input / bootup** raw SARIF (`--bug-candidate` / `--bug-candidate-dir`,
   delivered read-only via `FETCH_DIR/bug-candidates`) is ingested into the DB by
   `bug-candidate sync`, idempotently.
@@ -606,22 +649,23 @@ Each verb maps 1:1 to a `CRSUtils` Python method. Mutating verbs accept `--agent
 
 | Command | Python | Notes |
 |---|---|---|
-| `add <sarif> [--status] [--harness] [--pov-ref]` | `bug_candidate_add(sarif_path, *, agent=None, status="new", harness=None, pov_ref=None) -> list[str]` | Registers candidate(s); prints candidate id(s). A file with N results → N candidates. |
-| `add-location <id> --version <rev> --file <p> --start-line <n> [--end-line --start-col --end-col --function --repo --branch --uri-base-id]` | `bug_candidate_add_location(candidate_id, version, file_path, start_line, ...) -> str` | Adds a location for a program version. |
-| `set-status <id> <status>` | `bug_candidate_set_status(candidate_id, status, *, agent=None)` | `new`/`exploring`/`confirmed`/`fixed`/`false_positive`. |
+| `add --rule <class> --file <p> --line <n> [--function --message --severity --version --repo --branch --column --end-line --end-column --uri-base-id --id --harness --pov-ref --property KEY=VALUE]` | `bug_candidate_add(*, rule=None, file=None, line=None, ..., candidate_id=None, raw=None, properties=None, ...) -> list[str]` | Flag-based: libCRS builds the SARIF and prints the id. A new candidate is always fresh — there is **no initial status to set**. `--id <existing>` appends a location/metadata to that candidate (folds add-location). `--property` (repeatable) attaches arbitrary **indexed, queryable** metadata, e.g. `--property subagent=pov-gen`. |
+| `add --raw <sarif.json> [--harness --pov-ref]` | `bug_candidate_add(raw=<path>, ...)` | Import a full SARIF 2.1.0 file verbatim (N results → N candidates). |
+| `mark-explored <id>` | `bug_candidate_mark_explored(candidate_id, *, agent=None)` | Record that **this CRS** tried exploring it. CRS name is derived from `OSS_CRS_NAME` — never passed. Additive + idempotent. |
+| `mark-pov <id> --pov <hash>` | `bug_candidate_mark_pov(candidate_id, pov_ref, *, agent=None)` | Record that a PoV was generated from it, with the PoV's content hash as provenance. |
 | `claim <id> [--owner --ttl]` | `bug_candidate_claim(candidate_id, owner=None, ttl_seconds=3600) -> bool` | Prints JSON; **exits 0 iff claimed**. |
 | `release <id> [--owner]` | `bug_candidate_release(candidate_id, owner=None)` | Release a claim. |
 | `merge <id> --into <id2>` | `bug_candidate_merge(candidate_id, into_candidate_id, *, agent=None)` | Explicit dedup: alias one candidate into another. |
 | `note <id> <text>` | `bug_candidate_note(candidate_id, text, *, agent=None) -> str` | Append commentary to the pub/sub stream. |
-| `list [--status --claimed\|--unclaimed --version]` | `bug_candidate_list(*, status=None, claimed=None, version=None) -> list[dict]` | JSON array of canonical candidates. |
-| `get <id>` | `bug_candidate_get(candidate_id) -> dict \| None` | JSON: metadata + versioned locations + claim (aliases resolve to canonical). |
+| `list [--has-pov\|--no-pov --explored-by CRS --not-explored-by CRS --claimed\|--unclaimed --version --property KEY=VALUE --scope harness\|project\|all]` | `bug_candidate_list(*, has_pov=None, explored_by=None, not_explored_by=None, claimed=None, version=None, properties=None, scope="harness") -> list[dict]` | JSON array of canonical candidates. `--explored-by`/`--not-explored-by` accept the sentinel `me` (this CRS); `--not-explored-by me` is the common "what haven't I tried yet" query. `--property` (repeatable, ANDed) filters on indexed metadata. `--scope` widens the read (see below). |
+| `get <id> [--scope harness\|project\|all]` | `bug_candidate_get(candidate_id, *, scope="harness") -> dict \| None` | JSON: metadata + versioned locations + claim (aliases resolve to canonical). |
 | `sync [--daemon --poll-interval --log]` | `bug_candidate_sync() -> int` | Ingest directed-input/bootup raw SARIF from `FETCH_DIR/bug-candidates`; `--daemon` is a CLI-only poll loop. |
 | `watch [--candidate --since --type --follow --poll-interval --timeout]` | `bug_candidate_watch(since_seq=0, *, candidate_id=None, types=None, follow=False, poll_interval=5.0, timeout=None) -> Iterator[dict]` | Pub/sub: streams update events as JSON Lines. |
 
 ### Publish / subscribe
 
-There is no separate "publish" verb — every mutation (`set-status`, `claim`/
-`release`, `add-location`, `note`) appends a row to the shared `updates` table.
+There is no separate "publish" verb — every mutation (`add`, `mark-explored`,
+`mark-pov`, `claim`/`release`, `note`) appends a row to the shared `updates` table.
 Because all CRSs write to the same DB, one CRS's updates are visible to another's
 `watch` directly. Subscribe with `watch`, which streams JSON Lines ordered by the
 `updates.seq` cursor; each line carries its own `seq`:
@@ -640,12 +684,18 @@ if the DB file itself is deleted).
 ### Example
 
 ```bash
-# Fuzzer found a crash → file a candidate, explore it, don't duplicate effort
-$ ID=$(libCRS bug-candidate add /work/report.sarif --status exploring --agent fuzzer-3)
+# Found a suspicious site → file a candidate (libCRS builds the SARIF), claim it,
+# record that we tried, and link the PoV if one comes out.
+$ ID=$(libCRS bug-candidate add --rule heap-overflow --file src/parse.c --line 91 \
+       --function parse_header --message "len used unchecked" --agent fuzzer-3)
 $ libCRS bug-candidate claim "$ID" --ttl 600 --agent fuzzer-3 || exit 0   # someone else owns it
-$ libCRS bug-candidate add-location "$ID" --version "$(git rev-parse HEAD)" \
-    --file src/parse.c --start-line 91 --agent fuzzer-3
-$ libCRS bug-candidate set-status "$ID" confirmed --agent fuzzer-3
+$ libCRS bug-candidate mark-explored "$ID" --agent fuzzer-3      # fact: this CRS tried it
+$ libCRS bug-candidate mark-pov "$ID" --pov "$POV_HASH" --agent fuzzer-3   # if a PoV reproduced
+$ libCRS bug-candidate release "$ID" --agent fuzzer-3
+# (or import a tool's SARIF verbatim: libCRS bug-candidate add --raw /work/report.sarif)
+
+# Pull work nobody on this CRS has attempted yet:
+$ libCRS bug-candidate list --not-explored-by me --no-pov
 ```
 
 ## Typical Usage in a CRS
@@ -737,7 +787,7 @@ libCRS submit patch /tmp/patch.diff
 | `run-pov` | ✅ Implemented | PoV reproduction via runner sidecar |
 | `apply-patch-test` | ✅ Implemented | Patch + test.sh via builder sidecar |
 | `fetch` | ✅ Implemented | One-shot fetch from FETCH_DIR via InfraClient |
-| `bug-candidate` (interface) | ✅ Implemented | One global SQLite DB (`OSS_CRS_BUG_CANDIDATE_DIR`), rows auto-scoped by `target_key`+`harness`; atomic `claim`; SARIF-native identity/version; add/list/get/set-status/claim/release/merge/note/sync/watch |
+| `bug-candidate` (interface) | ✅ Implemented | One global SQLite DB (`OSS_CRS_BUG_CANDIDATE_DIR`), rows auto-scoped by `target_key`+`harness`; atomic `claim`; SARIF-native identity/version; facts-only state (monotonic `explored_by` set + `pov_ref`, derived status); add/list/get/mark-explored/mark-pov/claim/release/merge/note/sync/watch |
 | `apply-patch-build` | ✅ Implemented | Sends patch to builder sidecar `/build` endpoint |
 | `run-pov` | ✅ Implemented | Sends PoV to builder sidecar `/run-pov` endpoint |
 | `AzureCRSUtils` | 📝 Planned | Azure deployment backend for `CRSUtils` |

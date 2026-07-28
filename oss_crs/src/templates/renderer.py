@@ -364,6 +364,25 @@ def render_run_crs_compose_docker_compose(
     bug_candidate_dir = str(crs_compose.work_dir.get_bug_candidate_dir())
     target_key = WorkDir._get_target_key(target)
 
+    # Source revision recorded when this build's target image was built (best-effort;
+    # empty if unavailable). Injected as OSS_CRS_TARGET_REVISION so libCRS can default
+    # bug-candidate location.version to the revision the campaign ran against.
+    target_revision = ""
+    try:
+        rev_file = crs_compose.work_dir.get_build_revision_file(
+            target, build_id, sanitizer
+        )
+        if rev_file.exists():
+            target_revision = rev_file.read_text().strip()
+    except Exception:
+        target_revision = ""
+
+    # Upstream repository URL (main_repo from project.yaml). Static, so read it
+    # straight off the Target — no sidecar. Injected as OSS_CRS_TARGET_REPOSITORY
+    # so libCRS defaults a bug-candidate location's repository_uri to it, pairing
+    # with the revision to make the opaque target_key human-identifiable.
+    target_repository = getattr(target, "main_repo", None) or ""
+
     target_env = target.get_target_env()
     if hasattr(crs_compose.work_dir, "get_litellm_spend_report_file"):
         litellm_spend_report_path = str(
@@ -477,6 +496,8 @@ def render_run_crs_compose_docker_compose(
                 crs_additional_env=resource.additional_env,
                 harness=target_env.get("harness"),
                 target_key=target_key,
+                target_revision=target_revision,
+                target_repository=target_repository,
                 include_fetch_dir=bool(fetch_dir),
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,

@@ -100,6 +100,47 @@ def test_run_env_always_includes_target_source() -> None:
     assert plan.effective_env["OSS_CRS_TARGET_SOURCE"] == "/OSS_CRS_TARGET_SOURCE"
 
 
+def _run_env_plan(*, target_revision: str = "", target_repository: str = ""):
+    return build_run_service_env(
+        target_env={
+            "engine": "libfuzzer",
+            "architecture": "x86_64",
+            "name": "proj",
+            "language": "c",
+            "repo_path": "/repo",
+        },
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="finder",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        scope="test:run",
+        target_revision=target_revision,
+        target_repository=target_repository,
+    )
+
+
+def test_run_env_injects_target_revision_when_provided() -> None:
+    with_rev = _run_env_plan(target_revision="deadbeefcafe")
+    assert with_rev.effective_env["OSS_CRS_TARGET_REVISION"] == "deadbeefcafe"
+    # Absent/empty revision must not inject the var (libCRS then leaves version unset).
+    without_rev = _run_env_plan(target_revision="")
+    assert "OSS_CRS_TARGET_REVISION" not in without_rev.effective_env
+
+
+def test_run_env_injects_target_repository_when_provided() -> None:
+    url = "https://github.com/wolfssl/wolfssl"
+    with_repo = _run_env_plan(target_repository=url)
+    assert with_repo.effective_env["OSS_CRS_TARGET_REPOSITORY"] == url
+    # Absent/empty repo must not inject the var (libCRS then leaves repo unset).
+    without_repo = _run_env_plan(target_repository="")
+    assert "OSS_CRS_TARGET_REPOSITORY" not in without_repo.effective_env
+
+
 def test_build_target_env_always_includes_fuzz_proj() -> None:
     plan = build_target_builder_env(
         target_env={

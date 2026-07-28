@@ -194,6 +194,68 @@ def _parse_result(result: dict, version: VersionInfo) -> BugCandidate:
     )
 
 
+def build_result(
+    *,
+    rule_id: str = "",
+    level: str = "warning",
+    message: Optional[str] = None,
+    file_path: Optional[str] = None,
+    start_line: Optional[int] = None,
+    start_column: Optional[int] = None,
+    end_line: Optional[int] = None,
+    end_column: Optional[int] = None,
+    function_name: Optional[str] = None,
+    uri_base_id: Optional[str] = None,
+    correlation_guid: Optional[str] = None,
+    properties: Optional[dict] = None,
+) -> dict:
+    """Build a single SARIF 2.1.0 result dict from primitive fields.
+
+    The inverse of ``_parse_result``: the two must stay in lockstep, so the SARIF
+    result *shape* (which nested keys hold line/column/function/...) is authored in
+    exactly one place. ``build_result(...)`` followed by ``_parse_result(...)``
+    round-trips every field it carries.
+
+    Version-control provenance (``revisionId``/``repositoryUri``/``branch``) is a
+    run-level concern, not a result field — carry it in a ``VersionInfo`` and apply
+    it via ``iter_results`` / ``wrap_result``, not here.
+    """
+    region: dict = {}
+    if start_line is not None:
+        region["startLine"] = start_line
+    if start_column is not None:
+        region["startColumn"] = start_column
+    if end_line is not None:
+        region["endLine"] = end_line
+    if end_column is not None:
+        region["endColumn"] = end_column
+
+    locations: list = []
+    if file_path:
+        artifact: dict = {"uri": file_path}
+        if uri_base_id:
+            artifact["uriBaseId"] = uri_base_id
+        phys: dict = {"artifactLocation": artifact}
+        if region:
+            phys["region"] = region
+        loc: dict = {"physicalLocation": phys}
+        if function_name:
+            loc["logicalLocations"] = [{"kind": "function", "name": function_name}]
+        locations.append(loc)
+
+    result: dict = {
+        "ruleId": rule_id or "",
+        "level": level,
+        "message": {"text": message or rule_id or "bug candidate"},
+        "locations": locations,
+    }
+    if properties:
+        result["properties"] = dict(properties)
+    if correlation_guid:
+        result["correlationGuid"] = correlation_guid
+    return result
+
+
 def iter_results(doc: dict) -> Iterator[tuple[dict, VersionInfo]]:
     """Yield ``(raw_result, version_info)`` pairs across all runs.
 

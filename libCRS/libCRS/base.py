@@ -41,13 +41,18 @@ class SourceType(str, Enum):
 
 
 class Status(str, Enum):
-    """Bug-candidate lifecycle status."""
+    """Bug-candidate status. DERIVED from whether a PoV exists -- never set.
+
+    Deliberately minimal. There is no "confirmed"/"false_positive": those are
+    *judgments*, and judgments are exactly what independently-developed CRSs
+    disagree about -- a single mutable status silently resolves that
+    disagreement by last-writer-wins. The interface carries only facts:
+    ``bug_candidate_mark_explored`` (who tried) and ``bug_candidate_mark_pov``
+    (what came out).
+    """
 
     NEW = "new"
-    EXPLORING = "exploring"
-    CONFIRMED = "confirmed"  # confirmed but not fixed
-    FIXED = "fixed"
-    FALSE_POSITIVE = "false_positive"
+    POV_GENERATED = "pov_generated"
 
     def __str__(self) -> str:
         return self.value
@@ -290,52 +295,66 @@ class CRSUtils(ABC):
     @abstractmethod
     def bug_candidate_add(
         self,
-        sarif_path: Path,
         *,
-        agent: "str | None" = None,
-        status: str = "new",
-        harness: "str | None" = None,
-        pov_ref: "str | None" = None,
-    ) -> list[str]:
-        """Register bug-candidate(s) from a SARIF file.
-
-        Identity is the SARIF ``correlationGuid`` (minted and embedded when
-        absent). A file with N results creates N candidates.
-
-        Returns:
-            The candidate ids (correlationGuids), one per SARIF result.
-        """
-        pass
-
-    @abstractmethod
-    def bug_candidate_add_location(
-        self,
-        candidate_id: str,
-        version: str,
-        file_path: str,
-        start_line: int,
-        *,
+        raw: "Path | None" = None,
+        rule: "str | None" = None,
+        file: "str | None" = None,
+        line: "int | None" = None,
+        message: "str | None" = None,
+        severity: str = "warning",
+        function: "str | None" = None,
         end_line: "int | None" = None,
-        start_column: "int | None" = None,
+        column: "int | None" = None,
         end_column: "int | None" = None,
-        function_name: "str | None" = None,
+        uri_base_id: "str | None" = None,
+        version: "str | None" = None,
         repository_uri: "str | None" = None,
         branch: "str | None" = None,
-        uri_base_id: "str | None" = None,
+        candidate_id: "str | None" = None,
+        harness: "str | None" = None,
+        pov_ref: "str | None" = None,
+        properties: "dict | None" = None,
         agent: "str | None" = None,
-    ) -> None:
-        """Attach a location for a program ``version`` (SARIF revisionId).
+    ) -> list[str]:
+        """Add bug-candidate(s). Returns the candidate id(s) (correlationGuids).
 
-        The same candidate accretes one location per version, so a bug whose
-        ``file:line`` moves across versions stays a single candidate.
+        ``properties`` is arbitrary indexed metadata (queryable via
+        ``bug_candidate_list(properties=...)``) — e.g. ``{"subagent": "pov-gen"}``.
+
+        Two forms:
+          - **Structured (default):** pass ``rule``/``file``/``line``/... and
+            libCRS builds the SARIF for you. Pass an existing ``candidate_id`` to
+            append a location to that candidate (folds the former add-location);
+            omit it to mint a new candidate.
+          - **Raw:** pass ``raw=<path to a SARIF 2.1.0 file>`` to import it
+            verbatim (identity from each result's ``correlationGuid``, minted when
+            absent; a file with N results yields N candidates).
         """
         pass
 
     @abstractmethod
-    def bug_candidate_set_status(
-        self, candidate_id: str, status: str, *, agent: "str | None" = None
+    def bug_candidate_mark_explored(
+        self, candidate_id: str, *, agent: "str | None" = None
     ) -> None:
-        """Set lifecycle status (new/exploring/confirmed/fixed/false_positive)."""
+        """Record that this CRS tried exploring this candidate.
+
+        Additive and idempotent — ``explored_by`` is a set keyed by CRS, so
+        concurrent CRSs can never conflict. The CRS name is derived from the
+        environment (``OSS_CRS_NAME``); callers never pass it. Records only the
+        fact of the attempt, never a verdict.
+        """
+        pass
+
+    @abstractmethod
+    def bug_candidate_mark_pov(
+        self, candidate_id: str, pov_ref: str, *, agent: "str | None" = None
+    ) -> None:
+        """Record that a PoV was generated from this candidate.
+
+        ``pov_ref`` is the PoV's content hash, linking the candidate to the
+        artifact it produced. This is the only status transition in the
+        interface: fresh candidate → PoV generated.
+        """
         pass
 
     @abstractmethod
@@ -377,16 +396,39 @@ class CRSUtils(ABC):
     def bug_candidate_list(
         self,
         *,
-        status: "str | None" = None,
+        has_pov: "bool | None" = None,
+        explored_by: "str | None" = None,
+        not_explored_by: "str | None" = None,
         claimed: "bool | None" = None,
         version: "str | None" = None,
+        properties: "dict | None" = None,
+        scope: str = "harness",
     ) -> list[dict]:
-        """List candidates, optionally filtered by status/claim/version."""
+        """List candidates, filtered by pov/exploration/claim/version/properties.
+
+        ``explored_by`` / ``not_explored_by`` accept the sentinel ``"me"`` (this
+        CRS). ``not_explored_by="me"`` is the common case: candidates this CRS
+        hasn't tried yet.
+
+        ``scope`` widens the read beyond the current harness — writes are always
+        scoped to the current target+harness, but reads can borrow cross-domain
+        knowledge:
+          - ``"harness"`` (default): this target + this harness
+          - ``"project"``: this target, **all** its harnesses
+          - ``"all"``: every project and harness in the global DB
+        Rows from outside the current harness carry ``foreign: true``.
+        """
         pass
 
     @abstractmethod
-    def bug_candidate_get(self, candidate_id: str) -> "dict | None":
-        """Return one candidate (metadata + versioned locations + claim), or None."""
+    def bug_candidate_get(
+        self, candidate_id: str, *, scope: str = "harness"
+    ) -> "dict | None":
+        """Return one candidate (metadata + versioned locations + claim), or None.
+
+        ``scope`` (``harness``/``project``/``all``) widens the read to another
+        harness or project; see ``bug_candidate_list``.
+        """
         pass
 
     @abstractmethod

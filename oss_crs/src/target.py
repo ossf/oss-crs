@@ -6,6 +6,7 @@ import os
 import posixpath
 import re
 import subprocess
+import tempfile
 import uuid
 import git
 import fcntl
@@ -366,6 +367,43 @@ class Target:
             cmd=cmd,
             cwd=self.repo_path.parent,
         )
+
+    def resolve_revision(self) -> str:
+        """Best-effort resolve of the upstream source revision (git HEAD sha) this
+        target builds from — recorded alongside the build so bug-candidates found
+        during the campaign resolve to the source they were found against.
+
+        Repo-backed targets (``--target-source-path``) use the local checkout's
+        HEAD; otherwise a temporary shallow clone of ``main_repo`` (from
+        project.yaml). Deliberately independent of the image's ``$SRC`` layout,
+        which varies across projects. Returns "" on any failure.
+        """
+        try:
+            if self._has_repo and self.repo_path.exists():
+                with git_trust_env(self.work_dir):
+                    return git.Repo(self.repo_path).head.commit.hexsha
+        except Exception:
+            pass
+        if self.main_repo:
+            try:
+                with tempfile.TemporaryDirectory(prefix="oss-crs-rev-") as td:
+                    subprocess.run(
+                        ["git", "clone", "--depth", "1", "--", self.main_repo, td],
+                        capture_output=True,
+                        check=True,
+                        timeout=300,
+                    )
+                    out = subprocess.run(
+                        ["git", "-C", td, "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=30,
+                    )
+                    return out.stdout.strip()
+            except Exception:
+                pass
+        return ""
 
     def __get_proj_hash(self) -> str:
         """Content hash of Dockerfile + build.sh + test.sh for plain-build tagging."""

@@ -173,6 +173,8 @@ def build_run_service_env(
     scope: str,
     harness: str | None = None,
     target_key: str | None = None,
+    target_revision: str | None = None,
+    target_repository: str | None = None,
     include_fetch_dir: bool = False,
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
@@ -212,6 +214,10 @@ def build_run_service_env(
         system_env["OSS_CRS_TARGET_HARNESS"] = harness
     if target_key:
         system_env["OSS_CRS_TARGET_KEY"] = target_key
+    if target_revision:
+        system_env["OSS_CRS_TARGET_REVISION"] = target_revision
+    if target_repository:
+        system_env["OSS_CRS_TARGET_REPOSITORY"] = target_repository
     if include_fetch_dir:
         system_env["OSS_CRS_FETCH_DIR"] = "/OSS_CRS_FETCH_DIR"
     if llm_api_url:

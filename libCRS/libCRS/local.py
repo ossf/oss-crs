@@ -673,64 +673,78 @@ class LocalCRSUtils(CRSUtils):
         """
         if self._bc_store is None:
             db_dir = Path(get_env("OSS_CRS_BUG_CANDIDATE_DIR"))
+            submit_raw = os.environ.get("OSS_CRS_SUBMIT_DIR")
             fetch_raw = os.environ.get("OSS_CRS_FETCH_DIR")
             self._bc_store = BugCandidateStore(
                 db_dir,
                 target_key=os.environ.get("OSS_CRS_TARGET_KEY", "unknown"),
                 harness=os.environ.get("OSS_CRS_TARGET_HARNESS") or DEFAULT_HARNESS,
+                submit_dir=Path(submit_raw) if submit_raw else None,
                 fetch_dir=Path(fetch_raw) if fetch_raw else None,
                 crs_name=os.environ.get("OSS_CRS_NAME", "unknown"),
+                run_id=os.environ.get("OSS_CRS_RUN_ID", ""),
+                revision=os.environ.get("OSS_CRS_TARGET_REVISION", ""),
+                repository_uri=os.environ.get("OSS_CRS_TARGET_REPOSITORY", ""),
             )
         return self._bc_store
 
     def bug_candidate_add(
         self,
-        sarif_path: Path,
         *,
-        agent: "str | None" = None,
-        status: str = "new",
-        harness: "str | None" = None,
-        pov_ref: "str | None" = None,
-    ) -> list[str]:
-        return self._bug_candidate_store().add(
-            sarif_path, agent=agent, status=status, harness=harness, pov_ref=pov_ref
-        )
-
-    def bug_candidate_add_location(
-        self,
-        candidate_id: str,
-        version: str,
-        file_path: str,
-        start_line: int,
-        *,
+        raw: "Path | None" = None,
+        rule: "str | None" = None,
+        file: "str | None" = None,
+        line: "int | None" = None,
+        message: "str | None" = None,
+        severity: str = "warning",
+        function: "str | None" = None,
         end_line: "int | None" = None,
-        start_column: "int | None" = None,
+        column: "int | None" = None,
         end_column: "int | None" = None,
-        function_name: "str | None" = None,
+        uri_base_id: "str | None" = None,
+        version: "str | None" = None,
         repository_uri: "str | None" = None,
         branch: "str | None" = None,
-        uri_base_id: "str | None" = None,
+        candidate_id: "str | None" = None,
+        harness: "str | None" = None,
+        pov_ref: "str | None" = None,
+        properties: "dict | None" = None,
         agent: "str | None" = None,
-    ) -> None:
-        self._bug_candidate_store().add_location(
-            candidate_id,
-            version,
-            file_path,
-            start_line,
+    ) -> list[str]:
+        store = self._bug_candidate_store()
+        if raw is not None:
+            return store.add(Path(raw), agent=agent, harness=harness, pov_ref=pov_ref)
+        cid = store.add_finding(
+            file_path=file,
+            start_line=line,
+            rule=rule,
+            message=message,
+            severity=severity,
+            function_name=function,
             end_line=end_line,
-            start_column=start_column,
+            start_column=column,
             end_column=end_column,
-            function_name=function_name,
+            uri_base_id=uri_base_id,
+            version=version,
             repository_uri=repository_uri,
             branch=branch,
-            uri_base_id=uri_base_id,
+            correlation_id=candidate_id,
+            harness=harness,
+            pov_ref=pov_ref,
+            properties=properties,
             agent=agent,
         )
+        return [cid]
 
-    def bug_candidate_set_status(
-        self, candidate_id: str, status: str, *, agent: "str | None" = None
+    def bug_candidate_mark_explored(
+        self, candidate_id: str, *, agent: "str | None" = None
     ) -> None:
-        self._bug_candidate_store().set_status(candidate_id, status, agent=agent)
+        self._bug_candidate_store().mark_explored(candidate_id, agent=agent)
+
+    def bug_candidate_mark_pov(
+        self, candidate_id: str, pov_ref: str, *, agent: "str | None" = None
+    ) -> None:
+        self._bug_candidate_store().mark_pov(candidate_id, pov_ref, agent=agent)
 
     def bug_candidate_claim(
         self,
@@ -758,16 +772,28 @@ class LocalCRSUtils(CRSUtils):
     def bug_candidate_list(
         self,
         *,
-        status: "str | None" = None,
+        has_pov: "bool | None" = None,
+        explored_by: "str | None" = None,
+        not_explored_by: "str | None" = None,
         claimed: "bool | None" = None,
         version: "str | None" = None,
+        properties: "dict | None" = None,
+        scope: str = "harness",
     ) -> list[dict]:
         return self._bug_candidate_store().list_candidates(
-            status=status, claimed=claimed, version=version
+            has_pov=has_pov,
+            explored_by=explored_by,
+            not_explored_by=not_explored_by,
+            claimed=claimed,
+            version=version,
+            properties=properties,
+            scope=scope,
         )
 
-    def bug_candidate_get(self, candidate_id: str) -> "dict | None":
-        return self._bug_candidate_store().get(candidate_id)
+    def bug_candidate_get(
+        self, candidate_id: str, *, scope: str = "harness"
+    ) -> "dict | None":
+        return self._bug_candidate_store().get(candidate_id, scope=scope)
 
     def bug_candidate_sync(self) -> int:
         return self._bug_candidate_store().sync()

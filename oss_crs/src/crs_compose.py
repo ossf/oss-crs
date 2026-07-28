@@ -203,7 +203,10 @@ class CRSCompose:
         hash = config.md5_hash()
         self.config = config
         self.llm = LLM(self.config.llm_config)
-        self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}")
+        # Per-compose state is partitioned under crs_compose/<hash>; `root` keeps
+        # the workdir root reachable for artifacts that must be shared across
+        # every compose (the bug-candidate DB).
+        self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}", root=work_dir)
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
         self.offline = offline
         self.crs_list = [
@@ -959,6 +962,18 @@ class CRSCompose:
         target_base_image = target.build_docker_image()
         if target_base_image is None:
             return False
+
+        # Record the source revision this build was made from, alongside the build,
+        # so bug-candidates found during the run resolve to the right version
+        # (OSS_CRS_TARGET_REVISION). Best-effort — never fail the build over it.
+        try:
+            rev_file = self.work_dir.get_build_revision_file(
+                target, build_id, sanitizer
+            )
+            rev_file.parent.mkdir(parents=True, exist_ok=True)
+            rev_file.write_text(target.resolve_revision())
+        except Exception as e:  # noqa: BLE001
+            print(f"Warning: failed to record target revision: {e}")
 
         # Resolve target source path: user-provided repo or extracted WORKDIR
         if target._has_repo:
