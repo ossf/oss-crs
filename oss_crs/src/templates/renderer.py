@@ -410,6 +410,7 @@ def render_run_crs_compose_docker_compose(
         ),
         "litellm_image": OSS_CRS_LITELLM_TAG,
         "litellm_internal_url": LITELLM_INTERNAL_URL,
+        "offline": crs_compose.offline,
         "litellm_spend_report_path": litellm_spend_report_path,
         "postgres_image": OSS_CRS_POSTGRES_TAG,
         "postgres_user": POSTGRES_USER,
