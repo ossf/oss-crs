@@ -83,6 +83,11 @@ services:
     image: {{ litellm_image }}
     attach: false
     restart: on-failure:3
+{%- if offline %}
+    environment:
+      # offline the model cost map cannot be fetched; skip the attempt
+      - LITELLM_LOCAL_MODEL_COST_MAP=True
+{%- endif %}
     depends_on:
       oss-crs-postgres:
         condition: service_healthy
@@ -114,7 +119,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 15s
+      start_period: 90s  # ~140 Prisma migrations run on first boot
   oss-crs-postgres:
     image: {{ postgres_image }}
     attach: false
