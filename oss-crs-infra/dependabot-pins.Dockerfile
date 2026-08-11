@@ -8,4 +8,4 @@
 # NIX_BUILDER_IMAGE feeds libCRS/deps.Dockerfile as a build-arg, and ALPINE_IMAGE
 # is commented only "3.x latest", so its real version needs pinning down first.
 FROM ghcr.io/berriai/litellm-database@sha256:8075b09298dc2453316ebe6152603da34d4b1a0661a3cd756a11191a5b40d59c  # v1.94.0
-FROM postgres@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a  # 18.4
+FROM postgres@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636  # 18.4
