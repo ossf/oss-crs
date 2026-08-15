@@ -8,11 +8,13 @@ import yaml
 from oss_crs.src.templates.renderer import render_run_crs_compose_docker_compose
 
 
-def _patch_renderer(monkeypatch, build_env_fn=None):
+def _patch_renderer(monkeypatch, build_env_fn=None, llm_context_fn=None):
     """Stub out the two external collaborators the renderer reaches for.
 
     Pass a custom ``build_env_fn`` to observe the kwargs the renderer passes
     to ``build_run_service_env``; otherwise a minimal fixed response is used.
+    Pass ``llm_context_fn`` to render an LLM-backed compose; otherwise no LLM
+    context is produced and the litellm services are omitted.
     """
     monkeypatch.setattr(
         "oss_crs.src.templates.renderer.build_run_service_env",
@@ -25,7 +27,7 @@ def _patch_renderer(monkeypatch, build_env_fn=None):
     )
     monkeypatch.setattr(
         "oss_crs.src.templates.renderer.prepare_llm_context",
-        lambda *_args, **_kwargs: None,
+        llm_context_fn or (lambda *_args, **_kwargs: None),
     )
 
 
@@ -796,3 +798,61 @@ def test_target_independent_module_renders_unhashed_image_no_build(
     service = yaml.safe_load(rendered)["services"]["crs-shelley_lsp"]
     assert service["image"] == "oss-crs-runner:crs-shelley-lsp"
     assert "build" not in service
+
+
+# ---------------------------------------------------------------------------
+# Internal LiteLLM proxy: offline gate on the model cost map
+# ---------------------------------------------------------------------------
+
+
+def _internal_llm_context(tmp_path: Path):
+    """A ``llm_context_fn`` yielding an internal-mode LiteLLM stack."""
+    return lambda *_args, **_kwargs: {
+        "mode": "internal",
+        "litellm_env_secret_files": {"OPENAI_API_KEY": str(tmp_path / "sec")},
+        "litellm_config_path": str(tmp_path / "litellm-config.yaml"),
+        "key_gen_request_path": str(tmp_path / "key_gen_request.yaml"),
+        "secret_files": {},
+        "api_keys": {},
+    }
+
+
+@pytest.mark.parametrize(
+    "offline,expected_env",
+    [
+        pytest.param(True, ["LITELLM_LOCAL_MODEL_COST_MAP=True"], id="offline"),
+        pytest.param(False, None, id="online"),
+    ],
+)
+def test_offline_gates_litellm_local_cost_map_env(
+    monkeypatch, tmp_path: Path, offline: bool, expected_env: list | None
+) -> None:
+    """``--offline`` pins litellm to the cost map bundled in its image.
+
+    Offline the fetch of model_prices_and_context_window.json cannot succeed and
+    litellm falls back to that bundled copy regardless, so the attempt is
+    skipped. Online the fetch is left alone and live pricing is preserved.
+    """
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    crs_compose.offline = offline
+    target = _make_target(tmp_path, has_repo=False)
+
+    rendered, _ = _render(crs_compose, target, tmp_path)
+
+    litellm_service = yaml.safe_load(rendered)["services"]["oss-crs-litellm"]
+    assert litellm_service.get("environment") == expected_env, (
+        f"offline={offline} must render environment {expected_env}; "
+        f"got: {litellm_service.get('environment')}"
+    )
+
+    # Ensure we set a start period; also needed for online - Prisma migrations are slow
+    assert "start_period" in litellm_service["healthcheck"]
+
+    # The proxy is started from secret-derived exports in `command`; adding an
+    # `environment:` key must not displace them.
+    command = " ".join(litellm_service["command"])
+    assert "$(cat /run/secrets/litellm_env_OPENAI_API_KEY)" in command, (
+        f"secret-derived exports missing from command; got: {command}"
+    )
