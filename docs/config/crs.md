@@ -231,8 +231,8 @@ The `supported_target` section defines what types of targets the CRS can work wi
 |-------|------|----------|-------------|
 | `mode` | `Set[TargetMode]` | Yes | Supported target modes (see [TargetMode](#targetmode)) |
 | `language` | `Set[TargetLanguage]` | Yes | Supported programming languages (see [TargetLanguage](#targetlanguage)) |
-| `sanitizer` | `Set[TargetSanitizer]` | Yes | Supported sanitizers (see [TargetSanitizer](#targetsanitizer)) |
-| `architecture` | `Set[TargetArch]` | Yes | Supported CPU architectures (see [TargetArch](#targetarch)) |
+| `sanitizer` | `Set[TargetSanitizer]` | No | Supported sanitizers (see [TargetSanitizer](#targetsanitizer)). Defaults to all sanitizers when omitted. |
+| `architecture` | `Set[TargetArch]` | No | Supported CPU architectures (see [TargetArch](#targetarch)). Defaults to all architectures when omitted. |
 | `fuzzing_engine` | `Set[FuzzingEngine]` | No | Supported fuzzing engines (see [FuzzingEngine](#fuzzingengine)). Defaults to all engines when omitted. |
 
 ### Example
@@ -271,6 +271,7 @@ Defines the type of CRS:
 | `bug-fixing-ensemble` | Ensemble CRS that aggregates bug-fixing outputs |
 | `bug-finding-triage` | Post-processor CRS that triages bug-finding results (e.g. deduplication, validation). Reads from the main exchange dir and writes to the processed exchange dir. |
 | `seed-filter` | Post-processor CRS that filters or prioritizes seeds/inputs for downstream CRS. Reads from the main exchange dir and writes to the processed exchange dir. |
+| `auditing` | Source-auditing CRS that analyzes `OSS_CRS_TARGET_SOURCE` and submits `bug-candidate` artifacts. It may run with or without a target harness. |
 
 ### TargetMode
 

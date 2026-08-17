@@ -156,6 +156,7 @@ class Target:
         proj_path: Path,
         repo_path: Optional[Path],
         target_harness: Optional[str] = None,
+        source_only: bool = False,
     ):
         self.name = extract_name_from_proj_path(str(proj_path))
         self.proj_path = proj_path
@@ -179,6 +180,7 @@ class Target:
 
         self.repo_hash: Optional[str] = None
         self.target_harness = target_harness
+        self.source_only = source_only
 
     def _load_project_yaml_defaults(self) -> None:
         """Load optional OSS-Fuzz project.yaml defaults.
@@ -235,6 +237,15 @@ class Target:
     def get_docker_image_name(self) -> str:
         repo_hash = self.get_repo_hash()
         return f"{self.name}:{repo_hash}"
+
+    def get_workdir_target_key(self) -> str:
+        """Return the target identity used in build and run workdir paths."""
+        if self.source_only:
+            path_hash = hashlib.sha256(
+                str(self.repo_path.resolve()).encode()
+            ).hexdigest()[:12]
+            return f"{self.name}_{path_hash}"
+        return self.get_docker_image_name().replace(":", "_")
 
     @property
     def base_runner_image(self) -> str:

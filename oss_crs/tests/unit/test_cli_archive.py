@@ -142,7 +142,7 @@ def test_latest_picks_most_recent_run(tmp_path: Path, monkeypatch) -> None:
 
     ctx = resolve_run_context(args, compose, target)
     assert ctx is not None
-    _, run_id = ctx
+    _, run_id, _ = ctx
     assert run_id == "1700000002ab"
 
 
@@ -173,7 +173,7 @@ def test_run_id_takes_precedence_over_latest(tmp_path: Path, monkeypatch) -> Non
 
     ctx = resolve_run_context(args, compose, target)
     assert ctx is not None
-    _, run_id = ctx
+    _, run_id, _ = ctx
     # --latest should be ignored; the explicit run_id wins
     assert run_id == explicit_id
     assert run_id != "1700000002ab"
@@ -401,3 +401,76 @@ def test_archive_deduplicates_colliding_arcnames(tmp_path: Path) -> None:
     # Both files present, one with a suffix
     assert "povs/crash" in members
     assert "povs/crash.1" in members
+
+
+# ---------------------------------------------------------------------------
+# archive: source-only runs (no harness)
+# ---------------------------------------------------------------------------
+
+
+def _make_source_only_target() -> SimpleNamespace:
+    return SimpleNamespace(target_harness=None)
+
+
+def test_archive_source_only_collects_bug_candidates(tmp_path: Path) -> None:
+    run_id = "1700000001ab"
+    compose = _make_compose(tmp_path, [_make_crs("crs-a")])
+    work_dir = compose.work_dir
+
+    _write_file(
+        work_dir.get_submit_dir("crs-a", _make_source_only_target(), run_id, "address")
+        / "bug-candidates"
+        / "bug-001"
+    )
+
+    out = tmp_path / "results.tar.gz"
+    args = _make_args(run_id=run_id, out=str(out))
+    ok = handle_archive(args, compose, _make_source_only_target(), unharnessed=True)
+
+    assert ok is True
+    members = _tar_members(out)
+    assert "bug-candidates/bug-001" in members
+
+
+def test_archive_source_only_all_includes_exchange_and_logs(tmp_path: Path) -> None:
+    run_id = "1700000001ab"
+    compose = _make_compose(tmp_path, [_make_crs("crs-a")])
+    work_dir = compose.work_dir
+    target = _make_source_only_target()
+
+    _write_file(
+        work_dir.get_submit_dir("crs-a", target, run_id, "address")
+        / "bug-candidates"
+        / "bug-001"
+    )
+    _write_file(work_dir.get_exchange_dir(target, run_id, "address") / "extra.bin")
+    _write_file(work_dir.get_run_logs_dir(target, run_id, "address") / "compose.log")
+
+    out = tmp_path / "results.tar.gz"
+    args = _make_args(run_id=run_id, out=str(out), include_all=True)
+    ok = handle_archive(args, compose, target, unharnessed=True)
+
+    assert ok is True
+    members = _tar_members(out)
+    assert "bug-candidates/bug-001" in members
+    assert "exchange/extra.bin" in members
+    assert "logs/compose.log" in members
+
+
+def test_archive_collects_generated_harness_tree(tmp_path: Path) -> None:
+    run_id = "1700000001ab"
+    compose = _make_compose(tmp_path, [_make_crs("crs-harness-gen")])
+    target = _make_source_only_target()
+    submit_dir = compose.work_dir.get_submit_dir(
+        "crs-harness-gen", target, run_id, "address"
+    )
+    _write_file(submit_dir / "harnesses" / "generated" / "fuzz-proj" / "project.yaml")
+    _write_file(submit_dir / "harnesses" / "generated" / "target-source" / "source.c")
+
+    out = tmp_path / "results.tar.gz"
+    args = _make_args(run_id=run_id, out=str(out))
+
+    assert handle_archive(args, compose, target, unharnessed=True) is True
+    members = _tar_members(out)
+    assert "harnesses/generated/fuzz-proj/project.yaml" in members
+    assert "harnesses/generated/target-source/source.c" in members

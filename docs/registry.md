@@ -18,7 +18,7 @@ source:
 | Field | Description |
 |---|---|
 | `name` | Unique identifier for the CRS |
-| `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, `bug-finding-triage`, `seed-filter`, `bug-fixing-ensemble`, or a combination |
+| `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, `auditing`, `bug-finding-triage`, `seed-filter`, `bug-fixing-ensemble`, or a combination |
 | `source.url` | Git repository URL containing the CRS implementation |
 | `source.ref` | Git branch or tag to use |
 

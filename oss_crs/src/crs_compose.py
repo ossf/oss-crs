@@ -19,6 +19,7 @@ from .env_policy import (
 )
 from .llm import LLM
 from .crs import CRS
+from .config.crs import CRSType
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
 from .target import Target, file_lock
 from .templates import renderer
@@ -219,6 +220,41 @@ class CRSCompose:
             for name, crs_cfg in self.config.crs_entries.items()
         ]
         self.deadline: Optional[float] = None
+
+    def _validate_source_only_run(self) -> TaskResult:
+        non_auditing = [crs.name for crs in self.crs_list if not crs.config.is_auditing]
+        if non_auditing:
+            return TaskResult(
+                success=False,
+                error=(
+                    "Source-only runs (without --target-harness) require all "
+                    "CRSs to be of type 'auditing'. Incompatible CRSs: "
+                    + ", ".join(sorted(non_auditing))
+                ),
+            )
+        incompatible = [
+            crs.name
+            for crs in self.crs_list
+            if any(
+                module.target_dependent
+                for module in crs.config.crs_run_phase.modules.values()
+            )
+        ]
+        if incompatible:
+            return TaskResult(
+                success=False,
+                error=(
+                    "Runs without --target-harness require target-independent CRS "
+                    "modules. Set target_dependent: false for all run modules and run "
+                    "`oss-crs prepare` first. Incompatible CRSs: "
+                    + ", ".join(sorted(incompatible))
+                ),
+            )
+        return TaskResult(success=True)
+
+    def is_source_only_run(self, target: Target) -> bool:
+        """Return whether a no-harness run should skip target builds."""
+        return target.source_only
 
     def _resolve_target_build_options(
         self,
@@ -1096,6 +1132,25 @@ class CRSCompose:
         incremental_build: bool = False,
         web_ui: bool = False,
     ) -> int:
+        source_only = self.is_source_only_run(target)
+        if source_only:
+            if not target._has_repo:
+                print("Error: --target-source-path is required for source-only runs")
+                return 1
+            if build_id is not None:
+                print("Error: --build-id requires --target-harness")
+                return 1
+            if incremental_build:
+                print("Error: --incremental-build requires --target-harness")
+                return 1
+            if web_ui:
+                print("Error: --web-ui requires --target-harness")
+                return 1
+            source_only_check = self._validate_source_only_run()
+            if not source_only_check.success:
+                print(f"Error: {source_only_check.error}")
+                return 1
+
         resolved_options = self._resolve_target_build_options(
             target,
             sanitizer=sanitizer,
@@ -1110,9 +1165,13 @@ class CRSCompose:
         # Auto-detect cgroup-parent availability
         cgroup_parent, _ = check_cgroup_parent_available()
 
-        # Determine build_id: use provided, find latest, or generate new
+        # Determine build_id: use provided, find latest, or generate new.
+        # Source-only runs do not have target build outputs, but a build_id still
+        # gives artifact paths a stable run/build namespace.
         if build_id:
             build_id = normalize_run_id(build_id)
+        elif source_only:
+            build_id = f"source-only-{run_id}"
         else:
             # Look for latest existing build for this target/sanitizer
             build_id = self.get_latest_build_id(target, sanitizer)
@@ -1140,10 +1199,14 @@ class CRSCompose:
             forwarded_artifact_names=self._forwarded_artifact_names(forward_sources),
         ):
             return 1
-        target.init_repo()
+        if not target.init_repo():
+            print(f"Error: Failed to initialize target source: {target.repo_path}")
+            return 1
 
         # Check if we need to build
-        if build_id:
+        if source_only:
+            need_build = False
+        elif build_id:
             need_build = not self.__check_target_built(target, build_id, sanitizer)
         else:
             need_build = True  # No builds exist yet
@@ -1181,8 +1244,12 @@ class CRSCompose:
                 print(f"Error: {snapshot_error}")
                 return 1
 
-        # Write build_id to run directory for later retrieval (e.g., by artifacts command)
-        self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
+        # Source-only runs use a synthetic ID internally for APIs that still
+        # require one, but they have no build output to associate with the run.
+        if source_only:
+            self.work_dir.get_build_id_file(run_id, sanitizer).unlink(missing_ok=True)
+        else:
+            self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
 
         result = self.__run(
             target,
@@ -1196,6 +1263,7 @@ class CRSCompose:
             early_exit=early_exit,
             incremental_build=incremental_build,
             web_ui=web_ui,
+            source_only=source_only,
         )
         return result
 
@@ -1715,6 +1783,7 @@ class CRSCompose:
         early_exit: bool = False,
         incremental_build: bool = False,
         web_ui: bool = False,
+        source_only: bool = False,
     ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -1729,10 +1798,26 @@ class CRSCompose:
                 early_exit=early_exit,
                 incremental_build=incremental_build,
                 web_ui=web_ui,
+                source_only=source_only,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
             return 1
+
+    # Note: campaigns running multiple types of CRS will exit on the first artifact
+    # (e.g. bug-finding + bug-fixing will exit when a single PoV is found)
+    def _early_exit_artifact_subdirs(self) -> set[str]:
+        artifact_subdirs: set[str] = set()
+        for crs in self.crs_list:
+            if crs.config.is_triage or crs.config.is_seed_filter:
+                continue
+            if crs.config.is_bug_fixing:
+                artifact_subdirs.add("patches")
+            if crs.config.is_auditing:
+                artifact_subdirs.add("bug-candidates")
+            if CRSType.BUG_FINDING in crs.config.type:
+                artifact_subdirs.add("povs")
+        return artifact_subdirs
 
     def __run_local(
         self,
@@ -1747,6 +1832,7 @@ class CRSCompose:
         early_exit: bool = False,
         incremental_build: bool = False,
         web_ui: bool = False,
+        source_only: bool = False,
     ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -1766,9 +1852,6 @@ class CRSCompose:
         # Build early exit configuration if enabled
         early_exit_config: Optional[EarlyExitConfig] = None
         if early_exit:
-            # Bug-fixing CRSs watch for patches, bug-finding watch for POVs
-            has_bug_fixing = any(crs.config.is_bug_fixing for crs in self.crs_list)
-            artifact_subdir = "patches" if has_bug_fixing else "povs"
             # Collect SUBMIT_DIR paths for all CRSs
             watch_dirs: list[Path] = [
                 self.work_dir.get_submit_dir(
@@ -1779,14 +1862,14 @@ class CRSCompose:
                 and not crs.config.is_seed_filter  # post-processors run until timeout
             ]
             # Also watch exchange dir when multiple CRSs (shared artifact location)
-            if len(self.crs_list) > 1:
+            if watch_dirs and len(self.crs_list) > 1:
                 exchange_dir = self.work_dir.get_exchange_dir(
                     target, run_id, sanitizer, create=False
                 )
                 watch_dirs.append(exchange_dir)
             early_exit_config = EarlyExitConfig(
                 watch_dirs=watch_dirs,
-                artifact_subdir=artifact_subdir,
+                artifact_subdirs=self._early_exit_artifact_subdirs(),
             )
 
         with MultiTaskProgress(
@@ -1838,6 +1921,7 @@ class CRSCompose:
                             cgroup_parents=cgroup_parents,
                             incremental_build=incremental_build,
                             web_ui=web_ui,
+                            source_only=source_only,
                         ),
                     ),
                     (
@@ -2209,6 +2293,7 @@ class CRSCompose:
         cgroup_parents: Optional[dict[str, str]] = None,
         incremental_build: bool = False,
         web_ui: bool = False,
+        source_only: bool = False,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
@@ -2259,6 +2344,7 @@ class CRSCompose:
                 incremental_build=incremental_build,
                 sidecar_env=sidecar_env,
                 web_ui=web_ui,
+                source_only=source_only,
             )
             for warning in warnings:
                 progress.add_note(warning)

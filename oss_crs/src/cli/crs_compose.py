@@ -48,14 +48,14 @@ def add_common_arguments(parser):
     )
 
 
-def add_target_arguments(parser):
+def add_target_arguments(parser, *, require_fuzz_proj: bool = True):
     parser.add_argument(
         "--fuzz-proj-path",
         "--target-path",
         "--target-proj-path",
         dest="target_proj_path",
         type=Path,
-        required=True,
+        required=require_fuzz_proj,
         help=(
             "Path to target project directory "
             "(contains Dockerfile/build.sh; project.yaml optional). "
@@ -124,14 +124,14 @@ def collect_artifact_inputs_from_args(args, specs) -> dict[str, ArtifactInput]:
     return artifact_inputs
 
 
-def add_target_resolution_arguments(parser):
+def add_target_resolution_arguments(parser, *, require_fuzz_proj: bool = True):
     parser.add_argument(
         "--fuzz-proj-path",
         "--target-path",
         "--target-proj-path",
         dest="target_proj_path",
         type=Path,
-        required=True,
+        required=require_fuzz_proj,
         help=(
             "Path to target project directory "
             "(contains Dockerfile/build.sh; project.yaml optional). "
@@ -217,12 +217,15 @@ def add_run_command(subparsers):
         "run", help="Run CRSs against a target using CRS Compose file"
     )
     add_common_arguments(run)
-    add_target_arguments(run)
+    add_target_arguments(run, require_fuzz_proj=False)
     run.add_argument(
         "--target-harness",
         type=str,
         default=None,
-        help="Specify the target harness to use for the run (omit for harness-gen CRSs)",
+        help=(
+            "Specify the target harness to use for the run. "
+            "Omit for harness generation or source-level analysis."
+        ),
     )
     run.add_argument(
         "--timeout",
@@ -272,7 +275,10 @@ def add_run_command(subparsers):
         "--early-exit",
         action="store_true",
         default=False,
-        help="Stop run when first artifact is discovered (POV for bug-finding, patch for bug-fixing CRSs)",
+        help=(
+            "Stop run when the first artifact is discovered "
+            "(POV, patch, or bug candidate)"
+        ),
     )
     run.add_argument(
         "--incremental-build",
@@ -296,13 +302,13 @@ def add_artifacts_command(subparsers):
         "artifacts", help="Show directories for run artifacts (JSON output)"
     )
     add_common_arguments(artifacts)
-    add_target_resolution_arguments(artifacts)
+    add_target_resolution_arguments(artifacts, require_fuzz_proj=False)
     artifacts.add_argument(
         "--target-harness",
         type=str,
         required=False,
         default=None,
-        help="Specify the target harness (required for submit/fetch/shared dirs)",
+        help=("Specify the target harness."),
     )
     artifacts.add_argument(
         "--build-id",
@@ -341,13 +347,13 @@ def add_archive_command(subparsers):
         help="Package submitted artifacts from a run into a tarball",
     )
     add_common_arguments(archive)
-    add_target_resolution_arguments(archive)
+    add_target_resolution_arguments(archive, require_fuzz_proj=False)
     archive.add_argument(
         "--target-harness",
         type=str,
-        required=True,
+        required=False,
         default=None,
-        help="Target harness name",
+        help="Target harness name (omit for source-only runs)",
     )
     archive.add_argument(
         "--sanitizer",
@@ -620,13 +626,31 @@ def add_gen_compose_command(subparsers):
     )
 
 
-def init_target_from_args(args) -> Target:
+def init_target_from_args(
+    args, *, source_only: bool = False, require_source_dir: bool = False
+) -> Target:
     target_harness = args.target_harness if hasattr(args, "target_harness") else None
+    target_proj_path = getattr(args, "target_proj_path", None)
+    target_repo_path = getattr(args, "target_repo_path", None)
+    if source_only:
+        if target_repo_path is None:
+            raise ValueError(
+                "--target-source-path is required when --target-harness is omitted"
+            )
+        if require_source_dir and not target_repo_path.is_dir():
+            raise ValueError(
+                f"--target-source-path must be an existing directory: {target_repo_path}"
+            )
+        if target_proj_path is None:
+            target_proj_path = target_repo_path
+    elif target_proj_path is None:
+        raise ValueError("--fuzz-proj-path or --target-source-path is required")
     return Target(
         args.work_dir,
-        args.target_proj_path,
-        args.target_repo_path,
+        target_proj_path,
+        target_repo_path,
         target_harness,
+        source_only=source_only,
     )
 
 
@@ -899,7 +923,11 @@ def cli() -> bool | int:
         if not crs_compose.prepare(publish=args.publish, no_pull=args.no_pull):
             return False
     elif args.command == "build-target":
-        target = init_target_from_args(args)
+        try:
+            target = init_target_from_args(args)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return False
         build_artifact_inputs = collect_artifact_inputs_from_args(
             args,
             [spec for spec in RUN_ARTIFACT_INPUT_SPECS if spec.name == "bug-candidate"],
@@ -923,7 +951,22 @@ def cli() -> bool | int:
         ):
             return False
     elif args.command == "run":
-        target = init_target_from_args(args)
+        harness_gen = any(crs.config.is_harness_gen for crs in crs_compose.crs_list)
+        source_only = (
+            args.target_harness is None
+            and args.target_proj_path is None
+            and not harness_gen
+        )
+        try:
+            target = init_target_from_args(
+                args, source_only=source_only, require_source_dir=source_only
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return False
+        if source_only and args.web_ui:
+            print("Error: --web-ui requires --target-harness", file=sys.stderr)
+            return False
         if args.timeout is not None:
             crs_compose.set_deadline(time.monotonic() + args.timeout)
         artifact_inputs = collect_artifact_inputs_from_args(
@@ -967,11 +1010,43 @@ def cli() -> bool | int:
         if run_rc != 0:
             return run_rc
     elif args.command == "artifacts":
-        target = init_target_from_args(args)
-        return handle_artifacts(args, crs_compose, target)
+        harness_gen = args.target_harness is None and any(
+            crs.config.is_harness_gen for crs in crs_compose.crs_list
+        )
+        source_only = (
+            args.target_harness is None
+            and args.target_proj_path is None
+            and not harness_gen
+        )
+        try:
+            target = init_target_from_args(args, source_only=source_only)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return False
+        return handle_artifacts(
+            args,
+            crs_compose,
+            target,
+            source_only=source_only,
+            unharnessed=args.target_harness is None,
+        )
     elif args.command == "archive":
-        target = init_target_from_args(args)
-        return handle_archive(args, crs_compose, target)
+        harness_gen = args.target_harness is None and any(
+            crs.config.is_harness_gen for crs in crs_compose.crs_list
+        )
+        source_only = (
+            args.target_harness is None
+            and args.target_proj_path is None
+            and not harness_gen
+        )
+        try:
+            target = init_target_from_args(args, source_only=source_only)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return False
+        return handle_archive(
+            args, crs_compose, target, unharnessed=args.target_harness is None
+        )
     elif args.command == "export":
         return handle_export(args, crs_compose)
     elif args.command == "check":

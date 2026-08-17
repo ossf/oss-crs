@@ -10,6 +10,7 @@ from oss_crs.src.config.crs import (
     CRSRunPhaseModule,
     _validate_dockerfile_value,
 )
+from oss_crs.src.config.target import TargetArch, TargetSanitizer
 
 
 class TestDockerfileValidation:
@@ -66,7 +67,7 @@ class TestCRSRunPhaseModule:
     def test_module_requires_dockerfile(self):
         """A module must specify a dockerfile."""
         with pytest.raises(ValidationError):
-            CRSRunPhaseModule()
+            CRSRunPhaseModule()  # type: ignore[reportCallIssue]
 
     def test_module_defaults_to_target_dependent(self):
         """Without target_dependent the image is built during build-target."""
@@ -243,6 +244,76 @@ class TestCRSTypeProperties:
     def test_seed_filter_is_not_triage(self):
         config = CRSConfig.from_dict(_minimal_crs_config(type=["seed-filter"]))
         assert config.is_triage is False
+
+    def test_auditing(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(type=["auditing"]))
+
+        assert config.is_auditing is True
+        assert config.is_bug_fixing is False
+        assert config.is_bug_fixing_ensemble is False
+        assert config.is_triage is False
+        assert config.is_seed_filter is False
+
+
+class TestSupportedTargetDefaults:
+    """Tests for SupportedTarget optional fields."""
+
+    def test_sanitizer_defaults_to_all(self):
+        """Omitting sanitizer defaults to all sanitizers."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(
+                supported_target={
+                    "mode": ["full"],
+                    "language": ["c"],
+                }
+            )
+        )
+        assert config.supported_target.sanitizer == {
+            TargetSanitizer.ASAN,
+            TargetSanitizer.MSAN,
+            TargetSanitizer.UBSAN,
+        }
+
+    def test_architecture_defaults_to_all(self):
+        """Omitting architecture defaults to all architectures."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(
+                supported_target={
+                    "mode": ["full"],
+                    "language": ["c"],
+                }
+            )
+        )
+        assert config.supported_target.architecture == {
+            TargetArch.X86_64,
+            TargetArch.I386,
+        }
+
+    def test_sanitizer_explicit_overrides_default(self):
+        """Explicit sanitizer value overrides the default."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(
+                supported_target={
+                    "mode": ["full"],
+                    "language": ["c"],
+                    "sanitizer": ["address"],
+                }
+            )
+        )
+        assert config.supported_target.sanitizer == {TargetSanitizer.ASAN}
+
+    def test_architecture_explicit_overrides_default(self):
+        """Explicit architecture value overrides the default."""
+        config = CRSConfig.from_dict(
+            _minimal_crs_config(
+                supported_target={
+                    "mode": ["full"],
+                    "language": ["c"],
+                    "architecture": ["x86_64"],
+                }
+            )
+        )
+        assert config.supported_target.architecture == {TargetArch.X86_64}
 
 
 class TestSidecarDeploymentConditions:
