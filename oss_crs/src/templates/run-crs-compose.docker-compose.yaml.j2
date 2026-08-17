@@ -46,8 +46,10 @@ services:
     mem_limit: "{{ crs.resource.memory }}"
 {%- endif %}
     volumes:
+{%- if not source_only %}
       - {{ work_dir.get_build_output_dir(crs.name, target, build_id, sanitizer) }}:/OSS_CRS_BUILD_OUT_DIR:ro
       - {{ rebuild_out_dir }}:/OSS_CRS_REBUILD_OUT_DIR:ro
+{%- endif %}
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
@@ -58,7 +60,9 @@ services:
 {%- elif fetch_dir %}
       - {{ fetch_dir }}:/OSS_CRS_FETCH_DIR:ro
 {%- endif %}
+{%- if fuzz_proj_path %}
       - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
+{%- endif %}
       - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
 {%- if bug_fix_ensemble and not crs.config.is_bug_fixing_ensemble %}
     attach: false
@@ -229,6 +233,7 @@ services:
   ###########################################
   # OSS-CRS-PUBLISHER (pushes metrics to standalone web-ui)
   ###########################################
+{%- if not source_only %}
 {%- if web_ui %}
   oss-crs-publisher:
     build:
@@ -362,6 +367,7 @@ services:
 {%- for crs in crs_list %}
           - runner-sidecar.{{ crs.name }}
 {%- endfor %}
+{%- endif %}
 {%- if llm_context is defined %}
 secrets:
 {%- if llm_context.mode == "internal" %}

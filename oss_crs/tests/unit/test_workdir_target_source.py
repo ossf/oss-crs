@@ -14,6 +14,9 @@ class _MockTarget:
     def get_docker_image_name(self) -> str:
         return f"{self.name}:{self._image_hash}"
 
+    def get_workdir_target_key(self) -> str:
+        return self.get_docker_image_name().replace(":", "_")
+
 
 class TestGetTargetSourceDir:
     """Tests for WorkDir.get_target_source_dir()."""

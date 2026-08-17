@@ -172,6 +172,7 @@ def build_run_service_env(
     crs_additional_env: Mapping[str, str] | None,
     scope: str,
     harness: str | None = None,
+    source_only: bool = False,
     include_fetch_dir: bool = False,
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
@@ -180,11 +181,16 @@ def build_run_service_env(
         "HELPER": "True",
         "RUN_FUZZER_MODE": "interactive",
         **{
-            k: target_env[v] for k, v in OSS_FUZZ_TARGET_ENV.items() if k != "SANITIZER"
+            k: target_env[v]
+            for k, v in OSS_FUZZ_TARGET_ENV.items()
+            if k != "SANITIZER"
+            and not (source_only and k == "FUZZING_LANGUAGE")
+            and not (source_only and k == "ARCHITECTURE")
         },
-        "SANITIZER": sanitizer,  # override: run phase uses resolved sanitizer
-        "PROJECT_NAME": target_env["name"],
     }
+    if not source_only:
+        base_env["SANITIZER"] = sanitizer
+    base_env["PROJECT_NAME"] = target_env["name"]
     # Preserve existing behavior: module env first, CRS env last.
     system_env = {
         "OSS_CRS_RUN_ENV_TYPE": run_env_type,
@@ -195,17 +201,20 @@ def build_run_service_env(
         "OSS_CRS_RUN_ID": run_id,
         "OSS_CRS_CPUSET": cpuset,
         "OSS_CRS_MEMORY_LIMIT": memory_limit,
-        "OSS_CRS_PROJ_PATH": "/OSS_CRS_PROJ_PATH",
-        "OSS_CRS_REPO_PATH": target_env["repo_path"],
-        "OSS_CRS_BUILD_OUT_DIR": "/OSS_CRS_BUILD_OUT_DIR",
-        "OSS_CRS_REBUILD_OUT_DIR": "/OSS_CRS_REBUILD_OUT_DIR",
         "OSS_CRS_SUBMIT_DIR": "/OSS_CRS_SUBMIT_DIR",
         "OSS_CRS_SHARED_DIR": "/OSS_CRS_SHARED_DIR",
         "OSS_CRS_LOG_DIR": "/OSS_CRS_LOG_DIR",
-        "BUILDER_MODULE": "builder-sidecar",
-        "OSS_CRS_FUZZ_PROJ": "/OSS_CRS_FUZZ_PROJ",
         "OSS_CRS_TARGET_SOURCE": "/OSS_CRS_TARGET_SOURCE",
     }
+    if source_only:
+        system_env["OSS_CRS_REPO_PATH"] = "/OSS_CRS_TARGET_SOURCE"
+    else:
+        system_env["OSS_CRS_PROJ_PATH"] = "/OSS_CRS_PROJ_PATH"
+        system_env["OSS_CRS_REPO_PATH"] = target_env["repo_path"]
+        system_env["OSS_CRS_BUILD_OUT_DIR"] = "/OSS_CRS_BUILD_OUT_DIR"
+        system_env["OSS_CRS_REBUILD_OUT_DIR"] = "/OSS_CRS_REBUILD_OUT_DIR"
+        system_env["BUILDER_MODULE"] = "builder-sidecar"
+        system_env["OSS_CRS_FUZZ_PROJ"] = "/OSS_CRS_FUZZ_PROJ"
     if harness:
         system_env["OSS_CRS_TARGET_HARNESS"] = harness
     if include_fetch_dir:

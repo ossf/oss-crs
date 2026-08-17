@@ -142,6 +142,39 @@ def test_run_env_always_includes_fuzz_proj() -> None:
     assert plan.effective_env["OSS_CRS_FUZZ_PROJ"] == "/OSS_CRS_FUZZ_PROJ"
 
 
+def test_source_only_run_env_omits_build_and_fuzz_env() -> None:
+    plan = build_run_service_env(
+        target_env={
+            "engine": "libfuzzer",
+            "architecture": "x86_64",
+            "name": "proj",
+            "language": "c",
+            "repo_path": "/repo",
+        },
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="auditor",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        source_only=True,
+        scope="test:source-only-run",
+    )
+
+    assert "OSS_CRS_BUILD_OUT_DIR" not in plan.effective_env
+    assert "OSS_CRS_REBUILD_OUT_DIR" not in plan.effective_env
+    assert "OSS_CRS_FUZZ_PROJ" not in plan.effective_env
+    assert "FUZZING_LANGUAGE" not in plan.effective_env
+    assert "BUILDER_MODULE" not in plan.effective_env
+    assert "OSS_CRS_PROJ_PATH" not in plan.effective_env
+    assert "SANITIZER" not in plan.effective_env
+    assert "ARCHITECTURE" not in plan.effective_env
+    assert plan.effective_env["OSS_CRS_REPO_PATH"] == "/OSS_CRS_TARGET_SOURCE"
+
+
 def test_user_cannot_override_reserved_source_env_vars() -> None:
     """User-provided OSS_CRS_FUZZ_PROJ and OSS_CRS_TARGET_SOURCE are superseded by system values."""
     plan = build_target_builder_env(

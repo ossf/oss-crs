@@ -3,8 +3,11 @@
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 
+from oss_crs.src.config.crs import CRSType
+from oss_crs.src.crs_compose import CRSCompose
 from oss_crs.src.ui import EarlyExitConfig, MultiTaskProgress
 
 
@@ -66,17 +69,17 @@ class TestEarlyExitConfig:
         """EarlyExitConfig can be instantiated with required fields."""
         config = EarlyExitConfig(
             watch_dirs=[tmp_path / "submit1", tmp_path / "submit2"],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
         )
         assert len(config.watch_dirs) == 2
-        assert config.artifact_subdir == "povs"
+        assert config.artifact_subdirs == {"povs"}
         assert config.poll_interval == 2.0  # default
 
     def test_custom_poll_interval(self, tmp_path: Path):
         """Poll interval can be customized."""
         config = EarlyExitConfig(
             watch_dirs=[tmp_path],
-            artifact_subdir="patches",
+            artifact_subdirs={"patches"},
             poll_interval=0.5,
         )
         assert config.poll_interval == 0.5
@@ -94,7 +97,7 @@ class TestCheckEarlyExit:
         """Returns False when watch directory doesn't exist."""
         config = EarlyExitConfig(
             watch_dirs=[tmp_path / "nonexistent"],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is False
@@ -107,7 +110,7 @@ class TestCheckEarlyExit:
 
         config = EarlyExitConfig(
             watch_dirs=[submit_dir],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is False
@@ -122,7 +125,7 @@ class TestCheckEarlyExit:
 
         config = EarlyExitConfig(
             watch_dirs=[submit_dir],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is True
@@ -137,7 +140,7 @@ class TestCheckEarlyExit:
 
         config = EarlyExitConfig(
             watch_dirs=[submit_dir],
-            artifact_subdir="patches",
+            artifact_subdirs={"patches"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is False
@@ -155,7 +158,7 @@ class TestCheckEarlyExit:
 
         config = EarlyExitConfig(
             watch_dirs=[submit1, submit2],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is True
@@ -170,10 +173,70 @@ class TestCheckEarlyExit:
 
         config = EarlyExitConfig(
             watch_dirs=[submit_dir],
-            artifact_subdir="patches",
+            artifact_subdirs={"patches"},
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
         assert progress._check_early_exit() is True
+
+    def test_checks_multiple_artifact_subdirs(self, tmp_path: Path):
+        submit_dir = tmp_path / "submit"
+        bug_candidates_dir = submit_dir / "bug-candidates"
+        bug_candidates_dir.mkdir(parents=True)
+        (bug_candidates_dir / "report.md").write_text("bug report")
+
+        config = EarlyExitConfig(
+            watch_dirs=[submit_dir],
+            artifact_subdirs={"povs", "patches", "bug-candidates"},
+        )
+        progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)
+
+        assert progress._check_early_exit() is True
+
+
+class TestEarlyExitArtifactTypes:
+    @staticmethod
+    def _crs(*types: CRSType) -> SimpleNamespace:
+        type_set = set(types)
+        return SimpleNamespace(
+            config=SimpleNamespace(
+                type=type_set,
+                is_bug_fixing=bool(
+                    type_set & {CRSType.BUG_FIXING, CRSType.BUG_FIXING_ENSEMBLE}
+                ),
+                is_auditing=CRSType.AUDITING in type_set,
+                is_triage=CRSType.BUG_FINDING_TRIAGE in type_set,
+                is_seed_filter=CRSType.SEED_FILTER in type_set,
+            )
+        )
+
+    def test_auditing_watches_bug_candidates(self):
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [self._crs(CRSType.AUDITING)]
+
+        assert compose._early_exit_artifact_subdirs() == {"bug-candidates"}
+
+    def test_mixed_producers_watch_each_output_type(self):
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [
+            self._crs(CRSType.BUG_FINDING),
+            self._crs(CRSType.BUG_FIXING),
+            self._crs(CRSType.AUDITING),
+        ]
+
+        assert compose._early_exit_artifact_subdirs() == {
+            "povs",
+            "patches",
+            "bug-candidates",
+        }
+
+    def test_post_processors_do_not_add_early_exit_types(self):
+        compose = CRSCompose.__new__(CRSCompose)
+        compose.crs_list = [
+            self._crs(CRSType.BUG_FINDING_TRIAGE),
+            self._crs(CRSType.SEED_FILTER),
+        ]
+
+        assert compose._early_exit_artifact_subdirs() == set()
 
 
 class TestEarlyExitMonitor:
@@ -188,7 +251,7 @@ class TestEarlyExitMonitor:
 
         config = EarlyExitConfig(
             watch_dirs=[submit_dir],
-            artifact_subdir="povs",
+            artifact_subdirs={"povs"},
             poll_interval=0.1,  # Fast polling for test
         )
         progress = MultiTaskProgress(tasks=[], title="Test", early_exit_config=config)

@@ -12,12 +12,18 @@ from ..config.artifacts import (
     RunLogs,
     RunMeta,
 )
+from ..constants import UNHARNESSED
 from ..target import Target
 from ..utils import normalize_run_id, select
 
 
 def collect_run_ids_for_target(
-    crs_compose, target: Target, harness: str | None, sanitizer: str
+    crs_compose,
+    target: Target,
+    harness: str | None,
+    sanitizer: str,
+    *,
+    unharnessed: bool = False,
 ) -> list[str]:
     """Collect all run-ids for a target from SUBMIT_DIR (run artifacts)."""
     seen = set()
@@ -32,8 +38,8 @@ def collect_run_ids_for_target(
             submit_path = crs_compose.work_dir.get_submit_dir(
                 crs.name, target, entry.run_id, sanitizer, create=False
             )
-            # For harness=None, check parent dir (without harness component)
-            if not harness:
+            if not harness and not unharnessed:
+                # No requested harness: discover runs under any scope.
                 submit_path = submit_path.parent
             if submit_path.exists():
                 seen.add(entry.run_id)
@@ -60,10 +66,17 @@ def format_run_id(run_id: str) -> str:
 
 
 def select_run_id_interactively(
-    crs_compose, target: Target, harness: str | None, sanitizer: str
+    crs_compose,
+    target: Target,
+    harness: str | None,
+    sanitizer: str,
+    *,
+    unharnessed: bool = False,
 ) -> str | None:
     """Prompt user to select a run-id from available runs."""
-    all_run_ids = collect_run_ids_for_target(crs_compose, target, harness, sanitizer)
+    all_run_ids = collect_run_ids_for_target(
+        crs_compose, target, harness, sanitizer, unharnessed=unharnessed
+    )
     if not all_run_ids:
         print("No runs found for this target.", file=sys.stderr)
         return None
@@ -72,7 +85,13 @@ def select_run_id_interactively(
     return select("Select run-id:", choices)
 
 
-def resolve_run_context(args, crs_compose, target: Target) -> tuple[str, str] | None:
+def resolve_run_context(
+    args,
+    crs_compose,
+    target: Target,
+    *,
+    unharnessed: bool = False,
+) -> tuple[str, str, bool] | None:
     """Resolve (sanitizer, run_id) from args, returning None on failure.
 
     Shared by the artifacts and archive commands. Handles sanitizer resolution,
@@ -101,36 +120,90 @@ def resolve_run_context(args, crs_compose, target: Target) -> tuple[str, str] | 
                 return None
     elif getattr(args, "latest", False):
         all_run_ids = collect_run_ids_for_target(
-            crs_compose, target, harness, sanitizer
+            crs_compose, target, harness, sanitizer, unharnessed=unharnessed
         )
         if not all_run_ids:
             print("No runs found for this target.", file=sys.stderr)
             return None
         run_id = all_run_ids[0]
     else:
-        run_id = select_run_id_interactively(crs_compose, target, harness, sanitizer)
+        run_id = select_run_id_interactively(
+            crs_compose, target, harness, sanitizer, unharnessed=unharnessed
+        )
         if run_id is None:
             return None
 
-    return sanitizer, run_id
+    scope_known = target.target_harness is not None or unharnessed
+    if not scope_known:
+        scope_known = _apply_existing_run_scope(crs_compose, target, run_id, sanitizer)
+        if scope_known is None:
+            return None
+
+    return sanitizer, run_id, scope_known
 
 
-def handle_artifacts(args, crs_compose, target: Target) -> bool:
+def _apply_existing_run_scope(
+    crs_compose, target: Target, run_id: str, sanitizer: str
+) -> bool | None:
+    """Apply the sole existing run scope to target.
+
+    Returns False when no scope exists yet and None when multiple scopes violate
+    the one-scope-per-run invariant.
+    """
+    scopes: set[str] = set()
+    for crs in crs_compose.crs_list:
+        submit_parent = crs_compose.work_dir.get_submit_dir(
+            crs.name, target, run_id, sanitizer, create=False
+        ).parent
+        if submit_parent.is_dir():
+            scopes.update(
+                path.name for path in submit_parent.iterdir() if path.is_dir()
+            )
+
+    if not scopes:
+        return False
+    if len(scopes) > 1:
+        print(
+            f"Error: Run '{run_id}' has multiple harness scopes: "
+            + ", ".join(sorted(scopes)),
+            file=sys.stderr,
+        )
+        return None
+
+    scope = next(iter(scopes))
+    target.target_harness = None if scope == UNHARNESSED else scope
+    return True
+
+
+def handle_artifacts(
+    args,
+    crs_compose,
+    target: Target,
+    *,
+    source_only: bool = False,
+    unharnessed: bool = False,
+) -> bool:
     """Handle the artifacts command."""
-    ctx = resolve_run_context(args, crs_compose, target)
+    if source_only and args.build_id:
+        print("Error: --build-id is unavailable for source-only runs.", file=sys.stderr)
+        return False
+
+    ctx = resolve_run_context(args, crs_compose, target, unharnessed=unharnessed)
     if ctx is None:
         return False
-    sanitizer, run_id = ctx
-    harness = target.target_harness
+    sanitizer, run_id, scope_known = ctx
     work_dir = crs_compose.work_dir
 
-    # build_id for BUILD_OUT_DIR - use provided, read from run, or find latest
+    # build_id for BUILD_OUT_DIR - use provided, read from run, or find latest.
+    # Source-only runs have no build outputs, so skip build_id resolution.
     if args.build_id:
         resolved_build_id = work_dir.resolve_build_id(args.build_id, sanitizer)
         if resolved_build_id is None:
             print(f"Build '{args.build_id}' not found.", file=sys.stderr)
             return False
         build_id = resolved_build_id
+    elif source_only:
+        build_id = None
     else:
         # Try to get build_id from the run directory first
         build_id = work_dir.read_build_id_for_run(run_id, sanitizer)
@@ -140,13 +213,20 @@ def handle_artifacts(args, crs_compose, target: Target) -> bool:
 
     # Build structured result
     output = ArtifactsOutput(build_id=build_id, run_id=run_id, sanitizer=sanitizer)
+    if not scope_known:
+        for crs in crs_compose.crs_list:
+            if build_id:
+                build_path = work_dir.get_build_output_dir(
+                    crs.name, target, build_id, sanitizer, create=False
+                )
+                output.crs[crs.name] = CRSArtifacts(build=str(build_path))
+        print(output.to_json())
+        return True
+
     output.meta = RunMeta.from_work_dir(work_dir, run_id, sanitizer)
 
-    if harness:
-        output.exchange_dir = ExchangeDir.from_work_dir(
-            work_dir, target, run_id, sanitizer
-        )
-        output.run_logs = RunLogs.from_work_dir(work_dir, target, run_id, sanitizer)
+    output.exchange_dir = ExchangeDir.from_work_dir(work_dir, target, run_id, sanitizer)
+    output.run_logs = RunLogs.from_work_dir(work_dir, target, run_id, sanitizer)
 
     exchange_base = output.exchange_dir.base if output.exchange_dir else None
     for crs in crs_compose.crs_list:

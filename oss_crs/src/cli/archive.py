@@ -10,13 +10,17 @@ from ..constants import SUBMITTED_ARTIFACT_DIR_NAMES
 from ..target import Target
 
 
-def handle_archive(args, crs_compose, target: Target) -> bool:
+def handle_archive(
+    args, crs_compose, target: Target, *, unharnessed: bool = False
+) -> bool:
     """Handle the archive command."""
-    ctx = resolve_run_context(args, crs_compose, target)
+    ctx = resolve_run_context(args, crs_compose, target, unharnessed=unharnessed)
     if ctx is None:
         return False
-    sanitizer, run_id = ctx
-    harness = target.target_harness
+    sanitizer, run_id, scope_known = ctx
+    if not scope_known:
+        print("No run artifact scope found for the selected run.", file=sys.stderr)
+        return False
     work_dir = crs_compose.work_dir
 
     out_path = Path(args.out)
@@ -25,8 +29,9 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
     triage_crs = [crs for crs in crs_compose.crs_list if crs.config.is_triage]
     non_triage_crs = [crs for crs in crs_compose.crs_list if not crs.config.is_triage]
 
-    # Collect (arcname, src_path) pairs for each artifact subdir
-    artifact_subdirs = list(SUBMITTED_ARTIFACT_DIR_NAMES)
+    # Collect (arcname, src_path) pairs for each artifact subdir.
+    # Include "harnesses" locally (harness-gen output is not exchanged).
+    artifact_subdirs = list(SUBMITTED_ARTIFACT_DIR_NAMES) + ["harnesses"]
     # In a triage run, POVs come from the triage CRS instead (see below).
     non_pov_subdirs = [s for s in artifact_subdirs if s not in ("povs", "reports")]
 
@@ -81,27 +86,26 @@ def handle_archive(args, crs_compose, target: Target) -> bool:
 
     if args.include_all:
         # Also include exchange dir, logs, and shared dirs
-        if harness:
-            exchange_dir = work_dir.get_exchange_dir(
-                target, run_id, sanitizer, create=False
+        exchange_dir = work_dir.get_exchange_dir(
+            target, run_id, sanitizer, create=False
+        )
+        _add_dir(collected, exchange_dir, "exchange")
+
+        run_logs_dir = work_dir.get_run_logs_dir(
+            target, run_id, sanitizer, create=False
+        )
+        _add_dir(collected, run_logs_dir, "logs")
+
+        for crs in crs_compose.crs_list:
+            shared_dir = work_dir.get_shared_dir(
+                crs.name, target, run_id, sanitizer, create=False
             )
-            _add_dir(collected, exchange_dir, "exchange")
+            _add_dir(collected, shared_dir, f"shared/{crs.name}")
 
-            run_logs_dir = work_dir.get_run_logs_dir(
-                target, run_id, sanitizer, create=False
+            log_dir = work_dir.get_log_dir(
+                crs.name, target, run_id, sanitizer, create=False
             )
-            _add_dir(collected, run_logs_dir, "logs")
-
-            for crs in crs_compose.crs_list:
-                shared_dir = work_dir.get_shared_dir(
-                    crs.name, target, run_id, sanitizer, create=False
-                )
-                _add_dir(collected, shared_dir, f"shared/{crs.name}")
-
-                log_dir = work_dir.get_log_dir(
-                    crs.name, target, run_id, sanitizer, create=False
-                )
-                _add_dir(collected, log_dir, f"logs/crs/{crs.name}")
+            _add_dir(collected, log_dir, f"logs/crs/{crs.name}")
 
     if not collected:
         print("No artifacts found for the selected run.", file=sys.stderr)

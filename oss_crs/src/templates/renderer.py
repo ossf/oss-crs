@@ -321,6 +321,7 @@ def render_run_crs_compose_docker_compose(
     incremental_build: bool = False,
     sidecar_env: dict[str, str] | None = None,
     web_ui: bool = False,
+    source_only: bool = False,
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
     compose_env = crs_compose.crs_compose_env
@@ -400,7 +401,8 @@ def render_run_crs_compose_docker_compose(
         "bug_finding_ensemble": bug_finding_ensemble,
         "bug_fix_ensemble": bug_fix_ensemble,
         "cgroup_parents": cgroup_parents,  # Dict mapping CRS name to cgroup_parent path
-        "fuzz_proj_path": str(target.proj_path.resolve()),
+        "source_only": source_only,
+        "fuzz_proj_path": None if source_only else str(target.proj_path.resolve()),
         "target_source_path": str(target.repo_path.resolve())
         if target._has_repo
         else str(
@@ -469,6 +471,7 @@ def render_run_crs_compose_docker_compose(
                 module_additional_env=module_config.additional_env,
                 crs_additional_env=resource.additional_env,
                 harness=target_env.get("harness"),
+                source_only=source_only,
                 include_fetch_dir=bool(fetch_dir),
                 llm_api_url=llm_url,
                 llm_api_key=llm_key,

@@ -412,6 +412,57 @@ def _make_bug_finding_crs(tmp_path: Path, name: str) -> SimpleNamespace:
     )
 
 
+def _make_auditing_crs(tmp_path: Path, name: str) -> SimpleNamespace:
+    from oss_crs.src.config.crs import CRSType
+
+    module_config = SimpleNamespace(
+        dockerfile="auditor.Dockerfile",
+        target_dependent=False,
+        additional_env={},
+    )
+    config = SimpleNamespace(
+        version="1.0",
+        type=[CRSType.AUDITING],
+        is_bug_fixing=False,
+        is_bug_fixing_ensemble=False,
+        is_triage=False,
+        is_seed_filter=False,
+        is_auditing=True,
+        crs_run_phase=SimpleNamespace(modules={"auditor": module_config}),
+        target_build_phase=None,
+    )
+    return SimpleNamespace(
+        name=name,
+        crs_path=tmp_path,
+        resource=SimpleNamespace(
+            cpuset="2-7", memory="8G", additional_env={}, llm_budget=1
+        ),
+        config=config,
+    )
+
+
+def test_auditing_is_regular_source_to_bug_candidate_producer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _patch_renderer(monkeypatch)
+    auditing_crs = _make_auditing_crs(tmp_path, "crs-auditor")
+    crs_compose = _make_crs_compose(tmp_path, [auditing_crs])
+    target = _make_target(tmp_path)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+
+    assert warnings == []
+    services = yaml.safe_load(rendered)["services"]
+    auditor = services["crs-auditor_auditor"]
+    assert any("/OSS_CRS_TARGET_SOURCE:ro" in mount for mount in auditor["volumes"])
+    assert any("/OSS_CRS_SUBMIT_DIR:rw" in mount for mount in auditor["volumes"])
+    assert any(
+        "/submit/crs-auditor:ro" in mount
+        for mount in services["oss-crs-exchange"]["volumes"]
+    )
+    assert "oss-crs-processed-exchange" not in services
+
+
 def test_compose03_exchange_sidecar_present_for_triage_only_compose(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -856,3 +907,120 @@ def test_offline_gates_litellm_local_cost_map_env(
     assert "$(cat /run/secrets/litellm_env_OPENAI_API_KEY)" in command, (
         f"secret-derived exports missing from command; got: {command}"
     )
+
+
+def test_no_harness_run_does_not_inject_harness_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    harness_values: list[str | None] = []
+
+    def fake_build_run_service_env(**kwargs):
+        harness_values.append(kwargs["harness"])
+        return SimpleNamespace(
+            effective_env={"EXAMPLE": "1", "OSS_CRS_SUBMIT_DIR": "/OSS_CRS_SUBMIT_DIR"},
+            warnings=[],
+        )
+
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.build_run_service_env",
+        fake_build_run_service_env,
+    )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.prepare_llm_context",
+        lambda *_args, **_kwargs: None,
+    )
+
+    module_config = SimpleNamespace(
+        dockerfile="finder.Dockerfile",
+        target_dependent=False,
+        additional_env={},
+    )
+    crs = SimpleNamespace(
+        name="crs-bug-finding-claude-code",
+        crs_path=tmp_path,
+        resource=SimpleNamespace(
+            cpuset="2-7",
+            memory="8G",
+            additional_env={},
+            llm_budget=1,
+        ),
+        config=SimpleNamespace(
+            version="0.1",
+            type=["bug-finding"],
+            is_bug_fixing=False,
+            is_bug_fixing_ensemble=False,
+            is_triage=False,
+            is_seed_filter=False,
+            is_auditing=False,
+            crs_run_phase=SimpleNamespace(modules={"finder": module_config}),
+        ),
+    )
+    crs_compose = SimpleNamespace(
+        crs_list=[crs],
+        work_dir=SimpleNamespace(
+            get_exchange_dir=lambda *_args, **_kwargs: (
+                tmp_path / "exchange" / "OSS_CRS_UNHARNESSED"
+            ),
+            get_processed_exchange_dir=lambda *_args, **_kwargs: (
+                tmp_path / "processed-exchange" / "OSS_CRS_UNHARNESSED"
+            ),
+            get_build_output_dir=lambda *_args, **_kwargs: tmp_path / "build",
+            get_submit_dir=lambda *_args, **_kwargs: (
+                tmp_path / "submit" / "OSS_CRS_UNHARNESSED"
+            ),
+            get_shared_dir=lambda *_args, **_kwargs: (
+                tmp_path / "shared" / "OSS_CRS_UNHARNESSED"
+            ),
+            get_log_dir=lambda *_args, **_kwargs: (
+                tmp_path / "log" / "OSS_CRS_UNHARNESSED"
+            ),
+            get_rebuild_out_dir=lambda *_args, **_kwargs: (
+                tmp_path / "rebuild_out" / "_no_harness"
+            ),
+            get_target_source_dir=lambda *_args, **_kwargs: tmp_path / "target-source",
+            get_run_dir=lambda *_args, **_kwargs: tmp_path / "run",
+        ),
+        crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
+        llm=SimpleNamespace(exists=lambda: False, mode="external"),
+        offline=False,
+        config=SimpleNamespace(
+            oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G")
+        ),
+    )
+    target = SimpleNamespace(
+        snapshot_image_tag="",
+        get_target_env=lambda: {},
+        get_docker_image_name=lambda: "target:latest",
+        proj_path=tmp_path / "proj",
+        repo_path=tmp_path / "repo",
+        _has_repo=True,
+    )
+    target.repo_path.mkdir(parents=True, exist_ok=True)
+    tmp_compose = SimpleNamespace(dir=tmp_path / "tmp-compose")
+
+    rendered, warnings = render_run_crs_compose_docker_compose(
+        crs_compose=crs_compose,
+        tmp_docker_compose=tmp_compose,
+        crs_compose_name="proj",
+        target=target,
+        run_id="run-1",
+        build_id="build-1",
+        sanitizer="address",
+        source_only=True,
+    )
+
+    assert warnings == []
+    assert harness_values == [None]
+    compose_data = yaml.safe_load(rendered)
+    finder_service = compose_data["services"]["crs-bug-finding-claude-code_finder"]
+    assert not any(
+        item.startswith("OSS_CRS_TARGET_HARNESS=")
+        for item in finder_service["environment"]
+    )
+    assert any(
+        "OSS_CRS_UNHARNESSED:/OSS_CRS_SUBMIT_DIR:rw" in item
+        for item in finder_service["volumes"]
+    )
+    assert "oss-crs-exchange" in compose_data["services"]
+    assert "oss-crs-builder-sidecar" not in compose_data["services"]
+    assert "oss-crs-runner-sidecar" not in compose_data["services"]

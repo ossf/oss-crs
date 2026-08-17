@@ -28,7 +28,7 @@ class EarlyExitConfig:
     """Configuration for early exit artifact monitoring."""
 
     watch_dirs: list[Path]  # SUBMIT_DIR paths to monitor
-    artifact_subdir: str  # "povs" or "patches"
+    artifact_subdirs: set[str]
     poll_interval: float = 2.0  # seconds between checks
 
 
@@ -140,15 +140,16 @@ class MultiTaskProgress:
         if not self.early_exit_config:
             return False
         for watch_dir in self.early_exit_config.watch_dirs:
-            artifact_dir = watch_dir / self.early_exit_config.artifact_subdir
-            if artifact_dir.exists():
-                files = [
-                    f
-                    for f in artifact_dir.iterdir()
-                    if f.is_file() and not f.name.startswith(".")
-                ]
-                if files:
-                    return True
+            for artifact_subdir in self.early_exit_config.artifact_subdirs:
+                artifact_dir = watch_dir / artifact_subdir
+                if artifact_dir.exists():
+                    files = [
+                        f
+                        for f in artifact_dir.iterdir()
+                        if f.is_file() and not f.name.startswith(".")
+                    ]
+                    if files:
+                        return True
         return False
 
     def _start_early_exit_monitor(self) -> threading.Thread:
@@ -795,10 +796,12 @@ class MultiTaskProgress:
             pov_dir = submit_dir / "povs"
             seed_dir = submit_dir / "seeds"
             patch_dir = submit_dir / "patches"
+            bug_candidate_dir = submit_dir / "bug-candidates"
 
             pov_count = _count_files(pov_dir)
             seed_count = _count_files(seed_dir)
             patch_count = _count_files(patch_dir)
+            bug_candidate_count = _count_files(bug_candidate_dir)
 
             output.append(f"{entry['name']}:\n", style="bold cyan")
             output.append("  Patches: ", style="bold")
@@ -813,6 +816,10 @@ class MultiTaskProgress:
             output.append(f"{seed_count}\n", style="green")
             if seed_count > 0:
                 output.append(f"    {seed_dir}\n", style="dim")
+            output.append("  Bug Candidates: ", style="bold")
+            output.append(f"{bug_candidate_count}\n", style="magenta")
+            if bug_candidate_count > 0:
+                output.append(f"    {bug_candidate_dir}\n", style="dim")
 
             if i < len(crs_results) - 1:
                 output.append("\n")

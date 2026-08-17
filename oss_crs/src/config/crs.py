@@ -155,8 +155,10 @@ class SupportedTarget(BaseModel):
 
     mode: Set[TargetMode]
     language: Set[TargetLanguage]
-    sanitizer: Set[TargetSanitizer]
-    architecture: Set[TargetArch]
+    sanitizer: Set[TargetSanitizer] = Field(
+        default_factory=lambda: set(TargetSanitizer)
+    )
+    architecture: Set[TargetArch] = Field(default_factory=lambda: set(TargetArch))
     fuzzing_engine: Set[FuzzingEngine] = Field(
         default_factory=lambda: set(FuzzingEngine)
     )
@@ -169,6 +171,7 @@ class CRSType(Enum):
     BUG_FINDING_TRIAGE = "bug-finding-triage"
     SEED_FILTER = "seed-filter"
     HARNESS_GEN = "harness-gen"
+    AUDITING = "auditing"
 
 
 VALID_REQUIRED_INPUT_NAMES: set[str] = {
@@ -219,6 +222,10 @@ class CRSConfig(BaseModel):
     @property
     def is_harness_gen(self) -> bool:
         return CRSType.HARNESS_GEN in self.type
+
+    @property
+    def is_auditing(self) -> bool:
+        return CRSType.AUDITING in self.type
 
     @field_validator("version")
     @classmethod

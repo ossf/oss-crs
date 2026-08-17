@@ -66,7 +66,7 @@ The `crs.yaml` file is the central configuration for your CRS. It tells OSS-CRS 
 ```yaml
 name: my-crs
 type:
-  - bug-finding           # bug-finding, bug-fixing, or both
+  - bug-finding           # bug-finding, bug-fixing, etc.
 version: "1.0.0"
 docker_registry: "ghcr.io/my-org/my-crs"
 
@@ -131,7 +131,7 @@ required_envs:
 | Field | Description |
 |---|---|
 | `name` | Unique name for your CRS |
-| `type` | Set of CRS types: `bug-finding`, `bug-fixing` |
+| `type` | Set of CRS capabilities: `bug-finding`, `bug-fixing`, etc. |
 | `version` | Version string (used as a Docker image tag) |
 | `docker_registry` | Docker registry URL for your CRS images |
 | `prepare_phase.hcl` | Path to the HCL file for `docker buildx bake` |
@@ -346,7 +346,7 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_NAME` | CRS name (from `crs-compose.yaml`) | `my-crs` |
 | `OSS_CRS_SERVICE_NAME` | Full service name | `my-crs_fuzzer` |
 | `OSS_CRS_TARGET` | Target project name | `libxml2` |
-| `OSS_CRS_TARGET_HARNESS` | Target harness binary name | `xml` |
+| `OSS_CRS_TARGET_HARNESS` | Target harness binary name. Unset for no-harness source-level runs. | `xml` |
 | `OSS_CRS_CPUSET` | Allocated CPU cores | `4-7` |
 | `OSS_CRS_MEMORY_LIMIT` | Memory limit | `16G` |
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
@@ -799,6 +799,12 @@ Your CRS should submit findings through libCRS:
 - **`register-submit-dir`** — Best for high-volume output. Forks a daemon that watches the directory, deduplicates files by hash, and submits in batches. Use this for seeds and PoVs.
 - **`submit`** — Best for one-off submissions. Submits a single file immediately.
 
+### Source-Level Bug Finding Without A Harness
+
+Source-only runs are invoked without `--fuzz-proj-path` and instead use `--target-source-path` to point at the source tree. They skip OSS-Fuzz target image builds and require every run module to set `target_dependent: false`; run `oss-crs prepare` first to build those target-independent images. They do not mount `OSS_CRS_BUILD_OUT_DIR` or `OSS_CRS_FUZZ_PROJ`, but still receive `OSS_CRS_SUBMIT_DIR`, `OSS_CRS_FETCH_DIR`, `OSS_CRS_SHARED_DIR`, `OSS_CRS_LOG_DIR`, and `OSS_CRS_TARGET_SOURCE`. They do not receive `OSS_CRS_TARGET_HARNESS`, `SANITIZER`, `ARCHITECTURE`, or `FUZZING_LANGUAGE`.
+
+Source-only runs require all CRSs to be of type `auditing`. This ensures that only CRSs designed to analyze source code without a compiled target can run in source-only mode. An `auditing` CRS is a regular producer that reads `OSS_CRS_TARGET_SOURCE` and submits `bug-candidate` artifacts. The type is a capability label rather than a source-only restriction: auditors may run alone without `--target-harness` or alongside harness-based CRSs.
+
 ---
 
 ## Fetching Data
@@ -914,6 +920,7 @@ Before publishing your CRS, verify:
 - [ ] Run-phase Dockerfiles install libCRS (`COPY --from=libcrs . /opt/libCRS && RUN /opt/libCRS/install.sh`)
 - [ ] Containers download build outputs at startup via `libCRS download-build-output`
 - [ ] Artifact directories are registered with `libCRS register-submit-dir`
+- [ ] Auditing CRSs submit findings as `bug-candidate` artifacts
 - [ ] `supported_target` accurately reflects your CRS capabilities
 - [ ] `required_llms` lists all models used (if any)
 - [ ] `required_inputs` lists inputs the CRS depends on (if any)

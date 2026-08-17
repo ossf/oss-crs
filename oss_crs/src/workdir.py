@@ -51,6 +51,8 @@ class RunEntry:
 class WorkDir:
     """Centralized path management for CRS Compose work directories."""
 
+    NO_HARNESS_SCOPE = UNHARNESSED
+
     def __init__(self, base_path: Path):
         """Initialize WorkDir with a base path.
 
@@ -63,7 +65,7 @@ class WorkDir:
     @staticmethod
     def _get_target_key(target: Target) -> str:
         """Compute target_key from a Target."""
-        return target.get_docker_image_name().replace(":", "_")
+        return target.get_workdir_target_key()
 
     @staticmethod
     def count_data_files(dir_path: Path, recursive: bool = False) -> int:
@@ -81,6 +83,11 @@ class WorkDir:
             return 0
         entries = dir_path.rglob("*") if recursive else dir_path.iterdir()
         return sum(1 for f in entries if f.is_file() and not f.name.startswith("."))
+
+    @classmethod
+    def _get_harness_scope(cls, target: Target) -> str:
+        """Return the run artifact scope for harnessed or source-level runs."""
+        return target.target_harness or cls.NO_HARNESS_SCOPE
 
     # -------------------------------------------------------------------------
     # Base directory helpers
@@ -216,11 +223,15 @@ class WorkDir:
     ) -> Path:
         """Get run-scoped logs directory (outside EXCHANGE_DIR/SUBMIT_DIR mounts).
 
-        Structure: <sanitizer>/runs/<run_id>/logs/<target_key>/<harness>/
+        Structure: <sanitizer>/runs/<run_id>/logs/<target_key>/<harness|_no_harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
-        path = self.get_run_dir(run_id, sanitizer) / "logs" / target_key / harness
+        path = (
+            self.get_run_dir(run_id, sanitizer)
+            / "logs"
+            / target_key
+            / self._get_harness_scope(target)
+        )
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
@@ -299,13 +310,12 @@ class WorkDir:
     ) -> Path:
         """Get the SUBMIT_DIR for a CRS run.
 
-        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SUBMIT_DIR/<harness>/
+        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SUBMIT_DIR/<harness|_no_harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SUBMIT_DIR"
-            / harness
+            / self._get_harness_scope(target)
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -321,13 +331,12 @@ class WorkDir:
     ) -> Path:
         """Get the SHARED_DIR for a CRS run.
 
-        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SHARED_DIR/<harness>/
+        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/SHARED_DIR/<harness|_no_harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "SHARED_DIR"
-            / harness
+            / self._get_harness_scope(target)
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -343,13 +352,12 @@ class WorkDir:
     ) -> Path:
         """Get the LOG_DIR for a CRS run (agent/internal logs).
 
-        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/LOG_DIR/<harness>/
+        Structure: <sanitizer>/runs/<run_id>/crs/<crs_name>/<target_key>/LOG_DIR/<harness|_no_harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         path = (
             self.get_crs_run_dir(crs_name, target, run_id, sanitizer)
             / "LOG_DIR"
-            / harness
+            / self._get_harness_scope(target)
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -368,12 +376,14 @@ class WorkDir:
     ) -> Path:
         """Get the shared EXCHANGE_DIR (shared across all CRSs).
 
-        Structure: <sanitizer>/runs/<run_id>/EXCHANGE_DIR/<target_key>/<harness>/
+        Structure: <sanitizer>/runs/<run_id>/EXCHANGE_DIR/<target_key>/<harness|_no_harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
         path = (
-            self.get_run_dir(run_id, sanitizer) / "EXCHANGE_DIR" / target_key / harness
+            self.get_run_dir(run_id, sanitizer)
+            / "EXCHANGE_DIR"
+            / target_key
+            / self._get_harness_scope(target)
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -393,13 +403,12 @@ class WorkDir:
 
         Structure: <sanitizer>/runs/<run_id>/PROCESSED_EXCHANGE_DIR/<target_key>/<harness>/
         """
-        harness = target.target_harness or UNHARNESSED
         target_key = self._get_target_key(target)
         path = (
             self.get_run_dir(run_id, sanitizer)
             / "PROCESSED_EXCHANGE_DIR"
             / target_key
-            / harness
+            / self._get_harness_scope(target)
         )
         if create:
             path.mkdir(parents=True, exist_ok=True)

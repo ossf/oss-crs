@@ -33,6 +33,8 @@ Full spec (for OSS-Fuzz compatibility/reference): [OSS-Fuzz project.yaml referen
 
 ## Usage
 
+### Harnessed Run
+
 ```bash
 # Build target
 uv run oss-crs build-target \
@@ -46,29 +48,35 @@ uv run oss-crs run \
     --target-harness <harness_name>
 ```
 
-| Argument              | Required | Description                                                                    |
-|-----------------------|----------|--------------------------------------------------------------------------------|
-| `--fuzz-proj-path` (`--target-path`, `--target-proj-path`, deprecated aliases) | Yes | Path to the OSS-Fuzz target project directory (`Dockerfile`, `build.sh`; `project.yaml` optional). |
-| `--target-source-path` | No | Optional local source override path. If set, source is synchronized with `rsync -a --delete` into the effective Dockerfile `WORKDIR`. |
-| `--target-harness`    | Yes (run)| Fuzz target harness binary name.                                               |
+### Source-Only Run
 
-Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/projects) can be used directly as `--fuzz-proj-path` without modification.
+```bash
+uv run oss-crs run \
+    --compose-file ./crs-compose.yaml \
+    --target-source-path /path/to/source
+```
 
-### Source Path Semantics
+Source-only runs omit `--fuzz-proj-path` entirely. The source path is
+directly bind-mounted to `OSS_CRS_TARGET_SOURCE`. There is no build step,
+no `OSS_CRS_FUZZ_PROJ` mount, and `SANITIZER`, `ARCHITECTURE`, and
+`FUZZING_LANGUAGE` are not injected into source-only containers.
 
-- `OSS_CRS_PROJ_PATH` points to the copied target project directory.
-- `OSS_CRS_REPO_PATH` points to the effective final Dockerfile `WORKDIR` inside
-  the target image.
-- `WORKDIR` resolution follows Dockerfile semantics, with fallback chain:
-  final `WORKDIR` -> `$SRC` -> `/src` (when `SRC` is not provided).
-- `libCRS download-source repo` prefers the live runtime source workspace
-  rooted at `$SRC`/`/src`. When `OSS_CRS_REPO_PATH` is inside that workspace,
-  the downloaded tree preserves the workspace layout rather than flattening a
-  nested `WORKDIR`.
-- When `--target-source-path` is set, the override source is synchronized into
-  `OSS_CRS_REPO_PATH` via `rsync -a --delete`.
+## Arguments
 
-### `--target-source-path` Sync Flow
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--fuzz-proj-path` (`--target-path`, `--target-proj-path`, deprecated aliases) | Yes for harnessed/harness-gen runs; omitted for source-only runs | Path to the OSS-Fuzz target project directory (`Dockerfile`, `build.sh`; `project.yaml` optional). |
+| `--target-source-path` | Required for source-only runs; optional local source override otherwise | Path to the source tree. For source-only runs, this is directly bind-mounted. For harnessed runs, source is synchronized with `rsync -a --delete` into the effective Dockerfile `WORKDIR`. |
+| `--target-harness` | Yes (run) | Fuzz target harness binary name. |
+
+At least one of `--fuzz-proj-path` or `--target-source-path` is required.
+If `--fuzz-proj-path` is specified, `--target-harness` is required.
+
+Existing [OSS-Fuzz projects](https://github.com/google.com/oss-fuzz/tree/master/projects) can be used directly as `--fuzz-proj-path` without modification.
+
+## Source Path Semantics
+
+### Harnessed Runs with Source Override
 
 `--target-source-path` is not bind-mounted directly to `OSS_CRS_REPO_PATH`.
 Instead, during image build:
@@ -78,3 +86,20 @@ Instead, during image build:
 3. `rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./` runs from the effective
    `WORKDIR`.
 4. `OSS_CRS_REPO_PATH` points to that effective `WORKDIR` path.
+
+### Source-Only Runs
+
+For source-only runs, `--target-source-path` is directly bind-mounted to
+`OSS_CRS_TARGET_SOURCE`. There is no image build, no `OSS_CRS_FUZZ_PROJ`
+mount, and no `SANITIZER`, `ARCHITECTURE`, or `FUZZING_LANGUAGE` injection.
+
+### Common Semantics
+
+- `OSS_CRS_REPO_PATH` points to the effective final Dockerfile `WORKDIR`
+  inside the target image.
+- `WORKDIR` resolution follows Dockerfile semantics, with fallback chain:
+  final `WORKDIR` -> `$SRC` -> `/src` (when `SRC` is not provided).
+- `libCRS download-source repo` prefers the live runtime source workspace
+  rooted at `$SRC`/`/src`. When `OSS_CRS_REPO_PATH` is inside that workspace,
+  the downloaded tree preserves the workspace layout rather than flattening a
+  nested `WORKDIR`.

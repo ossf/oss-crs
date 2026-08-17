@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 from pathlib import Path
+from unittest.mock import Mock
 
 from oss_crs.src.target import Target
 
@@ -142,3 +143,20 @@ def test_user_provided_missing_repo_path_fails_init(tmp_path: Path) -> None:
     missing_repo = tmp_path / "missing-repo"
     target = Target(tmp_path / "work", proj, missing_repo)
     assert target.init_repo() is False
+
+
+def test_build_docker_image_does_not_depend_on_harness(
+    tmp_path: Path, monkeypatch
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True)
+    (proj / "Dockerfile").write_text("FROM scratch\n")
+    target = Target(tmp_path / "work", proj, None, target_harness=None)
+    built = Mock(return_value=Mock(success=True))
+    monkeypatch.setattr(
+        "oss_crs.src.target.subprocess.run", lambda *_a, **_k: Mock(returncode=1)
+    )
+    monkeypatch.setattr("oss_crs.src.target.MultiTaskProgress.run_added_tasks", built)
+
+    assert target.build_docker_image() == target.get_docker_image_name()
+    built.assert_called_once()
