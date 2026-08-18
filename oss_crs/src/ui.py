@@ -656,6 +656,8 @@ class MultiTaskProgress:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=cwd,
                 env=env,
                 bufsize=1,

@@ -46,6 +46,16 @@ cd ..
 
 > **Tip:** You can also prepare your own target repository as long as it is compatible with the OSS-Fuzz project format.
 
+To build the project through its OSS-Fuzz configuration and list the runnable
+fuzz harnesses it produces:
+
+```bash
+uv run oss-crs list-harnesses --fuzz-proj-path ./oss-fuzz/projects/libxml2
+```
+
+Compiled outputs are cached under `.oss-crs-workdir` and rebuilt when the
+project build inputs or repository HEAD changes.
+
 ### 3. Run a Simple Bug-Finding CRS
 
 The example below uses **crs-libfuzzer**, a lightweight CRS that runs libFuzzer on the target.

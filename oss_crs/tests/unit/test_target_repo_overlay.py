@@ -56,3 +56,30 @@ def test_repo_override_uses_rsync_delete_overlay(tmp_path: Path) -> None:
     ) < progress.generated_dockerfile.index(
         "RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./"
     )
+
+
+def test_repo_override_can_force_uncached_build(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Dockerfile").write_text("FROM base\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    target = Target.__new__(Target)
+    target.proj_path = proj
+    target.work_dir = tmp_path / "work"
+    target.work_dir.mkdir()
+    target.repo_path = repo
+    target.architecture = "aarch64"
+
+    progress = _CaptureProgress()
+    target._Target__build_docker_image_with_repo("demo:tag", progress, no_cache=True)
+
+    assert progress.cmd[:6] == [
+        "docker",
+        "buildx",
+        "build",
+        "--no-cache",
+        "--platform",
+        "linux/arm64",
+    ]
