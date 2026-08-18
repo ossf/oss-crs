@@ -10,6 +10,7 @@ import uuid
 import git
 import fcntl
 from contextlib import contextmanager
+from rich.console import Console
 
 from .config.target import FuzzingEngine, TargetConfig, TargetSanitizer
 from .constants import (
@@ -140,8 +141,7 @@ def git_trust_env(config_dir: Path):
 
 
 def extract_name_from_proj_path(proj_path: str) -> str:
-    tmp = proj_path.split("/")
-    return tmp[-1] or tmp[-2]
+    return Path(proj_path).name
 
 
 class Target:
@@ -263,7 +263,12 @@ class Target:
         )
         return f"{BASE_RUNNER_IMAGE}:{tag}"
 
-    def build_docker_image(self) -> str | None:
+    def build_docker_image(
+        self,
+        *,
+        force_rebuild: bool = False,
+        console: Console | None = None,
+    ) -> str | None:
         if self._has_repo and not self.init_repo():
             return None
         repo_hash = self.get_repo_hash()
@@ -275,14 +280,16 @@ class Target:
             capture_output=True,
             text=True,
         )
-        if check.returncode == 0:
+        if check.returncode == 0 and not force_rebuild:
             return image_tag
 
         if self._has_repo:
             task_label = "Build docker image with the given repo"
 
             def task_fn(progress):
-                return self.__build_docker_image_with_repo(image_tag, progress)
+                return self.__build_docker_image_with_repo(
+                    image_tag, progress, no_cache=force_rebuild
+                )
 
             head_items = [
                 ui.bold(f"Repo hash: {repo_hash} (calculated from {self.repo_path})"),
@@ -296,7 +303,9 @@ class Target:
             task_label = "Build docker image (plain)"
 
             def task_fn(progress):
-                return self.__build_docker_image_plain(image_tag, progress)
+                return self.__build_docker_image_plain(
+                    image_tag, progress, no_cache=force_rebuild
+                )
 
             head_items = [
                 ui.bold(f"Image tag: {image_tag}"),
@@ -305,7 +314,9 @@ class Target:
         tasks = [(task_label, task_fn)]
 
         with MultiTaskProgress(
-            tasks, title=f"Building {self.name} docker image"
+            tasks,
+            title=f"Building {self.name} docker image",
+            console=console,
         ) as progress:
             progress.add_items_to_head(head_items)
             if progress.run_added_tasks().success:
@@ -455,7 +466,11 @@ class Target:
             return self.repo_hash
 
     def __build_docker_image_with_repo(
-        self, image_tag: str, progress: MultiTaskProgress
+        self,
+        image_tag: str,
+        progress: MultiTaskProgress,
+        *,
+        no_cache: bool = False,
     ) -> "TaskResult":
         # Keep generated Dockerfile in a stable work_dir location (not /tmp),
         # and clean it up explicitly after build.
@@ -502,6 +517,10 @@ class Target:
                 str(tmp_dockerfile),
                 str(self.proj_path),
             ]
+            if getattr(self, "architecture", self.DEFAULT_ARCHITECTURE) == "aarch64":
+                cmd[3:3] = ["--platform", "linux/arm64"]
+            if no_cache:
+                cmd.insert(3, "--no-cache")
             return progress.run_command_with_streaming_output(
                 cmd=cmd,
                 cwd=self.work_dir,
@@ -510,7 +529,11 @@ class Target:
             tmp_dockerfile.unlink(missing_ok=True)
 
     def __build_docker_image_plain(
-        self, image_tag: str, progress: MultiTaskProgress
+        self,
+        image_tag: str,
+        progress: MultiTaskProgress,
+        *,
+        no_cache: bool = False,
     ) -> "TaskResult":
         """Build docker image without a repo overlay.
 
@@ -538,6 +561,10 @@ class Target:
                 str(tmp_dockerfile),
                 str(self.proj_path),
             ]
+            if getattr(self, "architecture", self.DEFAULT_ARCHITECTURE) == "aarch64":
+                cmd[3:3] = ["--platform", "linux/arm64"]
+            if no_cache:
+                cmd.insert(3, "--no-cache")
             return progress.run_command_with_streaming_output(
                 cmd=cmd,
                 cwd=self.work_dir,

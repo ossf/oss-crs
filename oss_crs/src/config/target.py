@@ -18,6 +18,7 @@ class TargetLanguage(Enum):
     JVM = "jvm"  # Java, Kotlin, Scala and other JVM-based languages
     SWIFT = "swift"
     JAVASCRIPT = "javascript"
+    RUBY = "ruby"
     LUA = "lua"
 
 
@@ -26,12 +27,18 @@ class TargetSanitizer(Enum):
     ASAN = "address"
     MSAN = "memory"
     UBSAN = "undefined"
+    THREAD = "thread"
+    COVERAGE = "coverage"
+    INTROSPECTOR = "introspector"
+    HWADDRESS = "hwaddress"
+    NONE = "none"
 
 
 # See https://google.github.io/oss-fuzz/getting-started/new-project-guide/#architectures
 class TargetArch(Enum):
     X86_64 = "x86_64"
     I386 = "i386"
+    AARCH64 = "aarch64"
 
 
 # See https://google.github.io/oss-fuzz/getting-started/new-project-guide/#fuzzing_engines-optional
@@ -40,6 +47,8 @@ class FuzzingEngine(Enum):
     AFL = "afl"
     HONGGFUZZ = "honggfuzz"
     CENTIPEDE = "centipede"
+    NONE = "none"
+    WYCHEPROOF = "wycheproof"
 
 
 class TargetConfig(BaseModel):

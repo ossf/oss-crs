@@ -2,7 +2,11 @@
 from pathlib import Path
 from unittest.mock import Mock
 
-from oss_crs.src.target import Target
+from oss_crs.src.target import Target, extract_name_from_proj_path
+
+
+def test_extract_name_from_project_path_is_platform_neutral() -> None:
+    assert extract_name_from_proj_path(str(Path("projects") / "libxml2")) == "libxml2"
 
 
 def test_target_env_uses_fixed_defaults_without_project_yaml(tmp_path: Path) -> None:
@@ -79,6 +83,42 @@ def test_target_env_prefers_libfuzzer_engine_when_listed(tmp_path: Path) -> None
     env = target.get_target_env()
     # "libfuzzer" is preferred even though "afl" is first
     assert env["engine"] == "libfuzzer"
+
+
+def test_javascript_target_accepts_none_sanitizer(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text(
+        "language: javascript\nsanitizers: [none]\nfuzzing_engines: [libfuzzer]\n"
+    )
+
+    target = Target(tmp_path / "work", proj, None)
+
+    assert target.language == "javascript"
+    assert target.sanitizer == "none"
+
+
+def test_target_accepts_current_oss_fuzz_enum_values(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text(
+        "\n".join(
+            [
+                "language: ruby",
+                "sanitizers: [thread, address, hwaddress]",
+                "architectures: [x86_64, aarch64]",
+                "fuzzing_engines: [wycheproof, libfuzzer, none]",
+            ]
+        )
+        + "\n"
+    )
+
+    target = Target(tmp_path / "work", proj, None)
+
+    assert target.language == "ruby"
+    assert target.sanitizer == "address"
+    assert target.architecture == "x86_64"
+    assert target.engine == "libfuzzer"
 
 
 def test_target_env_falls_back_when_project_yaml_invalid(tmp_path: Path) -> None:
