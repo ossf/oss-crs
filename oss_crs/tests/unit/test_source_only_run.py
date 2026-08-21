@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import yaml
 
-from oss_crs.src.cli.crs_compose import init_target_from_args
+from oss_crs.src.cli.crs_compose import _resolve_source_only, init_target_from_args
 from oss_crs.src.crs_compose import CRSCompose
 from oss_crs.src.config.crs import CRSType
 from oss_crs.src.templates.renderer import render_run_crs_compose_docker_compose
@@ -254,11 +254,32 @@ def test_source_only_rejects_non_auditing_crs() -> None:
     assert "auditing" in result.error
 
 
-def test_harness_gen_without_harness_is_not_source_only() -> None:
-    target = SimpleNamespace(target_harness=None, source_only=False)
-    compose = CRSCompose.__new__(CRSCompose)
-    compose.crs_list = [
-        SimpleNamespace(config=SimpleNamespace(is_harness_gen=True)),
-    ]
+def _source_mode_args(**overrides) -> SimpleNamespace:
+    defaults: dict = {"target_harness": None, "target_proj_path": None}
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
-    assert compose.is_source_only_run(target) is False
+
+def _compose_with(crs_types: list[str]) -> SimpleNamespace:
+    return SimpleNamespace(
+        crs_list=[
+            SimpleNamespace(config=SimpleNamespace(is_harness_gen=t == "harness-gen"))
+            for t in crs_types
+        ]
+    )
+
+
+def test_resolve_source_only_classification_matrix() -> None:
+    auditing = _compose_with(["auditing"])
+    harness_gen = _compose_with(["harness-gen"])
+
+    assert _resolve_source_only(_source_mode_args(), auditing) is True
+    assert _resolve_source_only(_source_mode_args(), harness_gen) is False
+    assert (
+        _resolve_source_only(_source_mode_args(target_harness="fuzz_target"), auditing)
+        is False
+    )
+    assert (
+        _resolve_source_only(_source_mode_args(target_proj_path="proj"), auditing)
+        is False
+    )

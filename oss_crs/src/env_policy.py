@@ -177,18 +177,19 @@ def build_run_service_env(
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
 ) -> EnvPlan:
-    base_env = {
-        "HELPER": "True",
-        "RUN_FUZZER_MODE": "interactive",
-        **{
-            k: target_env[v]
-            for k, v in OSS_FUZZ_TARGET_ENV.items()
-            if k != "SANITIZER"
-            and not (source_only and k == "FUZZING_LANGUAGE")
-            and not (source_only and k == "ARCHITECTURE")
-        },
-    }
+    base_env = {}
     if not source_only:
+        base_env["HELPER"] = "True"
+        base_env["RUN_FUZZER_MODE"] = "interactive"
+        # SANITIZER is excluded: its value always comes from the resolved
+        # sanitizer argument below, never from target_env.
+        base_env.update(
+            {
+                k: target_env[v]
+                for k, v in OSS_FUZZ_TARGET_ENV.items()
+                if k != "SANITIZER"
+            }
+        )
         base_env["SANITIZER"] = sanitizer
     base_env["PROJECT_NAME"] = target_env["name"]
     # Preserve existing behavior: module env first, CRS env last.

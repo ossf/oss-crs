@@ -58,8 +58,8 @@ uv run oss-crs run \
 
 Source-only runs omit `--fuzz-proj-path` entirely. The source path is
 directly bind-mounted to `OSS_CRS_TARGET_SOURCE`. There is no build step,
-no `OSS_CRS_FUZZ_PROJ` mount, and `SANITIZER`, `ARCHITECTURE`, and
-`FUZZING_LANGUAGE` are not injected into source-only containers.
+no `OSS_CRS_FUZZ_PROJ` mount, and `SANITIZER`, `ARCHITECTURE`,
+`FUZZING_LANGUAGE`, etc. not injected into source-only containers.
 
 ## Arguments
 
@@ -70,9 +70,8 @@ no `OSS_CRS_FUZZ_PROJ` mount, and `SANITIZER`, `ARCHITECTURE`, and
 | `--target-harness` | Yes (run) | Fuzz target harness binary name. |
 
 At least one of `--fuzz-proj-path` or `--target-source-path` is required.
-If `--fuzz-proj-path` is specified, `--target-harness` is required.
 
-Existing [OSS-Fuzz projects](https://github.com/google.com/oss-fuzz/tree/master/projects) can be used directly as `--fuzz-proj-path` without modification.
+Existing [OSS-Fuzz projects](https://github.com/google/oss-fuzz/tree/master/projects) can be used directly as `--fuzz-proj-path` without modification.
 
 ## Source Path Semantics
 
@@ -91,7 +90,8 @@ Instead, during image build:
 
 For source-only runs, `--target-source-path` is directly bind-mounted to
 `OSS_CRS_TARGET_SOURCE`. There is no image build, no `OSS_CRS_FUZZ_PROJ`
-mount, and no `SANITIZER`, `ARCHITECTURE`, or `FUZZING_LANGUAGE` injection.
+mount, and environment variables like `SANITIZER`, `ARCHITECTURE`, `FUZZING_LANGUAGE`,
+etc. are not injected.
 
 ### Common Semantics
 

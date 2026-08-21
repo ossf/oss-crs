@@ -626,6 +626,14 @@ def add_gen_compose_command(subparsers):
     )
 
 
+def _resolve_source_only(args, crs_compose) -> bool:
+    """Source-only iff no --target-harness, no --fuzz-proj-path, and the
+    composition contains no harness-generation CRSs."""
+    if args.target_harness is not None or args.target_proj_path is not None:
+        return False
+    return not any(crs.config.is_harness_gen for crs in crs_compose.crs_list)
+
+
 def init_target_from_args(
     args, *, source_only: bool = False, require_source_dir: bool = False
 ) -> Target:
@@ -951,12 +959,7 @@ def cli() -> bool | int:
         ):
             return False
     elif args.command == "run":
-        harness_gen = any(crs.config.is_harness_gen for crs in crs_compose.crs_list)
-        source_only = (
-            args.target_harness is None
-            and args.target_proj_path is None
-            and not harness_gen
-        )
+        source_only = _resolve_source_only(args, crs_compose)
         try:
             target = init_target_from_args(
                 args, source_only=source_only, require_source_dir=source_only
@@ -1010,14 +1013,7 @@ def cli() -> bool | int:
         if run_rc != 0:
             return run_rc
     elif args.command == "artifacts":
-        harness_gen = args.target_harness is None and any(
-            crs.config.is_harness_gen for crs in crs_compose.crs_list
-        )
-        source_only = (
-            args.target_harness is None
-            and args.target_proj_path is None
-            and not harness_gen
-        )
+        source_only = _resolve_source_only(args, crs_compose)
         try:
             target = init_target_from_args(args, source_only=source_only)
         except ValueError as exc:
@@ -1031,14 +1027,7 @@ def cli() -> bool | int:
             unharnessed=args.target_harness is None,
         )
     elif args.command == "archive":
-        harness_gen = args.target_harness is None and any(
-            crs.config.is_harness_gen for crs in crs_compose.crs_list
-        )
-        source_only = (
-            args.target_harness is None
-            and args.target_proj_path is None
-            and not harness_gen
-        )
+        source_only = _resolve_source_only(args, crs_compose)
         try:
             target = init_target_from_args(args, source_only=source_only)
         except ValueError as exc:
