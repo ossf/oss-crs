@@ -172,7 +172,39 @@ def test_source_only_run_env_omits_build_and_fuzz_env() -> None:
     assert "OSS_CRS_PROJ_PATH" not in plan.effective_env
     assert "SANITIZER" not in plan.effective_env
     assert "ARCHITECTURE" not in plan.effective_env
+    assert "FUZZING_ENGINE" not in plan.effective_env
+    assert "HELPER" not in plan.effective_env
+    assert "RUN_FUZZER_MODE" not in plan.effective_env
     assert plan.effective_env["OSS_CRS_REPO_PATH"] == "/OSS_CRS_TARGET_SOURCE"
+
+
+def test_harnessed_run_env_includes_oss_fuzz_runtime_vars() -> None:
+    """Harnessed runs keep HELPER, RUN_FUZZER_MODE, and all target env vars."""
+    plan = build_run_service_env(
+        target_env={
+            "engine": "libfuzzer",
+            "architecture": "x86_64",
+            "name": "proj",
+            "language": "c",
+            "repo_path": "/repo",
+        },
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="patcher",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        scope="test:harnessed-run",
+    )
+    assert plan.effective_env["HELPER"] == "True"
+    assert plan.effective_env["RUN_FUZZER_MODE"] == "interactive"
+    assert plan.effective_env["FUZZING_ENGINE"] == "libfuzzer"
+    assert plan.effective_env["SANITIZER"] == "address"
+    assert plan.effective_env["ARCHITECTURE"] == "x86_64"
+    assert plan.effective_env["FUZZING_LANGUAGE"] == "c"
 
 
 def test_user_cannot_override_reserved_source_env_vars() -> None:
