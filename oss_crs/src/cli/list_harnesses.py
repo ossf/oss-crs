@@ -5,18 +5,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import shutil
-import stat
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-import git
 from rich.console import Console
 
-from ..target import Target
+from ..env_policy import OSS_FUZZ_TARGET_ENV
+from ..target import Target, file_lock
+from ..utils import rm_with_docker
 
 CACHE_SCHEMA_VERSION = 1
 FUZZ_TARGET_MARKER = b"LLVMFuzzerTestOneInput"
@@ -68,59 +66,6 @@ def add_list_harnesses_command(subparsers, default_work_dir: Path) -> None:
     )
 
 
-def _project_content_hash(project_dir: Path) -> str:
-    """Hash all project inputs that can affect an OSS-Fuzz build."""
-    hasher = hashlib.sha256()
-    for path in sorted(project_dir.rglob("*"), key=lambda item: item.as_posix()):
-        relative = path.relative_to(project_dir)
-        if ".git" in relative.parts or "__pycache__" in relative.parts:
-            continue
-        if path.is_symlink():
-            hasher.update(f"link:{relative.as_posix()}\0".encode())
-            hasher.update(os.readlink(path).encode())
-            continue
-        if not path.is_file():
-            continue
-        hasher.update(f"file:{relative.as_posix()}\0".encode())
-        hasher.update(str(stat.S_IMODE(path.stat().st_mode)).encode())
-        hasher.update(b"\0")
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def _containing_repository_head(project_dir: Path) -> str | None:
-    """Return the HEAD of the checkout containing the OSS-Fuzz project."""
-    try:
-        repository = git.Repo(project_dir, search_parent_directories=True)
-        return repository.head.commit.hexsha
-    except (git.GitError, ValueError):
-        return None
-
-
-def _remote_repository_head(url: str | None) -> str | None:
-    """Resolve a project's current default-branch HEAD without cloning it."""
-    if not url:
-        return None
-    git_env = os.environ.copy()
-    git_env["GIT_TERMINAL_PROMPT"] = "0"
-    git_env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
-    try:
-        result = subprocess.run(
-            ["git", "ls-remote", "--", url, "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=git_env,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.split()[0]
-
-
 def _read_metadata(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -170,14 +115,17 @@ def _build_sanitizer(target: Target) -> str:
 
 
 def _compile_project(target: Target, image_tag: str, out_dir: Path) -> bool:
+    target_env = target.get_target_env()
+    target_env["sanitizer"] = _build_sanitizer(target)
     environment = {
-        "FUZZING_ENGINE": target.engine,
-        "SANITIZER": _build_sanitizer(target),
-        "ARCHITECTURE": target.architecture,
-        "PROJECT_NAME": target.name,
-        "FUZZING_LANGUAGE": target.language,
-        "HELPER": "True",
+        name: str(target_env[key]) for name, key in OSS_FUZZ_TARGET_ENV.items()
     }
+    environment.update(
+        {
+            "PROJECT_NAME": str(target_env["name"]),
+            "HELPER": "True",
+        }
+    )
     work_dir = out_dir.parent / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
     platform = "linux/arm64" if target.architecture == "aarch64" else "linux/amd64"
@@ -295,31 +243,8 @@ def find_harnesses(out_dir: Path, language: str) -> list[str]:
 
 def _clear_build_artifacts(cache_dir: Path, image_tag: str) -> None:
     for path in (cache_dir / "out", cache_dir / "work"):
-        if not path.exists():
-            continue
-        try:
-            shutil.rmtree(path)
-        except PermissionError:
-            # OSS-Fuzz builds run as root and may leave nested directories that
-            # the host user cannot traverse or remove directly. Use the target
-            # image that was just built so this standalone command does not
-            # depend on OSS-CRS's internal Alpine helper image being present.
-            subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{path.parent}:/data",
-                    "--entrypoint",
-                    "rm",
-                    image_tag,
-                    "-rf",
-                    f"/data/{path.name}",
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
+        if path.exists():
+            rm_with_docker(path, image_tag=image_tag)
 
 
 def handle_list_harnesses(args) -> bool:
@@ -327,20 +252,25 @@ def handle_list_harnesses(args) -> bool:
     if not project_dir.is_dir():
         _error(f"OSS-Fuzz project directory does not exist: {project_dir}")
         return False
-    for required in ("Dockerfile", "build.sh"):
-        if not (project_dir / required).is_file():
-            _error(f"OSS-Fuzz project is missing {required}: {project_dir}")
-            return False
+    if not (project_dir / "Dockerfile").is_file():
+        _error(f"OSS-Fuzz project is missing Dockerfile: {project_dir}")
+        return False
 
     target = Target(args.work_dir, project_dir, None)
     cache_dir = _cache_dir(args.work_dir, project_dir)
+    lock_path = cache_dir.parent / f"{cache_dir.name}.lock"
+    with file_lock(lock_path):
+        return _handle_list_harnesses_locked(target, cache_dir)
+
+
+def _handle_list_harnesses_locked(target: Target, cache_dir: Path) -> bool:
     out_dir = cache_dir / "out"
     metadata_file = cache_dir / "metadata.json"
     previous = _read_metadata(metadata_file)
 
-    project_hash = _project_content_hash(project_dir)
-    project_repository_head = _containing_repository_head(project_dir)
-    source_repository_head = _remote_repository_head(target.main_repo)
+    project_hash = target.get_repo_hash()
+    project_repository_head = target.get_project_repository_head()
+    source_repository_head = target.get_source_repository_head()
     if source_repository_head is None and target.main_repo:
         can_reuse_previous_head = (
             previous.get("project_hash") == project_hash

@@ -2,8 +2,10 @@
 """Tests for the standalone ``list-harnesses`` command."""
 
 import argparse
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from oss_crs.src.cli import list_harnesses as module
 from oss_crs.src.cli import crs_compose as cli_module
@@ -113,6 +115,7 @@ def test_compile_uses_oss_fuzz_environment_and_compile_command(
 ) -> None:
     project = _make_project(tmp_path)
     target = module.Target(tmp_path / "work", project, None)
+    get_target_env = Mock(wraps=target.get_target_env)
     calls: list[list[str]] = []
 
     def fake_run(command, **_kwargs):
@@ -120,8 +123,10 @@ def test_compile_uses_oss_fuzz_environment_and_compile_command(
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(target, "get_target_env", get_target_env)
 
     assert module._compile_project(target, "sample:tag", tmp_path / "out") is True
+    get_target_env.assert_called_once_with()
     command = calls[0]
     assert command[:8] == [
         "docker",
@@ -152,8 +157,16 @@ def test_cached_build_is_reused_until_project_inputs_change(
     builds: list[bool] = []
     compiles: list[Path] = []
 
-    monkeypatch.setattr(module, "_containing_repository_head", lambda _path: "oss-head")
-    monkeypatch.setattr(module, "_remote_repository_head", lambda _url: "source-head")
+    monkeypatch.setattr(
+        module.Target,
+        "get_project_repository_head",
+        lambda _target: "oss-head",
+    )
+    monkeypatch.setattr(
+        module.Target,
+        "get_source_repository_head",
+        lambda _target: "source-head",
+    )
 
     def fake_build(_target, *, force_rebuild=False, console=None):
         builds.append(force_rebuild)
@@ -167,6 +180,7 @@ def test_cached_build_is_reused_until_project_inputs_change(
 
     monkeypatch.setattr(module.Target, "build_docker_image", fake_build)
     monkeypatch.setattr(module, "_compile_project", fake_compile)
+    monkeypatch.setattr(module, "rm_with_docker", lambda *_args, **_kwargs: None)
 
     assert module.handle_list_harnesses(args) is True
     assert module.handle_list_harnesses(args) is True
@@ -186,34 +200,16 @@ def test_cache_cleanup_uses_target_image_for_root_owned_files(
     cache_dir = tmp_path / "cache"
     out_dir = cache_dir / "out"
     out_dir.mkdir(parents=True)
-    commands: list[list[str]] = []
-
+    removed: list[tuple[Path, str]] = []
     monkeypatch.setattr(
-        module.shutil, "rmtree", lambda _path: (_ for _ in ()).throw(PermissionError)
+        module,
+        "rm_with_docker",
+        lambda path, image_tag: removed.append((path, image_tag)),
     )
-
-    def fake_run(command, **kwargs):
-        commands.append(command)
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(module.subprocess, "run", fake_run)
 
     module._clear_build_artifacts(cache_dir, "sample:tag")
 
-    assert commands == [
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-v",
-            f"{cache_dir}:/data",
-            "--entrypoint",
-            "rm",
-            "sample:tag",
-            "-rf",
-            "/data/out",
-        ]
-    ]
+    assert removed == [(out_dir, "sample:tag")]
 
 
 def test_repository_head_change_invalidates_cached_build(
@@ -227,9 +223,15 @@ def test_repository_head_change_invalidates_cached_build(
     source_heads = iter(("source-head-1", "source-head-2"))
     build_count = 0
 
-    monkeypatch.setattr(module, "_containing_repository_head", lambda _path: "oss-head")
     monkeypatch.setattr(
-        module, "_remote_repository_head", lambda _url: next(source_heads)
+        module.Target,
+        "get_project_repository_head",
+        lambda _target: "oss-head",
+    )
+    monkeypatch.setattr(
+        module.Target,
+        "get_source_repository_head",
+        lambda _target: next(source_heads),
     )
 
     def fake_build(_target, *, force_rebuild=False, console=None):
@@ -244,7 +246,84 @@ def test_repository_head_change_invalidates_cached_build(
 
     monkeypatch.setattr(module.Target, "build_docker_image", fake_build)
     monkeypatch.setattr(module, "_compile_project", fake_compile)
+    monkeypatch.setattr(module, "rm_with_docker", lambda *_args, **_kwargs: None)
 
     assert module.handle_list_harnesses(args) is True
     assert module.handle_list_harnesses(args) is True
     assert build_count == 2
+
+
+def test_cache_access_uses_project_specific_file_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = _make_project(tmp_path)
+    work_dir = tmp_path / ".oss-crs-workdir"
+    args = SimpleNamespace(target_proj_path=project, work_dir=work_dir)
+    events: list[tuple[str, Path]] = []
+
+    @contextmanager
+    def capture_lock(path: Path):
+        events.append(("enter", path))
+        yield
+        events.append(("exit", path))
+
+    monkeypatch.setattr(module, "file_lock", capture_lock)
+    monkeypatch.setattr(
+        module,
+        "_handle_list_harnesses_locked",
+        lambda _target, _cache_dir: events.append(("handle", _cache_dir)) or True,
+    )
+
+    cache_dir = module._cache_dir(work_dir, project)
+    lock_path = cache_dir.parent / f"{cache_dir.name}.lock"
+
+    assert module.handle_list_harnesses(args) is True
+    assert events == [
+        ("enter", lock_path),
+        ("handle", cache_dir),
+        ("exit", lock_path),
+    ]
+
+
+def test_build_script_may_be_supplied_by_target_repository(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = tmp_path / "source-build-script"
+    project.mkdir()
+    (project / "Dockerfile").write_text(
+        "FROM example/base-builder\n"
+        "RUN git clone https://example.com/source.git\n"
+        "RUN cp source/contrib/oss-fuzz/build.sh $SRC/\n"
+    )
+    (project / "project.yaml").write_text(
+        "language: c++\nmain_repo: https://example.com/source.git\n"
+    )
+    args = SimpleNamespace(
+        target_proj_path=project,
+        work_dir=tmp_path / ".oss-crs-workdir",
+    )
+
+    monkeypatch.setattr(
+        module.Target,
+        "get_project_repository_head",
+        lambda _target: "oss-head",
+    )
+    monkeypatch.setattr(
+        module.Target,
+        "get_source_repository_head",
+        lambda _target: "source-head",
+    )
+    monkeypatch.setattr(
+        module.Target,
+        "build_docker_image",
+        lambda _target, **_kwargs: "sample:tag",
+    )
+
+    def fake_compile(_target, _image, out_dir):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        _write_native_harness(out_dir / "source_fuzzer")
+        return True
+
+    monkeypatch.setattr(module, "_compile_project", fake_compile)
+
+    assert module.handle_list_harnesses(args) is True

@@ -56,6 +56,12 @@ uv run oss-crs list-harnesses --fuzz-proj-path ./oss-fuzz/projects/libxml2
 Compiled outputs are cached under `.oss-crs-workdir` and rebuilt when the
 project build inputs or repository HEAD changes.
 
+Harness detection is language-specific and heuristic. Native fuzz targets
+normally need to contain `LLVMFuzzerTestOneInput`; projects that use
+`FUZZING_ENGINE=none` may produce runnable executables without that marker
+(for example v8, JavaScriptCore, SpiderMonkey, or Deno), and those targets may
+not be listed.
+
 ### 3. Run a Simple Bug-Finding CRS
 
 The example below uses **crs-libfuzzer**, a lightweight CRS that runs libFuzzer on the target.

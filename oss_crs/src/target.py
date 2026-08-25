@@ -5,6 +5,7 @@ import hashlib
 import os
 import posixpath
 import re
+import stat
 import subprocess
 import uuid
 import git
@@ -390,14 +391,58 @@ class Target:
         )
 
     def __get_proj_hash(self) -> str:
-        """Content hash of Dockerfile + build.sh + test.sh for plain-build tagging."""
+        """Hash every project input that can affect an OSS-Fuzz build."""
         hasher = hashlib.sha256()
-        for name in ("Dockerfile", "build.sh", "test.sh"):
-            fp = self.proj_path / name
-            if fp.exists():
-                hasher.update(f"\n--- {name}\n".encode())
-                hasher.update(fp.read_bytes())
+        for path in sorted(self.proj_path.rglob("*"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(self.proj_path)
+            if ".git" in relative.parts:
+                continue
+            if path.is_symlink():
+                hasher.update(f"link:{relative.as_posix()}\0".encode())
+                hasher.update(os.readlink(path).encode())
+                continue
+            if not path.is_file():
+                continue
+            hasher.update(f"file:{relative.as_posix()}\0".encode())
+            hasher.update(str(stat.S_IMODE(path.stat().st_mode)).encode())
+            hasher.update(b"\0")
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
         return hasher.hexdigest()[:12]
+
+    def get_project_repository_head(self) -> str | None:
+        """Return HEAD of the Git checkout containing the OSS-Fuzz project."""
+        try:
+            with git_trust_env(self.work_dir):
+                repository = git.Repo(
+                    self.proj_path,
+                    search_parent_directories=True,
+                )
+                return repository.head.commit.hexsha
+        except (git.GitError, ValueError):
+            return None
+
+    def get_source_repository_head(self) -> str | None:
+        """Resolve the configured main repository's default-branch HEAD."""
+        if not self.main_repo:
+            return None
+        git_env = os.environ.copy()
+        git_env["GIT_TERMINAL_PROMPT"] = "0"
+        git_env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
+        try:
+            result = subprocess.run(
+                ["git", "ls-remote", "--", self.main_repo, "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=git_env,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return result.stdout.split()[0]
 
     def get_repo_hash(self) -> str:
         """
