@@ -215,20 +215,31 @@ def build_snapshot_tag(crs_name: str, build_name: str, build_id: str) -> str:
     return f"oss-crs-snapshot:build-{crs_name}-{build_name}-{build_id}"
 
 
-def rm_with_docker(path: Path) -> None:
-    try:
-        subprocess.run(
+def rm_with_docker(path: Path, image_tag: str = OSS_CRS_ALPINE_TAG) -> None:
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{path.parent}:/data",
+    ]
+    if image_tag == OSS_CRS_ALPINE_TAG:
+        command.extend([image_tag, "rm", "-rf", f"/data/{path.name}"])
+    else:
+        # OSS-Fuzz target images use ``compile`` as their entrypoint, so
+        # explicitly replace it when using one to clean root-owned artifacts.
+        command.extend(
             [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{path.parent}:/data",
-                OSS_CRS_ALPINE_TAG,
+                "--entrypoint",
                 "rm",
+                image_tag,
                 "-rf",
                 f"/data/{path.name}",
-            ],
+            ]
+        )
+    try:
+        subprocess.run(
+            command,
             stderr=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             check=True,

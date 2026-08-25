@@ -1,13 +1,71 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for oss_crs.src.utils module."""
 
+from pathlib import Path
+
 import pytest
 import questionary
 import re
 from prompt_toolkit.keys import Keys
 from questionary.prompts.common import InquirerControl
 
+from oss_crs.src import utils
 from oss_crs.src.utils import _enter_selects_pointed_choice, normalize_run_id
+
+
+def test_rm_with_docker_preserves_default_alpine_command(
+    tmp_path: Path, monkeypatch
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        utils.subprocess,
+        "run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+
+    utils.rm_with_docker(tmp_path / "out")
+
+    assert commands == [
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{tmp_path}:/data",
+            utils.OSS_CRS_ALPINE_TAG,
+            "rm",
+            "-rf",
+            "/data/out",
+        ]
+    ]
+
+
+def test_rm_with_docker_overrides_target_image_entrypoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        utils.subprocess,
+        "run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+
+    utils.rm_with_docker(tmp_path / "out", image_tag="project:tag")
+
+    assert commands == [
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{tmp_path}:/data",
+            "--entrypoint",
+            "rm",
+            "project:tag",
+            "-rf",
+            "/data/out",
+        ]
+    ]
 
 
 class _FakeApp:

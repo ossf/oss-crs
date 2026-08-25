@@ -5,7 +5,7 @@ from typing import Optional
 
 import yaml
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # See https://google.github.io/oss-fuzz/getting-started/new-project-guide/#language
@@ -98,6 +98,24 @@ class TargetConfig(BaseModel):
         ],
         description="list of fuzzing engines to use. Defaults to all supported engines.",
     )
+
+    @field_validator("sanitizers", mode="before")
+    @classmethod
+    def normalize_experimental_sanitizers(cls, value):
+        """Flatten OSS-Fuzz's ``sanitizer: {experimental: true}`` entries."""
+        if not isinstance(value, list):
+            return value
+        normalized = []
+        for sanitizer in value:
+            if isinstance(sanitizer, dict):
+                if len(sanitizer) != 1:
+                    raise ValueError(
+                        "experimental sanitizer entries must contain one sanitizer"
+                    )
+                normalized.extend(sanitizer)
+            else:
+                normalized.append(sanitizer)
+        return normalized
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "TargetConfig":
