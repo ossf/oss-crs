@@ -150,17 +150,45 @@ class TargetMode(Enum):
     DELTA = "delta"
 
 
+# TODO: Decouple CRS supported-target defaults from TargetConfig enum definitions.
+DEFAULT_SUPPORTED_SANITIZERS = frozenset(
+    {
+        TargetSanitizer.ASAN,
+        TargetSanitizer.MSAN,
+        TargetSanitizer.UBSAN,
+    }
+)
+
+DEFAULT_SUPPORTED_ARCHITECTURES = frozenset(
+    {
+        TargetArch.X86_64,
+        TargetArch.I386,
+    }
+)
+
+DEFAULT_SUPPORTED_ENGINES = frozenset(
+    {
+        FuzzingEngine.LIBFUZZER,
+        FuzzingEngine.AFL,
+        FuzzingEngine.HONGGFUZZ,
+        FuzzingEngine.CENTIPEDE,
+    }
+)
+
+
 class SupportedTarget(BaseModel):
     """Configuration for supported targets."""
 
     mode: Set[TargetMode]
     language: Set[TargetLanguage]
     sanitizer: Set[TargetSanitizer] = Field(
-        default_factory=lambda: set(TargetSanitizer)
+        default_factory=lambda: set(DEFAULT_SUPPORTED_SANITIZERS)
     )
-    architecture: Set[TargetArch] = Field(default_factory=lambda: set(TargetArch))
+    architecture: Set[TargetArch] = Field(
+        default_factory=lambda: set(DEFAULT_SUPPORTED_ARCHITECTURES)
+    )
     fuzzing_engine: Set[FuzzingEngine] = Field(
-        default_factory=lambda: set(FuzzingEngine)
+        default_factory=lambda: set(DEFAULT_SUPPORTED_ENGINES)
     )
 
 
