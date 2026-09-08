@@ -2,12 +2,14 @@
 import json
 import os
 import re
+import ssl
 import urllib.error
 import urllib.request
 import yaml
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from .ca_certs import EXTRA_CA_CERTS_ENV, ssl_context
 from .config.crs_compose import LLMConfig
 from .constants import LITELLM_INTERNAL_URL
 from .ui import TaskResult
@@ -135,12 +137,19 @@ def apply_litellm_proxy_to_file(
 
 
 class LLM:
-    def __init__(self, llm_config: Optional[LLMConfig]):
+    def __init__(
+        self,
+        llm_config: Optional[LLMConfig],
+        extra_ca_certs: Optional[Path] = None,
+    ):
         self.llm_config = llm_config
+        self.extra_ca_certs = extra_ca_certs
         self.mode = "disabled"
         self.model_check_enabled = False
         self.config = {}
         self.available_models: set[str] = set()
+        # Detail from the last failed /models fetch, surfaced to the user.
+        self.fetch_error: Optional[str] = None
 
         self.external_url: Optional[str] = None
         self.external_url_env: Optional[str] = None
@@ -291,13 +300,13 @@ class LLM:
         if self.mode == "external":
             external_models = self._fetch_external_models()
             if external_models is None:
-                return TaskResult(
-                    success=False,
-                    error=(
-                        "Failed to fetch available models from external LiteLLM endpoint: "
-                        f"{self.get_crs_api_url()}/models"
-                    ),
+                msg = (
+                    "Failed to fetch available models from external LiteLLM endpoint: "
+                    f"{self.get_crs_api_url()}/models"
                 )
+                if self.fetch_error:
+                    msg += f"\n{self.fetch_error}"
+                return TaskResult(success=False, error=msg)
             return self._validate_missing_models(
                 required_llms,
                 external_models,
@@ -336,15 +345,32 @@ class LLM:
             headers=headers,
             method="GET",
         )
+        self.fetch_error = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(
+                request, timeout=30, context=ssl_context(self.extra_ca_certs)
+            ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.URLError as e:
+            # urlopen wraps the cert failure, so the reason is what identifies it.
+            # Without this the user sees only "failed to fetch" and reaches for a
+            # way to disable verification.
+            if isinstance(e.reason, ssl.SSLCertVerificationError):
+                self.fetch_error = (
+                    f"TLS certificate verification failed: {e.reason}. "
+                    "If this endpoint's certificate chains to an internal CA, "
+                    "point OSS-CRS at that CA with --extra-ca-certs "
+                    f"(or extra_ca_certs in the compose file, or ${EXTRA_CA_CERTS_ENV})."
+                )
+            else:
+                self.fetch_error = str(e.reason)
+            return None
         except (
-            urllib.error.URLError,
             urllib.error.HTTPError,
             TimeoutError,
             json.JSONDecodeError,
-        ):
+        ) as e:
+            self.fetch_error = str(e)
             return None
 
         model_entries = payload.get("data", [])
