@@ -216,7 +216,7 @@ class CRSCompose:
         self.extra_ca_certs = resolve_extra_ca_certs(
             extra_ca_certs, config.extra_ca_certs
         )
-        self.llm = LLM(self.config.llm_config)
+        self.llm = LLM(self.config.llm_config, self.extra_ca_certs)
         self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}")
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
         self.offline = offline
