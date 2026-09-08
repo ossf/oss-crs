@@ -10,7 +10,8 @@ The configuration file is written in YAML format and consists of the following s
 2. `docker_registry` - Docker registry URL
 3. `oss_crs_infra` - Infrastructure resource configuration
 4. `llm_config` - LLM configuration (optional; if omitted/null, OSS-CRS does not manage LiteLLM)
-5. CRS entries - One or more named CRS configurations
+5. `extra_ca_certs` - Additional trusted CA certificates (optional)
+6. CRS entries - One or more named CRS configurations
 
 ## Schema Overview
 
@@ -32,6 +33,7 @@ llm_config:                    # optional
       url_env: <host-env-var-name>
       key: <external-litellm-api-key>         # oneof(key, key_env)
       key_env: <host-env-var-name>
+extra_ca_certs: <path-to-pem-bundle>   # optional
 <crs-name>:
   cpuset: <cpu-set>
   memory: <memory-limit>
@@ -96,6 +98,27 @@ llm_config:
       url_env: LITELLM_URL
       key_env: LITELLM_API_KEY
 ```
+
+---
+
+### `extra_ca_certs` (optional)
+
+Host path to a PEM file of additional trusted CA certificates, for LLM endpoints whose
+certificate chains to an internal CA. Supports `~` and `${VAR}` expansion.
+
+Equivalent to the `--extra-ca-certs` flag and the `OSS_CRS_EXTRA_CA_CERTS` environment
+variable; the flag takes precedence over this field, which takes precedence over the
+environment variable. Not part of the compose hash, so changing it does not relocate the
+work directory.
+
+```yaml
+extra_ca_certs: /etc/pki/corp-root.pem
+# or defer to the host environment:
+extra_ca_certs: ${CORP_CA}
+```
+
+See [LLM Providers](../llm-providers.md#endpoints-behind-an-internal-ca) for what this
+covers and what it does not.
 
 ---
 
