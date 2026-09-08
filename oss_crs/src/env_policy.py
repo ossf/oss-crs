@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import re
 from typing import Mapping
 
+from .ca_certs import ca_env
 from .env_schema import (
     RESERVED_SYSTEM_EXACT,
     RESERVED_SYSTEM_PREFIXES,
@@ -176,6 +177,7 @@ def build_run_service_env(
     include_fetch_dir: bool = False,
     llm_api_url: str | None = None,
     llm_api_key: str | None = None,
+    extra_ca_mounted: bool = False,
 ) -> EnvPlan:
     base_env = {}
     if not source_only:
@@ -192,6 +194,11 @@ def build_run_service_env(
         )
         base_env["SANITIZER"] = sanitizer
     base_env["PROJECT_NAME"] = target_env["name"]
+    if extra_ca_mounted:
+        # Values name the in-container mount point, not the host path.
+        # base_env, not system_env: a CRS that manages its own trust store can
+        # still override these via additional_env.
+        base_env.update(ca_env())
     # Preserve existing behavior: module env first, CRS env last.
     system_env = {
         "OSS_CRS_RUN_ENV_TYPE": run_env_type,
