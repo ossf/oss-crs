@@ -50,6 +50,7 @@ def _make_crs_compose(tmp_path: Path, crs_list: list) -> SimpleNamespace:
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
         offline=False,
+        extra_ca_certs=None,
         config=SimpleNamespace(
             oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G")
         ),
@@ -983,6 +984,7 @@ def test_no_harness_run_does_not_inject_harness_env(
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
         offline=False,
+        extra_ca_certs=None,
         config=SimpleNamespace(
             oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G")
         ),
