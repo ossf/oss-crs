@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from .ca_certs import resolve_extra_ca_certs, validate_extra_ca_certs
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
 from .env_policy import (
     OSS_FUZZ_TARGET_ENV,
@@ -191,9 +192,16 @@ class CRSCompose:
         work_dir: Path,
         skip_crs_init: bool = False,
         offline: bool = False,
+        extra_ca_certs: Optional[Path] = None,
     ) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
-        return cls(config, work_dir, skip_crs_init=skip_crs_init, offline=offline)
+        return cls(
+            config,
+            work_dir,
+            skip_crs_init=skip_crs_init,
+            offline=offline,
+            extra_ca_certs=extra_ca_certs,
+        )
 
     def __init__(
         self,
@@ -201,9 +209,13 @@ class CRSCompose:
         work_dir: Path,
         skip_crs_init: bool = False,
         offline: bool = False,
+        extra_ca_certs: Optional[Path] = None,
     ):
         hash = config.md5_hash()
         self.config = config
+        self.extra_ca_certs = resolve_extra_ca_certs(
+            extra_ca_certs, config.extra_ca_certs
+        )
         self.llm = LLM(self.config.llm_config)
         self.work_dir = WorkDir(work_dir / f"crs_compose/{hash}")
         self.crs_compose_env = CRSComposeEnv(self.config.run_env)
@@ -1724,6 +1736,14 @@ class CRSCompose:
                 lambda _: self._validate_required_envs(),
             ),
         ]
+
+        if self.extra_ca_certs is not None:
+            tasks.append(
+                (
+                    "Validate extra CA bundle",
+                    lambda _, path=self.extra_ca_certs: validate_extra_ca_certs(path),
+                )
+            )
 
         if self.llm.exists():
             tasks.extend(
