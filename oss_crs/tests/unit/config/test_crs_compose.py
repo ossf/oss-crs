@@ -244,3 +244,53 @@ class TestRemoveKeys:
         data = {"a": {"b": {"c": 1}}}
         result = remove_keys(data, ["x", "y"])
         assert result == data
+
+
+class TestExtraCACerts:
+    """Tests for the top-level extra_ca_certs key."""
+
+    @staticmethod
+    def _compose_data(**extra) -> dict:
+        return {
+            "run_env": "local",
+            "docker_registry": "local",
+            "oss_crs_infra": {"cpuset": "0-1", "memory": "8G"},
+            "crs-libfuzzer": {
+                "cpuset": "2-3",
+                "memory": "8G",
+                "source": {"local_path": "/tmp/dummy-crs"},
+            },
+            **extra,
+        }
+
+    def test_defaults_to_none(self):
+        config = CRSComposeConfig.from_dict(self._compose_data())
+        assert config.extra_ca_certs is None
+
+    def test_parsed_from_top_level_key(self):
+        config = CRSComposeConfig.from_dict(
+            self._compose_data(extra_ca_certs="/etc/pki/corp-root.pem")
+        )
+        assert config.extra_ca_certs == "/etc/pki/corp-root.pem"
+
+    def test_is_not_treated_as_a_crs_entry(self):
+        """Every unreserved top-level key becomes a CRS entry, so it must be reserved."""
+        config = CRSComposeConfig.from_dict(
+            self._compose_data(extra_ca_certs="/etc/pki/corp-root.pem")
+        )
+        assert list(config.crs_entries) == ["crs-libfuzzer"]
+
+    def test_does_not_change_the_compose_hash(self):
+        """A host-specific trust anchor must not relocate the workdir."""
+        without = CRSComposeConfig.from_dict(self._compose_data())
+        with_ca = CRSComposeConfig.from_dict(
+            self._compose_data(extra_ca_certs="/etc/pki/corp-root.pem")
+        )
+        assert with_ca.md5_hash() == without.md5_hash()
+
+    def test_survives_a_yaml_round_trip(self):
+        config = CRSComposeConfig.from_dict(
+            self._compose_data(extra_ca_certs="/etc/pki/corp-root.pem")
+        )
+        reparsed = CRSComposeConfig.from_dict(config.to_dict())
+        assert reparsed.extra_ca_certs == "/etc/pki/corp-root.pem"
