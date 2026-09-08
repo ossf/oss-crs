@@ -325,3 +325,86 @@ def test_run_env_builder_module_not_overridable_by_crs() -> None:
     )
     # System env wins — framework always controls BUILDER_MODULE
     assert plan.effective_env["BUILDER_MODULE"] == "builder-sidecar"
+
+
+_TARGET_ENV = {
+    "engine": "libfuzzer",
+    "architecture": "x86_64",
+    "name": "proj",
+    "language": "c",
+    "repo_path": "/repo",
+    "sanitizer": "address",
+}
+
+
+def _run_env(**overrides):
+    kwargs = dict(
+        target_env=_TARGET_ENV,
+        sanitizer="address",
+        run_env_type="local",
+        crs_name="crs-a",
+        module_name="finder",
+        run_id="r1",
+        cpuset="0-1",
+        memory_limit="2G",
+        module_additional_env=None,
+        crs_additional_env=None,
+        scope="test:run",
+    )
+    kwargs.update(overrides)
+    return build_run_service_env(**kwargs)
+
+
+def test_extra_ca_injects_bundle_env_vars() -> None:
+    plan = _run_env(extra_ca_mounted=True)
+    bundle = "/etc/oss-crs/ca/bundle.pem"
+    assert plan.effective_env["SSL_CERT_FILE"] == bundle
+    assert plan.effective_env["REQUESTS_CA_BUNDLE"] == bundle
+    assert plan.effective_env["CURL_CA_BUNDLE"] == bundle
+    # Node appends this to its built-in roots, so it gets the org certs alone.
+    assert plan.effective_env["NODE_EXTRA_CA_CERTS"] == "/etc/oss-crs/ca/extra.pem"
+    # Left unset so OpenSSL consumers keep the container's own hashed cert dir.
+    assert "SSL_CERT_DIR" not in plan.effective_env
+    assert plan.warnings == []
+
+
+def test_extra_ca_absent_by_default() -> None:
+    plan = _run_env()
+    for key in (
+        "SSL_CERT_FILE",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
+    ):
+        assert key not in plan.effective_env
+
+
+def test_extra_ca_is_overridable_by_crs_env() -> None:
+    """A CRS managing its own trust store must win, without a reserved-key warning."""
+    plan = _run_env(
+        extra_ca_mounted=True,
+        crs_additional_env={"SSL_CERT_FILE": "/opt/crs/own-bundle.pem"},
+    )
+    assert plan.effective_env["SSL_CERT_FILE"] == "/opt/crs/own-bundle.pem"
+    # Still injected for the clients the CRS did not override.
+    assert plan.effective_env["REQUESTS_CA_BUNDLE"] == "/etc/oss-crs/ca/bundle.pem"
+    assert plan.warnings == []
+
+
+def test_extra_ca_injected_for_source_only_crs() -> None:
+    """Source-only (auditing) CRSs call LLMs too."""
+    plan = _run_env(extra_ca_mounted=True, source_only=True)
+    assert plan.effective_env["SSL_CERT_FILE"] == "/etc/oss-crs/ca/bundle.pem"
+
+
+def test_build_target_env_does_not_inject_ca() -> None:
+    """Build-phase network traffic belongs to the docker daemon, not this env."""
+    plan = build_target_builder_env(
+        target_env=_TARGET_ENV,
+        run_env_type="local",
+        build_id="b1",
+        crs_additional_env=None,
+        build_additional_env=None,
+        scope="test:build",
+    )
+    assert "SSL_CERT_FILE" not in plan.effective_env
