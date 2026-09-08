@@ -1026,3 +1026,132 @@ def test_no_harness_run_does_not_inject_harness_env(
     assert "oss-crs-exchange" in compose_data["services"]
     assert "oss-crs-builder-sidecar" not in compose_data["services"]
     assert "oss-crs-runner-sidecar" not in compose_data["services"]
+
+
+_ORG_PEM = """-----BEGIN CERTIFICATE-----
+MIIDITCCAgmgAwIBAgIUFIm2taiQM0C9/rotoz86lGwsnCEwDQYJKoZIhvcNAQEL
+BQAwHzEdMBsGA1UEAwwUT1NTLUNSUyBUZXN0IFJvb3QgQ0EwIBcNMjYwOTA4MTgy
+OTA1WhgPMjEyNjA4MTUxODI5MDVaMB8xHTAbBgNVBAMMFE9TUy1DUlMgVGVzdCBS
+b290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2ukyNzZ7Q+jR
+7lgZOLaG8QBuNDoDzpvZsqP3n9kpde2XYSgUPL48LaJvFPPi6W2Kjzmw8627NeiB
+TgNGLvIazFwV9cB5ewaZ5R3lsMBsGBNvQl/u33lQEJUjED/1aWTjg1Y4B0Ap+ePL
+FEbJ1f8XvapZNh0xfrGjbb1VXMM11YPc4Ch1s9iJafAZyPp4THLV/TCci8K30hX/
++ABSba9ylu4BMSuANg32Our2vIV+uCVB6NT2TPUIoZSy8yXv5W/8GSJkA5CvwKDN
+7ZnzlNnCmbyH9fTwhgnLbuaAM8ghJrRGkY3eSMdAoAGITOzNVnRPX6Hmad9kjW9u
+FVs+7QClXwIDAQABo1MwUTAdBgNVHQ4EFgQU9IOeUvM0OzmFwnqj2KQtR24lbEEw
+HwYDVR0jBBgwFoAU9IOeUvM0OzmFwnqj2KQtR24lbEEwDwYDVR0TAQH/BAUwAwEB
+/zANBgkqhkiG9w0BAQsFAAOCAQEARNlypYVCjZoSYR3p5bXMYOs0G1zwHG5i3qOb
+xEGlV5R/USJvKmhp8iTjOr+wC5+GyE9/XmDuvTVd2Ulz0t9e2KDQ91N9/+7jEnE4
+xCKpYUTuqA15bJnV35AI2AAqWM6geEHsBXsVUZZ7nOW2N59yfcpSxg9lMA075FlH
+oGlHWSnIrEY9rCnsvgLkAjdbwlUAEfJCfwJgrg3hBw8XLMEqAPoeFYr99tAWC3Sm
+wjO6cXjGzKOlC/D9Ggyd1aNcA4FAc0fU/3mcAorezAF8/DhdL5tbiIpLR4RlmW7h
+KoGue9uNO0OkjB6OAUIAWFaIpZCDRiyVq7wemyJ8pL7/SnW3FA==
+-----END CERTIFICATE-----
+"""
+
+
+def _with_extra_ca(crs_compose, tmp_path: Path) -> Path:
+    pem = tmp_path / "corp-ca.pem"
+    pem.write_text(_ORG_PEM)
+    crs_compose.extra_ca_certs = pem
+    return pem
+
+
+def test_extra_ca_mounts_bundle_into_crs_modules(monkeypatch, tmp_path: Path) -> None:
+    """CRS containers reaching an external LLM endpoint need the org's roots."""
+    _patch_renderer(monkeypatch)
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    _with_extra_ca(crs_compose, tmp_path)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    service = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]
+    ca_dir = tmp_path / "tmp-compose" / "ca"
+    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    assert (ca_dir / "bundle.pem").exists()
+    assert (ca_dir / "extra.pem").read_text() == _ORG_PEM
+
+
+def test_extra_ca_signals_env_injection(monkeypatch, tmp_path: Path) -> None:
+    """The mount is useless unless the env vars are requested alongside it."""
+    seen: dict = {}
+
+    def build_env_fn(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[])
+
+    _patch_renderer(monkeypatch, build_env_fn=build_env_fn)
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    _with_extra_ca(crs_compose, tmp_path)
+
+    _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    assert seen["extra_ca_mounted"] is True
+
+
+def test_extra_ca_mounts_bundle_into_litellm(monkeypatch, tmp_path: Path) -> None:
+    """The internal proxy is the hop that reaches a self-hosted endpoint."""
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    _with_extra_ca(crs_compose, tmp_path)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    service = yaml.safe_load(rendered)["services"]["oss-crs-litellm"]
+    ca_dir = tmp_path / "tmp-compose" / "ca"
+    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    # LiteLLM resolves its CA file from SSL_CERT_FILE, so this is the whole fix.
+    assert "SSL_CERT_FILE=/etc/oss-crs/ca/bundle.pem" in service["environment"]
+    assert "NODE_EXTRA_CA_CERTS=/etc/oss-crs/ca/extra.pem" in service["environment"]
+    # The config mount and secret-derived exports must survive.
+    assert any(v.endswith("/app/config.yaml:ro") for v in service["volumes"])
+    assert "$(cat /run/secrets/litellm_env_OPENAI_API_KEY)" in " ".join(
+        service["command"]
+    )
+
+
+def test_extra_ca_coexists_with_offline_cost_map(monkeypatch, tmp_path: Path) -> None:
+    """Both write to litellm's environment; neither may displace the other."""
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    crs_compose.offline = True
+    _with_extra_ca(crs_compose, tmp_path)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    environment = yaml.safe_load(rendered)["services"]["oss-crs-litellm"]["environment"]
+    assert "LITELLM_LOCAL_MODEL_COST_MAP=True" in environment
+    assert "SSL_CERT_FILE=/etc/oss-crs/ca/bundle.pem" in environment
+
+
+def test_extra_ca_absent_leaves_compose_untouched(monkeypatch, tmp_path: Path) -> None:
+    """Default behaviour: no mount, no env, no generated files."""
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    assert services["oss-crs-litellm"].get("environment") is None
+    for service in services.values():
+        for volume in service.get("volumes") or []:
+            assert "/etc/oss-crs/ca" not in volume
+    assert not (tmp_path / "tmp-compose" / "ca").exists()
+
+
+def test_extra_ca_not_mounted_into_infra_sidecars(monkeypatch, tmp_path: Path) -> None:
+    """Sidecars only talk plaintext to compose-internal names or the docker socket."""
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+    crs_compose = _make_crs_compose(tmp_path, [_make_crs(tmp_path, "crs-libfuzzer")])
+    _with_extra_ca(crs_compose, tmp_path)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path, has_repo=False), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    for name, service in services.items():
+        if name == "oss-crs-litellm":
+            continue
+        if not name.startswith("oss-crs"):
+            continue
+        for volume in service.get("volumes") or []:
+            assert "/etc/oss-crs/ca" not in volume, f"{name} must not mount the CA dir"
