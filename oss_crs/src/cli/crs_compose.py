@@ -610,6 +610,14 @@ def add_gen_compose_command(subparsers):
         "(e.g., --litellm-external AIXCC_LITELLM_HOSTNAME LITELLM_KEY)",
     )
     gen_compose.add_argument(
+        "--litellm-external-values",
+        nargs=2,
+        metavar=("URL", "KEY"),
+        default=None,
+        help="Set litellm to external mode with literal URL and API key values "
+        "(e.g., --litellm-external-values http://localhost:4000 sk-xxx)",
+    )
+    gen_compose.add_argument(
         "--litellm-proxy",
         nargs="+",
         metavar="ARG",
@@ -750,6 +758,10 @@ def _handle_gen_compose(args) -> bool:
                 data[name]["memory"] = scaled_mem[name]
 
     # 5. LiteLLM external override
+    if args.litellm_external and args.litellm_external_values:
+        raise ValueError(
+            "--litellm-external and --litellm-external-values are mutually exclusive"
+        )
     if args.litellm_external:
         url_env, key_env = args.litellm_external
         data["llm_config"] = {
@@ -759,6 +771,18 @@ def _handle_gen_compose(args) -> bool:
                 "external": {
                     "url_env": url_env,
                     "key_env": key_env,
+                },
+            }
+        }
+    if args.litellm_external_values:
+        url, key = args.litellm_external_values
+        data["llm_config"] = {
+            "litellm": {
+                "mode": "external",
+                "model_check": False,
+                "external": {
+                    "url": url,
+                    "key": key,
                 },
             }
         }
