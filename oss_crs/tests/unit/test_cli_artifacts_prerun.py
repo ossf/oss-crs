@@ -12,6 +12,7 @@ from oss_crs.src.cli.artifacts import (
     handle_artifacts,
     resolve_run_context,
 )
+from oss_crs.src.crs_compose import CRSCompose
 from oss_crs.src.cli.crs_compose import add_artifacts_command, add_archive_command
 from oss_crs.src.utils import normalize_run_id
 
@@ -182,6 +183,15 @@ class _FakeWorkDir:
             self.get_log_dir(crs_name, target, run_id, sanitizer)
             / "libcrs-sidecar-metrics.jsonl"
         )
+
+    def get_litellm_spend_report_file(
+        self, run_id: str, sanitizer: str, *, create_parent: bool = False
+    ):
+        _ = create_parent
+        return self._tmp / sanitizer / "runs" / run_id / "litellm-spend-report.json"
+
+    def get_submit_artifact_counts(self, crs_name, target, run_id, sanitizer):
+        return {}
 
 
 def _make_compose(
@@ -518,3 +528,88 @@ def test_archive_target_harness_is_optional():
         ]
     )
     assert args.target_harness is None
+
+
+def _make_meta_compose(tmp_path, run_id: str):
+    """A _make_compose namespace with the real spend/sidecar reader methods
+    bound, so _collect_run_meta runs its production code path."""
+    compose = _make_compose(tmp_path, resolved_run_id=run_id)
+    compose._read_json_file = CRSCompose._read_json_file
+    compose._read_litellm_spend_summary = (
+        CRSCompose._read_litellm_spend_summary.__get__(compose)
+    )
+    compose._read_sidecar_counts_for_crs = (
+        CRSCompose._read_sidecar_counts_for_crs.__get__(compose)
+    )
+    return compose
+
+
+def test_collect_run_meta_carries_token_counts(tmp_path) -> None:
+    run_id = "token-run-id"
+    sanitizer = "address"
+    report = tmp_path / sanitizer / "runs" / run_id / "litellm-spend-report.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "totals": {
+                    "credits_used": 3.0,
+                    "prompt_tokens": 300,
+                    "completion_tokens": 150,
+                },
+                "crs": {
+                    "crs-a": {
+                        "credits_used": 1.0,
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                    },
+                    "crs-b": {
+                        "credits_used": 2.0,
+                        "prompt_tokens": 200,
+                        "completion_tokens": 100,
+                    },
+                },
+            }
+        )
+    )
+
+    compose = _make_meta_compose(tmp_path, run_id)
+    target = _FakeTarget("fuzz_target")
+    meta = CRSCompose._collect_run_meta(compose, target, run_id, sanitizer)
+    assert meta["crs"]["crs-a"]["llm"] == {
+        "credits_used": 1.0,
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+    }
+    assert meta["totals"]["llm"] == {
+        "credits_used": 3.0,
+        "prompt_tokens": 300,
+        "completion_tokens": 150,
+    }
+
+
+def test_collect_run_meta_sums_tokens_when_totals_missing(tmp_path) -> None:
+    run_id = "token-sum-run-id"
+    sanitizer = "address"
+    report = tmp_path / sanitizer / "runs" / run_id / "litellm-spend-report.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "totals": {"credits_used": 1.0},
+                "crs": {
+                    "crs-a": {
+                        "credits_used": 1.0,
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                    }
+                },
+            }
+        )
+    )
+
+    compose = _make_meta_compose(tmp_path, run_id)
+    target = _FakeTarget("fuzz_target")
+    meta = CRSCompose._collect_run_meta(compose, target, run_id, sanitizer)
+    assert meta["totals"]["llm"]["prompt_tokens"] == 100
+    assert meta["totals"]["llm"]["completion_tokens"] == 50

@@ -75,6 +75,8 @@ class MetaArtifactCounts(BaseModel):
 
 class MetaLLMStats(BaseModel):
     credits_used: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class MetaSidecarStats(BaseModel):

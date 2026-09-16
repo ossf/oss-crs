@@ -2156,11 +2156,19 @@ class CRSCompose:
         crs_raw = raw.get("crs")
         crs = crs_raw if isinstance(crs_raw, dict) else {}
         return {
-            "totals": {"credits_used": float(totals.get("credits_used", 0.0) or 0.0)},
+            "totals": {
+                "credits_used": totals.get("credits_used", 0.0),
+                "prompt_tokens": totals.get("prompt_tokens", 0),
+                "completion_tokens": totals.get("completion_tokens", 0),
+            },
             "crs": {
-                name: {"credits_used": float((entry or {}).get("credits_used", 0.0))}
+                name: {
+                    "credits_used": entry.get("credits_used", 0.0),
+                    "prompt_tokens": entry.get("prompt_tokens", 0),
+                    "completion_tokens": entry.get("completion_tokens", 0),
+                }
                 for name, entry in crs.items()
-                if isinstance(name, str)
+                if isinstance(name, str) and isinstance(entry, dict)
             },
         }
 
@@ -2207,7 +2215,11 @@ class CRSCompose:
             "artifacts": {
                 name.replace("-", "_"): 0 for name in SUBMITTED_ARTIFACT_DIR_NAMES
             },
-            "llm": {"credits_used": 0.0},
+            "llm": {
+                "credits_used": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            },
             "sidecar": {
                 "patch_builds": 0,
                 "patch_tests": 0,
@@ -2223,12 +2235,11 @@ class CRSCompose:
             sidecar = self._read_sidecar_counts_for_crs(
                 crs.name, target, run_id, sanitizer
             )
+            crs_llm = llm_summary.get("crs", {}).get(crs.name, {})
             llm = {
-                "credits_used": float(
-                    llm_summary.get("crs", {})
-                    .get(crs.name, {})
-                    .get("credits_used", 0.0)
-                )
+                "credits_used": crs_llm.get("credits_used", 0.0),
+                "prompt_tokens": crs_llm.get("prompt_tokens", 0),
+                "completion_tokens": crs_llm.get("completion_tokens", 0),
             }
 
             crs_meta[crs.name] = {
@@ -2241,6 +2252,8 @@ class CRSCompose:
                 totals["artifacts"][key] += artifacts.get(key, 0)
             for key in totals["sidecar"]:
                 totals["sidecar"][key] += sidecar.get(key, 0)
+            for key in ("prompt_tokens", "completion_tokens"):
+                totals["llm"][key] += llm.get(key, 0)
 
         llm_total = float(llm_summary.get("totals", {}).get("credits_used", 0.0))
         if llm_total == 0.0:
@@ -2248,6 +2261,12 @@ class CRSCompose:
                 sum(crs_meta[name]["llm"]["credits_used"] for name in crs_meta), 6
             )
         totals["llm"]["credits_used"] = llm_total
+        # Prefer the report's totals when present (old reports lack tokens and
+        # read as 0); fall back to the per-CRS sum.
+        file_tokens = llm_summary.get("totals", {})
+        for key in ("prompt_tokens", "completion_tokens"):
+            if file_tokens.get(key):
+                totals["llm"][key] = file_tokens[key]
 
         return {
             "totals": totals,

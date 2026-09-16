@@ -46,9 +46,7 @@ PROCESSED_EXCHANGE_TYPES = tuple(
 )
 COVERAGE_BUILD_DIR = Path("/coverage_build")
 LOG_DIR = Path("/webui_logs")
-# LiteLLM spend report (mounted read-only when an LLM proxy is in the run).
-# Written periodically by the litellm-key-gen sidecar; absent for LLM-free runs.
-SPEND_REPORT_PATH = Path("/litellm-spend-report.json")
+SPEND_REPORT_PATH = Path("/spend/litellm-spend-report.json")
 
 POLL_INTERVAL = 5  # seconds
 COVERAGE_INTERVAL = 30  # seconds
@@ -94,27 +92,52 @@ def _scan_dir(root: Path) -> dict[str, int]:
     return counts
 
 
-def read_cost() -> dict | None:
-    """Read LLM spend from the litellm-key-gen spend report, if present.
+def read_cost(report_path: Path | None = None) -> dict | None:
+    """Read LLM spend and token counts from the litellm-key-gen report.
 
-    Returns ``{"total": float, "per_crs": {crs_name: float}}`` or ``None`` when
-    no spend report exists yet (e.g. LLM-free runs or before the first write).
+    Returns ``{"total": float, "per_crs": {...}, "prompt_tokens": int,
+    "completion_tokens": int,
+    "per_crs_tokens": {crs_name: {...}}}`` or ``None`` when no spend report
+    exists yet (e.g. LLM-free runs or before the first write). Token fields
+    default to 0 for old reports that predate token tracking; totals are
+    prompt + completion summed by the reader.
     """
-    if not SPEND_REPORT_PATH.is_file():
+    path = report_path if report_path is not None else SPEND_REPORT_PATH
+    if not path.is_file():
         return None
     try:
-        data = json.loads(SPEND_REPORT_PATH.read_text())
+        data = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
-    total = data.get("totals", {}).get("credits_used")
-    per_crs = {
-        name: entry.get("credits_used", 0.0)
-        for name, entry in data.get("crs", {}).items()
-        if isinstance(entry, dict)
-    }
+    totals_raw = data.get("totals", {})
+    totals = totals_raw if isinstance(totals_raw, dict) else {}
+    crs_raw = data.get("crs", {})
+    crs = crs_raw if isinstance(crs_raw, dict) else {}
+    total = totals.get("credits_used")
+    entries = {name: entry for name, entry in crs.items() if isinstance(entry, dict)}
+    per_crs = {name: entry.get("credits_used", 0.0) for name, entry in entries.items()}
     if total is None and not per_crs:
         return None
-    return {"total": total, "per_crs": per_crs}
+    prompt = sum(entry.get("prompt_tokens", 0) for entry in entries.values())
+    completion = sum(entry.get("completion_tokens", 0) for entry in entries.values())
+    # Prefer the report's totals when present (old reports lack token fields).
+    totals_tokens = {
+        "prompt_tokens": totals.get("prompt_tokens", 0) or prompt,
+        "completion_tokens": totals.get("completion_tokens", 0) or completion,
+    }
+    per_crs_tokens = {
+        name: {
+            "prompt_tokens": entry.get("prompt_tokens", 0),
+            "completion_tokens": entry.get("completion_tokens", 0),
+        }
+        for name, entry in entries.items()
+    }
+    return {
+        "total": total,
+        "per_crs": per_crs,
+        **totals_tokens,
+        "per_crs_tokens": per_crs_tokens,
+    }
 
 
 def build_snapshot() -> dict:

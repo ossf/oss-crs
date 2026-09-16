@@ -287,11 +287,22 @@ def publish_final_snapshot(
         cost = None
         if spend_path.exists() and spend_path.stat().st_size > 0:
             spend = compose._read_litellm_spend_summary(run_id, sanitizer)
+            totals = spend.get("totals", {})
+            per_crs = spend.get("crs", {})
             cost = {
-                "total": spend.get("totals", {}).get("credits_used"),
+                "total": totals.get("credits_used"),
                 "per_crs": {
                     name: entry.get("credits_used", 0.0)
-                    for name, entry in spend.get("crs", {}).items()
+                    for name, entry in per_crs.items()
+                },
+                "prompt_tokens": totals.get("prompt_tokens", 0),
+                "completion_tokens": totals.get("completion_tokens", 0),
+                "per_crs_tokens": {
+                    name: {
+                        "prompt_tokens": entry.get("prompt_tokens", 0),
+                        "completion_tokens": entry.get("completion_tokens", 0),
+                    }
+                    for name, entry in per_crs.items()
                 },
             }
 
