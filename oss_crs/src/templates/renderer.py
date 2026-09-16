@@ -6,6 +6,7 @@ import os
 import yaml
 
 from ..config.crs import CRSType, OSS_CRS_INFRA_PREFIX
+from ..config.mcp import get_default_registry_dir, load_mcp_servers
 from ..constants import (
     EXCHANGE_DIR_NAMES,
     LITELLM_INTERNAL_URL,
@@ -249,6 +250,85 @@ def prepare_llm_context(
     raise RuntimeError(f"Unsupported LLM mode: {crs_compose.llm.mode}")
 
 
+# LiteLLM hook that teaches agents the `libCRS mcp` CLI on the first turn.
+# The module is copied next to the generated LiteLLM config so LiteLLM's
+# `get_instance_fn` can load it from beside config.yaml; `callbacks` must
+# reference the instance (not the class) or the proxy silently never runs it.
+MCP_HOOK_FILENAME = "oss_crs_mcp_hook.py"
+MCP_HOOK_CALLBACK = "oss_crs_mcp_hook.proxy_handler_instance"
+
+
+def _hook_source_path() -> Path:
+    return CUR_DIR / MCP_HOOK_FILENAME
+
+
+def modify_litellm_config_for_mcp(
+    litellm_config_path: Path,
+    mcp_server_configs: list,
+    output_path: Path,
+) -> tuple[Path, Path]:
+    """Modify LiteLLM config to add MCP server connections.
+
+    Reads the original LiteLLM config, registers each MCP server on the
+    proxy's MCP gateway (streamable HTTP, usable by this run's virtual keys),
+    points ``litellm_settings.callbacks`` at the oss-crs prompt hook, writes
+    the modified config to the specified output path, and copies the hook
+    module alongside it.
+
+    Args:
+        litellm_config_path: Path to the original LiteLLM config.
+        mcp_server_configs: List of MCPServerConfig objects to add.
+        output_path: Path where the modified config will be written.
+
+    Returns:
+        Tuple of (modified LiteLLM config path, hook module path).
+    """
+    # Read original config
+    with open(litellm_config_path) as f:
+        config = yaml.safe_load(f) or {}
+
+    # Drop the legacy key: it was never a LiteLLM setting and is ignored.
+    general_settings = config.get("general_settings", {})
+    if general_settings:
+        config["general_settings"] = general_settings
+    else:
+        config.pop("general_settings", None)
+
+    # Add mcp_servers section. Transport defaults to SSE in LiteLLM, but our
+    # registry servers speak streamable HTTP; allow_all_keys lets this run's
+    # per-CRS virtual keys reach the gateway without per-key grants.
+    mcp_servers = {}
+    for mcp_server in mcp_server_configs:
+        mcp_servers[mcp_server.name] = {
+            "url": mcp_server.url,
+            "transport": mcp_server.transport or "http",
+            "allow_all_keys": True,
+        }
+    config["mcp_servers"] = mcp_servers
+
+    # Register the prompt hook (merged with, never replacing, existing config).
+    litellm_settings = config.get("litellm_settings", {})
+    existing_callbacks = litellm_settings.get("callbacks", [])
+    if isinstance(existing_callbacks, str):
+        existing_callbacks = [existing_callbacks]
+    callbacks = list(existing_callbacks) if isinstance(existing_callbacks, list) else []
+    if MCP_HOOK_CALLBACK not in callbacks:
+        callbacks.append(MCP_HOOK_CALLBACK)
+    litellm_settings["callbacks"] = callbacks
+    config["litellm_settings"] = litellm_settings
+
+    # Write modified config
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    # Copy the hook module next to the config so LiteLLM can load it.
+    hook_path = output_path.parent / MCP_HOOK_FILENAME
+    hook_path.write_bytes(_hook_source_path().read_bytes())
+
+    return output_path, hook_path
+
+
 # Maps each exchange data type to the post-processor CRS attribute that handles it.
 # Types not listed here (or whose processor is absent) pass through from exchange_dir.
 _DATA_TYPE_PROCESSOR: dict[str, str] = {
@@ -441,7 +521,6 @@ def render_run_crs_compose_docker_compose(
     llm_context = prepare_llm_context(tmp_docker_compose, crs_compose)
     if llm_context:
         context["llm_context"] = llm_context
-
     module_envs: dict[str, dict[str, str]] = {}
     warnings: list[str] = []
     for crs in crs_compose.crs_list:
@@ -480,6 +559,31 @@ def render_run_crs_compose_docker_compose(
             module_envs[service_name] = env_plan.effective_env
             warnings.extend(env_plan.warnings)
     context["module_envs"] = module_envs
+
+    # Load MCP server configurations (if any)
+    mcp_server_names = getattr(crs_compose.config, "mcp_servers", None) or []
+    if mcp_server_names:
+        mcp_servers = load_mcp_servers(
+            mcp_server_names,
+            get_default_registry_dir(),
+        )
+        context["mcp_servers"] = mcp_servers
+
+        # Modify LiteLLM config to include MCP server connections
+        if llm_context is not None and llm_context.get("litellm_config_path"):
+            if tmp_docker_compose.dir is None:
+                raise RuntimeError(
+                    "Temporary docker compose directory was not initialized"
+                )
+            original_config_path = Path(llm_context["litellm_config_path"])
+            modified_config_path = tmp_docker_compose.dir / "litellm-config-mcp.yaml"
+            _, hook_path = modify_litellm_config_for_mcp(
+                original_config_path,
+                mcp_servers,
+                modified_config_path,
+            )
+            llm_context["litellm_config_path"] = str(modified_config_path)
+            llm_context["mcp_hook_path"] = str(hook_path)
 
     rendered = render_template(template_path, context)
 

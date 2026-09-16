@@ -32,6 +32,8 @@ llm_config:                    # optional
       url_env: <host-env-var-name>
       key: <external-litellm-api-key>         # oneof(key, key_env)
       key_env: <host-env-var-name>
+mcp_servers:                     # optional; requires internal LLM mode
+  - <mcp-server-name>            # see docs/config/mcp.md
 <crs-name>:
   cpuset: <cpu-set>
   memory: <memory-limit>
@@ -95,6 +97,19 @@ llm_config:
     external:
       url_env: LITELLM_URL
       key_env: LITELLM_API_KEY
+```
+
+---
+
+### `mcp_servers` (optional)
+
+List of MCP server names (from `registry/mcp/`) to run as sidecars and
+expose to agents via the LiteLLM gateway and the `libCRS mcp` CLI. Requires
+internal LLM mode. See [MCP servers](mcp.md).
+
+```yaml
+mcp_servers:
+  - ast_grep
 ```
 
 ---

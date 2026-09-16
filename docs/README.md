@@ -23,6 +23,7 @@ For a quick introduction and setup instructions, see the [project README](../REA
 | [CRS (`crs.yaml`)](config/crs.md) | Per-CRS config — prepare, build, and run phases for a single CRS |
 | [Target Project (`project.yaml`)](config/target-project.md) | Target project setup — OSS-Fuzz format and `project.yaml` schema |
 | [LLM (`litellm_config.yaml`)](config/llm.md) | LiteLLM config file format for internal mode (provider routing, API keys, custom endpoints) |
+| [MCP servers](config/mcp.md) | Configuration of user-defined MCP servers |
 
 ## Architecture & Design
 

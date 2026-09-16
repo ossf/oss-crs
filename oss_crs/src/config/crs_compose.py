@@ -179,6 +179,7 @@ class CRSComposeConfig(BaseModel):
     oss_crs_infra: ResourceConfig
     crs_entries: dict[str, CRSEntry] = Field(default_factory=dict)
     llm_config: Optional[LLMConfig] = None
+    mcp_servers: Optional[list[str]] = None
 
     @field_validator("docker_registry")
     @classmethod
@@ -217,10 +218,12 @@ class CRSComposeConfig(BaseModel):
         DOCKER_REGISTRY = "docker_registry"
         OSS_CRS_INFRA = "oss_crs_infra"
         LLM_CONFIG = "llm_config"
+        MCP_SERVERS = "mcp_servers"
         run_env = data.get(RUN_ENV)
         docker_registry = data.get(DOCKER_REGISTRY)
         oss_crs_infra = data.get(OSS_CRS_INFRA)
         llm_config = data.get(LLM_CONFIG)
+        mcp_servers = data.get(MCP_SERVERS)
         # Backward compatibility: old llm_config format
         # llm_config:
         #   litellm_config: /path/to/config.yaml
@@ -235,7 +238,13 @@ class CRSComposeConfig(BaseModel):
                     }
                 }
 
-        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
+        reserved_keys = {
+            RUN_ENV,
+            DOCKER_REGISTRY,
+            OSS_CRS_INFRA,
+            LLM_CONFIG,
+            MCP_SERVERS,
+        }
         crs_entries = {
             key: value for key, value in data.items() if key not in reserved_keys
         }
@@ -246,6 +255,7 @@ class CRSComposeConfig(BaseModel):
             OSS_CRS_INFRA: oss_crs_infra,
             "crs_entries": crs_entries,
             LLM_CONFIG: llm_config,
+            MCP_SERVERS: mcp_servers,
         }
         config = cls.model_validate(payload)
 

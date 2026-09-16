@@ -555,6 +555,68 @@ $ libCRS apply-patch-test /tmp/fix.diff /tmp/test-result
 - `test.sh` is resolved by the builder sidecar (checked at `/src/run_tests.sh`, `/src/test.sh`, `$OSS_CRS_PROJ_PATH/test.sh`).
 - If no test script is found, the sidecar returns a skipped-success result (`retcode=0`) by contract.
 
+### MCP Commands
+
+#### `mcp list` ✅
+
+List MCP gateway tools available to this CRS.
+
+```bash
+$ libCRS mcp list [--server NAME] [--json]
+```
+
+| Argument | Description |
+|---|---|
+| `--server` | Only list tools from this MCP server (name, alias, or id) |
+| `--json` | Print the full tool list as JSON |
+
+**Example:**
+```bash
+$ libCRS mcp list
+```
+
+#### `mcp describe` ✅
+
+Show a tool's description and input schema.
+
+```bash
+$ libCRS mcp describe NAME [--server NAME] [--json]
+```
+
+| Argument | Description |
+|---|---|
+| `NAME` | Tool name |
+| `--server` | MCP server hint (name, alias, or id) |
+| `--json` | Print the full tool entry as JSON |
+
+**Example:**
+```bash
+$ libCRS mcp describe find_code
+```
+
+#### `mcp call` ✅
+
+Call an MCP tool and print its result.
+
+```bash
+$ libCRS mcp call NAME [--server NAME] [--args '<json>'] [--args-file PATH] [--timeout SEC] [--max-output-chars N] [--json]
+```
+
+| Argument | Description |
+|---|---|
+| `NAME` | Tool name |
+| `--server` | MCP server hint; only needed when the tool name is ambiguous across servers |
+| `--args` | Tool arguments as a JSON object string (default: `{}`) |
+| `--args-file` | Read tool arguments from a JSON file (overrides `--args`) |
+| `--timeout` | Request timeout in seconds |
+| `--max-output-chars` | Truncate printed output beyond this many characters (`0` disables; default: 20000) |
+| `--json` | Print the raw JSON result instead of extracted text |
+
+**Example:**
+```bash
+$ libCRS mcp call find_code --args '{"project_folder": "/src", "pattern": "malloc($size)"}'
+```
+
 ## Typical Usage in a CRS
 
 ### During Target Build Phase
