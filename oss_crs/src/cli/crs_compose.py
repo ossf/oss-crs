@@ -235,6 +235,13 @@ def add_run_command(subparsers):
         help="Maximum run duration in seconds. Gracefully stops all containers when exceeded.",
     )
     run.add_argument(
+        "--continue-on-container-exit",
+        action="store_true",
+        default=False,
+        help="Keep running when a single container exits, instead of tearing down "
+        "the whole compose. For multi-CRS ensembles; the run ends at --timeout.",
+    )
+    run.add_argument(
         "--build-id",
         type=str,
         default=None,
@@ -1038,6 +1045,7 @@ def cli() -> bool | int:
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
             web_ui=args.web_ui,
+            continue_on_container_exit=args.continue_on_container_exit,
         )
         if run_rc != 0:
             return run_rc

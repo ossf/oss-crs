@@ -877,6 +877,7 @@ class MultiTaskProgress:
         self,
         project_name: str,
         docker_compose_path: Path,
+        abort_on_container_exit: bool = True,
     ) -> TaskResult:
         helper_services = self._get_teardown_helper_services(docker_compose_path)
         (
@@ -895,8 +896,10 @@ class MultiTaskProgress:
             "-f",
             str(docker_compose_path),
             "up",
-            "--abort-on-container-exit",
         ]
+        # Tears down the whole compose the instant any one container exits.
+        if abort_on_container_exit:
+            cmd.append("--abort-on-container-exit")
         result = self.run_command_with_streaming_output(
             cmd=cmd,
             info_text="Bringing up services with docker-compose",

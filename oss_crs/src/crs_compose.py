@@ -1130,6 +1130,7 @@ class CRSCompose:
         prompt_forward_artifacts: bool = False,
         early_exit: bool = False,
         incremental_build: bool = False,
+        continue_on_container_exit: bool = False,
         web_ui: bool = False,
     ) -> int:
         source_only = self.is_source_only_run(target)
@@ -1262,6 +1263,7 @@ class CRSCompose:
             cgroup_parent=cgroup_parent,
             early_exit=early_exit,
             incremental_build=incremental_build,
+            continue_on_container_exit=continue_on_container_exit,
             web_ui=web_ui,
             source_only=source_only,
         )
@@ -1782,6 +1784,7 @@ class CRSCompose:
         cgroup_parent: bool = False,
         early_exit: bool = False,
         incremental_build: bool = False,
+        continue_on_container_exit: bool = False,
         web_ui: bool = False,
         source_only: bool = False,
     ) -> int:
@@ -1797,6 +1800,7 @@ class CRSCompose:
                 cgroup_parent=cgroup_parent,
                 early_exit=early_exit,
                 incremental_build=incremental_build,
+                continue_on_container_exit=continue_on_container_exit,
                 web_ui=web_ui,
                 source_only=source_only,
             )
@@ -1831,6 +1835,7 @@ class CRSCompose:
         cgroup_parent: bool = False,
         early_exit: bool = False,
         incremental_build: bool = False,
+        continue_on_container_exit: bool = False,
         web_ui: bool = False,
         source_only: bool = False,
     ) -> int:
@@ -1927,7 +1932,10 @@ class CRSCompose:
                     (
                         "Run CRSs!",
                         lambda progress: self.__run_local_running_env(
-                            project_name, tmp_docker_compose, progress
+                            project_name,
+                            tmp_docker_compose,
+                            progress,
+                            continue_on_container_exit=continue_on_container_exit,
                         ),
                     ),
                 ]
@@ -2490,10 +2498,15 @@ class CRSCompose:
         project_name: str,
         tmp_docker_compose: TmpDockerCompose,
         progress: MultiTaskProgress,
+        continue_on_container_exit: bool = False,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
-        ret = progress.docker_compose_up(project_name, docker_compose_path)
+        ret = progress.docker_compose_up(
+            project_name,
+            docker_compose_path,
+            abort_on_container_exit=not continue_on_container_exit,
+        )
         if ret.success:
             return ret
         ret.error = (ret.error or "") + (
