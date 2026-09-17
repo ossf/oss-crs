@@ -181,6 +181,7 @@ def test_source_only_render_omits_build_and_fuzz_mounts(monkeypatch, tmp_path: P
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
         offline=False,
+        extra_ca_certs=None,
         config=SimpleNamespace(
             oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G")
         ),

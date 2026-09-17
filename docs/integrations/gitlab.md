@@ -149,6 +149,10 @@ normally). This was filed as an upstream issue against `ossf/oss-crs`
 startup latency in DooD-based CI environments), with the exact template
 line/values and before/after timing evidence included in the issue itself.
 
+**Related:** that same startup fetch fails outright — rather than slowly — if
+your network terminates TLS with an internal CA the container does not trust.
+See [Endpoints Behind an Internal CA](../llm-providers.md#endpoints-behind-an-internal-ca).
+
 ## Lesson 5: GitLab CE's own memory footprint competes with your CI jobs
 
 **Symptom:** `litellm` and other sidecars fail to start reliably, `docker

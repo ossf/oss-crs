@@ -12,6 +12,7 @@ authors = [
     {name = "Team Atlanta"}
 ]
 dependencies = [
+    "certifi>=2025.1.31",
     "requests>=2.34.2",
     "PyYAML>=6.0.3",
     "Jinja2>=3.1.6",

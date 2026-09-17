@@ -179,6 +179,9 @@ class CRSComposeConfig(BaseModel):
     oss_crs_infra: ResourceConfig
     crs_entries: dict[str, CRSEntry] = Field(default_factory=dict)
     llm_config: Optional[LLMConfig] = None
+    # Host path to a PEM bundle of additional trusted CAs, for endpoints whose
+    # chain is valid but rooted in an internal CA. Supports ~ and ${VAR}.
+    extra_ca_certs: Optional[str] = None
 
     @field_validator("docker_registry")
     @classmethod
@@ -217,6 +220,7 @@ class CRSComposeConfig(BaseModel):
         DOCKER_REGISTRY = "docker_registry"
         OSS_CRS_INFRA = "oss_crs_infra"
         LLM_CONFIG = "llm_config"
+        EXTRA_CA_CERTS = "extra_ca_certs"
         run_env = data.get(RUN_ENV)
         docker_registry = data.get(DOCKER_REGISTRY)
         oss_crs_infra = data.get(OSS_CRS_INFRA)
@@ -235,7 +239,13 @@ class CRSComposeConfig(BaseModel):
                     }
                 }
 
-        reserved_keys = {RUN_ENV, DOCKER_REGISTRY, OSS_CRS_INFRA, LLM_CONFIG}
+        reserved_keys = {
+            RUN_ENV,
+            DOCKER_REGISTRY,
+            OSS_CRS_INFRA,
+            LLM_CONFIG,
+            EXTRA_CA_CERTS,
+        }
         crs_entries = {
             key: value for key, value in data.items() if key not in reserved_keys
         }
@@ -246,6 +256,7 @@ class CRSComposeConfig(BaseModel):
             OSS_CRS_INFRA: oss_crs_infra,
             "crs_entries": crs_entries,
             LLM_CONFIG: llm_config,
+            EXTRA_CA_CERTS: data.get(EXTRA_CA_CERTS),
         }
         config = cls.model_validate(payload)
 
@@ -261,7 +272,15 @@ class CRSComposeConfig(BaseModel):
         config_json = self.model_dump(exclude_none=True, mode="json")
         config_json = remove_keys(
             config_json,
-            ["cpuset", "llm_budget", "memory", "additional_env", "llm_config"],
+            [
+                "cpuset",
+                "llm_budget",
+                "memory",
+                "additional_env",
+                "llm_config",
+                # A host-specific trust anchor must not relocate the workdir.
+                "extra_ca_certs",
+            ],
         )
         config_json = json.dumps(config_json)
         return hashlib.md5(config_json.encode()).hexdigest()[:12]

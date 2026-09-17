@@ -47,6 +47,17 @@ def add_common_arguments(parser):
         help="Disables network access for CRS Compose operations",
         action="store_true",
     )
+    parser.add_argument(
+        "--extra-ca-certs",
+        type=Path,
+        required=False,
+        default=None,
+        help=(
+            "Path to a PEM bundle of additional trusted CAs, for LLM endpoints "
+            "whose certificate chains to an internal CA. Overrides "
+            "extra_ca_certs in the compose file and $OSS_CRS_EXTRA_CA_CERTS"
+        ),
+    )
 
 
 def add_target_arguments(parser, *, require_fuzz_proj: bool = True):
@@ -930,6 +941,7 @@ def cli() -> bool | int:
         args.work_dir,
         skip_crs_init=skip_crs_init,
         offline=args.offline,
+        extra_ca_certs=args.extra_ca_certs,
     )
 
     if args.command == "prepare":

@@ -3,6 +3,10 @@
 
 import json
 import copy
+import ssl
+import urllib.error
+import urllib.request
+
 import pytest
 
 from oss_crs.src.config.crs_compose import LLMConfig
@@ -13,6 +17,28 @@ from oss_crs.src.llm import (
     _provider_for_model,
     _provider_for_key_env,
 )
+
+# Throwaway self-signed root standing in for an internal corporate CA.
+ORG_PEM = """-----BEGIN CERTIFICATE-----
+MIIDITCCAgmgAwIBAgIUFIm2taiQM0C9/rotoz86lGwsnCEwDQYJKoZIhvcNAQEL
+BQAwHzEdMBsGA1UEAwwUT1NTLUNSUyBUZXN0IFJvb3QgQ0EwIBcNMjYwOTA4MTgy
+OTA1WhgPMjEyNjA4MTUxODI5MDVaMB8xHTAbBgNVBAMMFE9TUy1DUlMgVGVzdCBS
+b290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2ukyNzZ7Q+jR
+7lgZOLaG8QBuNDoDzpvZsqP3n9kpde2XYSgUPL48LaJvFPPi6W2Kjzmw8627NeiB
+TgNGLvIazFwV9cB5ewaZ5R3lsMBsGBNvQl/u33lQEJUjED/1aWTjg1Y4B0Ap+ePL
+FEbJ1f8XvapZNh0xfrGjbb1VXMM11YPc4Ch1s9iJafAZyPp4THLV/TCci8K30hX/
++ABSba9ylu4BMSuANg32Our2vIV+uCVB6NT2TPUIoZSy8yXv5W/8GSJkA5CvwKDN
+7ZnzlNnCmbyH9fTwhgnLbuaAM8ghJrRGkY3eSMdAoAGITOzNVnRPX6Hmad9kjW9u
+FVs+7QClXwIDAQABo1MwUTAdBgNVHQ4EFgQU9IOeUvM0OzmFwnqj2KQtR24lbEEw
+HwYDVR0jBBgwFoAU9IOeUvM0OzmFwnqj2KQtR24lbEEwDwYDVR0TAQH/BAUwAwEB
+/zANBgkqhkiG9w0BAQsFAAOCAQEARNlypYVCjZoSYR3p5bXMYOs0G1zwHG5i3qOb
+xEGlV5R/USJvKmhp8iTjOr+wC5+GyE9/XmDuvTVd2Ulz0t9e2KDQ91N9/+7jEnE4
+xCKpYUTuqA15bJnV35AI2AAqWM6geEHsBXsVUZZ7nOW2N59yfcpSxg9lMA075FlH
+oGlHWSnIrEY9rCnsvgLkAjdbwlUAEfJCfwJgrg3hBw8XLMEqAPoeFYr99tAWC3Sm
+wjO6cXjGzKOlC/D9Ggyd1aNcA4FAc0fU/3mcAorezAF8/DhdL5tbiIpLR4RlmW7h
+KoGue9uNO0OkjB6OAUIAWFaIpZCDRiyVq7wemyJ8pL7/SnW3FA==
+-----END CERTIFICATE-----
+"""
 
 
 class _FakeCRSConfig:
@@ -76,7 +102,7 @@ def test_external_mode_validates_required_llms_via_models_endpoint(monkeypatch):
     monkeypatch.setenv("LITELLM_URL", "https://litellm.example.com")
     monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
 
-    def _fake_urlopen(request, timeout=30):
+    def _fake_urlopen(request, timeout=30, context=None):
         assert request.full_url == "https://litellm.example.com/models"
         return _FakeHTTPResponse(
             {
@@ -307,3 +333,83 @@ class TestOverrideLitellmProxy:
         gpt = result["model_list"][1]
         assert gpt["litellm_params"]["api_key"] == "os.environ/PROXY_KEY"
         assert gpt["litellm_params"]["api_base"] == "os.environ/PROXY_BASE"
+
+
+class TestExternalModelFetchTLS:
+    """The external /models probe is the one host-side outbound HTTPS call."""
+
+    @staticmethod
+    def _external_llm(monkeypatch, extra_ca_certs=None):
+        monkeypatch.setenv("EXT_URL", "https://litellm.corp.example/v1")
+        monkeypatch.setenv("EXT_KEY", "sk-ext")
+        config = LLMConfig.model_validate(
+            {
+                "litellm": {
+                    "mode": "external",
+                    "external": {"url_env": "EXT_URL", "key_env": "EXT_KEY"},
+                }
+            }
+        )
+        return LLM(config, extra_ca_certs=extra_ca_certs)
+
+    def test_passes_ssl_context_built_from_extra_ca(self, monkeypatch, tmp_path):
+        pem = tmp_path / "corp.pem"
+        pem.write_text(ORG_PEM)
+        llm = self._external_llm(monkeypatch, extra_ca_certs=pem)
+        seen = {}
+
+        def fake_urlopen(request, timeout=None, context=None):
+            seen["context"] = context
+            raise urllib.error.URLError("stop here")
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        assert llm._fetch_external_models() is None
+
+        context = seen["context"]
+        assert isinstance(context, ssl.SSLContext)
+        # Additive: the org CA is trusted without discarding the public roots.
+        default_cas = ssl.create_default_context().cert_store_stats()["x509_ca"]
+        assert context.cert_store_stats()["x509_ca"] > default_cas
+        assert context.verify_mode == ssl.CERT_REQUIRED
+
+    def test_uses_default_context_without_extra_ca(self, monkeypatch):
+        llm = self._external_llm(monkeypatch)
+        seen = {}
+
+        def fake_urlopen(request, timeout=None, context=None):
+            seen["context"] = context
+            raise urllib.error.URLError("stop here")
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        llm._fetch_external_models()
+        assert seen["context"] is None
+
+    def test_cert_failure_names_the_setting(self, monkeypatch):
+        """A cert error must point at the fix, not leave the user guessing."""
+        llm = self._external_llm(monkeypatch)
+
+        def fake_urlopen(request, timeout=None, context=None):
+            raise urllib.error.URLError(
+                ssl.SSLCertVerificationError("unable to get local issuer certificate")
+            )
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        result = llm.validate_required_llms([_FakeCRS(["gpt-4o"])])
+
+        assert result.success is False
+        assert "certificate verification failed" in (result.error or "")
+        assert "--extra-ca-certs" in (result.error or "")
+        assert "OSS_CRS_EXTRA_CA_CERTS" in (result.error or "")
+
+    def test_non_cert_failure_keeps_its_own_reason(self, monkeypatch):
+        llm = self._external_llm(monkeypatch)
+
+        def fake_urlopen(request, timeout=None, context=None):
+            raise urllib.error.URLError("Connection refused")
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        result = llm.validate_required_llms([_FakeCRS(["gpt-4o"])])
+
+        assert result.success is False
+        assert "Connection refused" in (result.error or "")
+        assert "--extra-ca-certs" not in (result.error or "")
