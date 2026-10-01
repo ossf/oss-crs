@@ -212,6 +212,20 @@ LiteLLM integration modes:
 - **External mode**: OSS-CRS injects externally provided `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY_FILE`, and does not start internal LiteLLM sidecars.
 - **Disabled mode** (`llm_config: null`): OSS-CRS performs no LiteLLM validation or sidecar setup.
 
+#### Spend and token reporting
+
+`litellm-key-gen` polls LiteLLM every few seconds and writes a host-recoverable `litellm-spend-report.json` per run (`<run_dir>/litellm-spend-report.json`):
+
+```json
+{"totals": {"credits_used": 0.0, "prompt_tokens": 251234,
+            "completion_tokens": 70112},
+ "crs": {"<crs-name>": {<same three fields>}},
+ "updated_at": 1788559707}
+```
+
+- `credits_used` is determined by the number/kind of tokens and LiteLLM's model cost map. `prompt_tokens`/`completion_tokens` come straight from provider `usage` in the spend logs. The total number of tokens is always prompt + completion. Models missing from the cost map report `credits_used == 0` alongside real token counts.
+- The report lags live traffic by at most one poll interval: the sidecar performs a final forced poll on shutdown.
+
 ### Pinned Infrastructure Images
 
 The LiteLLM and PostgreSQL container images are pinned by digest in

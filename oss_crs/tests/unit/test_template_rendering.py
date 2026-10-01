@@ -276,12 +276,80 @@ class TestMountInfrastructure:
             "postgres_port": 5432,
             "postgres_host": "postgres.oss-crs-infra-only",
             "litellm_internal_url": "http://litellm.oss-crs:4000",
-            "litellm_spend_report_path": "/spend/litellm-spend-report.json",
+            "litellm_spend_report_dir": "/spend",
             "sidecar_env": {},
         }
         rendered = template.render(context)
 
         assert "image: oss-crs-litellm-key-gen:latest" in rendered
+
+    def test_spend_report_uses_parent_dir_mounts(self, jinja_env):
+        """Spend report is shared as a parent-dir mount, never a file mount.
+
+        The key-gen sidecar writes the report with atomic os.replace, which
+        fails with EBUSY on a bind-mounted file; a file mount on the
+        publisher side would likewise pin a stale inode across swaps.
+        """
+        from types import SimpleNamespace
+
+        template = jinja_env.get_template("run-crs-compose.docker-compose.yaml.j2")
+        llm_context = SimpleNamespace(
+            mode="internal",
+            litellm_env_secret_files={},
+            litellm_config_path="/cfg/litellm.yaml",
+            key_gen_request_path="/req/key_gen_request.yaml",
+            secret_files={},
+            master_key_file="/secrets/master_key",
+            postgres_password_file="/secrets/pg_password",
+        )
+        context = {
+            "libCRS_path": "/libcrs",
+            "crs_compose_name": "crs_compose_run123",
+            "crs_list": [],
+            "crs_compose_env": {"type": "local"},
+            "target_env": {},
+            "target": _MockTarget(proj_path="/home/user/myproject", has_repo=False),
+            "work_dir": _MockWorkDir(),
+            "run_id": "run-123",
+            "build_id": "build-123",
+            "sanitizer": "address",
+            "oss_crs_infra_root_path": "/oss-crs-infra",
+            "infra_sidecar_images": {},
+            "snapshot_image_tag": "",
+            "resolve_dockerfile": lambda c, d: str(c) + "/" + str(d),
+            "run_module_image": lambda n, m, mc: f"oss-crs-runner:{n}-{m}",
+            "fetch_dir": "",
+            "exchange_dir": "",
+            "fetch_dir_mounts": {},
+            "processed_exchange_dir": None,
+            "bug_finding_ensemble": False,
+            "bug_fix_ensemble": False,
+            "cgroup_parents": None,
+            "module_envs": {},
+            "fuzz_proj_path": "/home/user/myproject",
+            "target_source_path": "/extracted/source",
+            "llm_context": llm_context,
+            "litellm_image": "litellm@sha256:abc",
+            "postgres_image": "postgres@sha256:def",
+            "postgres_user": "crs",
+            "postgres_port": 5432,
+            "postgres_host": "postgres.oss-crs-infra-only",
+            "litellm_internal_url": "http://litellm.oss-crs:4000",
+            "litellm_spend_report_dir": "/host/runs/run-123",
+            "sidecar_env": {},
+            "web_ui": True,
+            "webui_url": "http://webui.example.com",
+            "webui_uid": 1000,
+            "webui_gid": 1000,
+            "webui_log_dir": "/host/webui-logs",
+            "crs_resources": {},
+        }
+        rendered = template.render(context)
+
+        assert "LITELLM_SPEND_REPORT_PATH=/spend/litellm-spend-report.json" in rendered
+        assert "/host/runs/run-123:/spend:rw" in rendered
+        assert "/host/runs/run-123:/spend:ro" in rendered
+        assert ":/litellm-spend-report.json:" not in rendered
 
     def test_target_source_mount_always_present(self, jinja_env):
         """target_source_path volume mount should always appear unconditionally."""
