@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import json
 import os
 import sys
 import argparse
@@ -6,6 +7,7 @@ from pathlib import Path
 from ..base import DataType, SourceType, CRSUtils
 from ..local import LocalCRSUtils
 from ..common import get_run_env_type, EnvType
+from ..mcp import MCPClient, MCPGatewayError
 
 
 def init_crs_utils() -> CRSUtils:
@@ -66,8 +68,137 @@ def get_service_domain(crs_utils, args):
     print(domain)
 
 
+# =========================================================================
+# MCP gateway command handlers
+# =========================================================================
+
+_MCP_TRUNCATION_NOTE = (
+    "\n[libCRS mcp: output truncated at {limit} characters; "
+    "rerun with --max-output-chars 0 for the full output]"
+)
+
+
+def _mcp_client_from_env():
+    client = MCPClient.from_env()
+    if not client.is_enabled():
+        raise MCPGatewayError(
+            "MCP gateway is not configured in this environment "
+            "(OSS_CRS_LLM_API_URL and OSS_CRS_LLM_API_KEY_FILE / "
+            "OSS_CRS_LLM_API_KEY are missing)"
+        )
+    return client
+
+
+def _run_mcp(func, args):
+    try:
+        func(args)
+    except MCPGatewayError as e:
+        print(f"libCRS mcp: error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _print_truncated(text: str, max_chars: int) -> None:
+    if max_chars and max_chars > 0 and len(text) > max_chars:
+        print(text[:max_chars] + _MCP_TRUNCATION_NOTE.format(limit=max_chars))
+    else:
+        print(text)
+
+
+def _mcp_list(args) -> None:
+    """`libCRS mcp list`: print available tool names (or full JSON)."""
+    client = _mcp_client_from_env()
+    tools = client.list_tools(getattr(args, "server", None))
+    if getattr(args, "json", False):
+        _print_truncated(
+            json.dumps(tools, indent=2), getattr(args, "max_output_chars", 20000) or 0
+        )
+        return
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        name = tool.get("name", "?")
+        desc = (tool.get("description") or "").splitlines()
+        print(f"{name} - {desc[0] if desc else ''}".rstrip(" -"))
+
+
+def _mcp_describe(args) -> None:
+    """`libCRS mcp describe`: print one tool's description + input schema."""
+    client = _mcp_client_from_env()
+    tool = client.describe(args.name, getattr(args, "server", None))
+    if getattr(args, "json", False):
+        print(json.dumps(tool, indent=2))
+        return
+    print(f"Tool: {tool.get('name', args.name)}")
+    info = tool.get("mcp_info") or {}
+    server = info.get("alias") or info.get("server_id") or "?"
+    print(f"Server: {server}")
+    if tool.get("description"):
+        print(f"Description: {tool['description']}")
+    print("Input schema:")
+    print(json.dumps(tool.get("inputSchema", {}), indent=2))
+
+
+def _mcp_call(args) -> None:
+    """`libCRS mcp call`: invoke a tool and print its result as text."""
+    if getattr(args, "args_file", None):
+        try:
+            arguments = json.loads(Path(args.args_file).read_text())
+        except (OSError, ValueError) as e:
+            print(f"libCRS mcp: error: cannot read --args-file: {e}", file=sys.stderr)
+            sys.exit(2)
+    else:
+        try:
+            arguments = json.loads(getattr(args, "args", "{}"))
+        except ValueError as e:
+            print(f"libCRS mcp: error: --args is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(2)
+    if not isinstance(arguments, dict):
+        print(
+            "libCRS mcp: error: tool arguments must be a JSON object",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    client = _mcp_client_from_env()
+    result = client.call_tool(
+        args.name,
+        arguments,
+        getattr(args, "server", None),
+        timeout=getattr(args, "timeout", None),
+    )
+    if getattr(args, "json", False):
+        _print_truncated(
+            json.dumps(result, indent=2), getattr(args, "max_output_chars", 0) or 0
+        )
+        return
+    _print_truncated(
+        _extract_result_text(result), getattr(args, "max_output_chars", 20000) or 0
+    )
+
+
+def _extract_result_text(result) -> str:
+    """Best-effort text rendering of an MCP CallToolResult for agents."""
+    if isinstance(result, str):
+        return result
+    if not isinstance(result, dict):
+        return json.dumps(result, indent=2)
+    parts = []
+    for block in result.get("content", []) or []:
+        if not isinstance(block, dict):
+            parts.append(json.dumps(block))
+        elif block.get("type") == "text":
+            parts.append(str(block.get("text", "")))
+        else:
+            parts.append(json.dumps(block))
+    if parts:
+        return "\n".join(parts)
+    structured = result.get("structuredContent")
+    if structured is not None:
+        return json.dumps(structured, indent=2)
+    return json.dumps(result, indent=2)
+
+
 def main():
-    crs_utils = init_crs_utils()
     parser = argparse.ArgumentParser(
         prog="libCRS", description="libCRS - CRS utilities"
     )
@@ -522,14 +653,117 @@ def main():
         func=lambda args: get_service_domain(crs_utils, args)
     )
 
+    # =========================================================================
+    # MCP gateway commands (no CRS utils needed: the gateway is reached with
+    # the framework-injected LLM endpoint + per-CRS key)
+    # =========================================================================
+
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Discover and call MCP tools via the OSS-CRS MCP gateway",
+    )
+    mcp_subparsers = mcp_parser.add_subparsers(
+        dest="mcp_command", help="MCP gateway operations"
+    )
+
+    mcp_list_parser = mcp_subparsers.add_parser(
+        "list", help="List MCP tools available to this CRS"
+    )
+    mcp_list_parser.add_argument(
+        "--server",
+        type=str,
+        default=None,
+        help="Only list tools from this MCP server (name, alias or id)",
+    )
+    mcp_list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full tool list as JSON",
+    )
+    mcp_list_parser.add_argument(
+        "--max-output-chars",
+        type=int,
+        default=20000,
+        help="Truncate printed output beyond this many characters "
+        "(0 disables truncation; default: 20000)",
+    )
+    mcp_list_parser.set_defaults(func=_mcp_list)
+
+    mcp_describe_parser = mcp_subparsers.add_parser(
+        "describe", help="Show a tool's description and input schema"
+    )
+    mcp_describe_parser.add_argument("name", help="Tool name")
+    mcp_describe_parser.add_argument(
+        "--server",
+        type=str,
+        default=None,
+        help="MCP server hint (name, alias or id)",
+    )
+    mcp_describe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full tool entry as JSON",
+    )
+    mcp_describe_parser.set_defaults(func=_mcp_describe)
+
+    mcp_call_parser = mcp_subparsers.add_parser(
+        "call", help="Call an MCP tool and print its result"
+    )
+    mcp_call_parser.add_argument("name", help="Tool name")
+    mcp_call_parser.add_argument(
+        "--server",
+        type=str,
+        default=None,
+        help="MCP server hint (name, alias or id)",
+    )
+    mcp_call_parser.add_argument(
+        "--args",
+        type=str,
+        default="{}",
+        help="Tool arguments as a JSON object string (default: {})",
+    )
+    mcp_call_parser.add_argument(
+        "--args-file",
+        type=Path,
+        default=None,
+        help="Read tool arguments from a JSON file (overrides --args)",
+    )
+    mcp_call_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Request timeout in seconds",
+    )
+    mcp_call_parser.add_argument(
+        "--max-output-chars",
+        type=int,
+        default=20000,
+        help="Truncate printed output beyond this many characters "
+        "(0 disables truncation; default: 20000)",
+    )
+    mcp_call_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the raw JSON result instead of extracted text",
+    )
+    mcp_call_parser.set_defaults(func=_mcp_call)
+
     args = parser.parse_args()
 
     if args.command is None:
         parser.print_help()
         return
 
-    else:
-        args.func(args)
+    if args.command == "mcp":
+        if getattr(args, "mcp_command", None) is None:
+            mcp_parser.print_help()
+            return
+        _run_mcp(args.func, args)
+        return
+
+    # All other commands need CRS utils (requires OSS_CRS_RUN_ENV_TYPE).
+    crs_utils = init_crs_utils()
+    args.func(args)
 
 
 if __name__ == "__main__":

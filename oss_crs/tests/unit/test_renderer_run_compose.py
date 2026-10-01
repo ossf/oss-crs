@@ -31,7 +31,9 @@ def _patch_renderer(monkeypatch, build_env_fn=None, llm_context_fn=None):
     )
 
 
-def _make_crs_compose(tmp_path: Path, crs_list: list) -> SimpleNamespace:
+def _make_crs_compose(
+    tmp_path: Path, crs_list: list, mcp_servers: list | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         crs_list=crs_list,
         work_dir=SimpleNamespace(
@@ -51,7 +53,8 @@ def _make_crs_compose(tmp_path: Path, crs_list: list) -> SimpleNamespace:
         llm=SimpleNamespace(exists=lambda: False, mode="external"),
         offline=False,
         config=SimpleNamespace(
-            oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G")
+            oss_crs_infra=SimpleNamespace(cpuset="0-1", memory="16G"),
+            mcp_servers=mcp_servers,
         ),
     )
 
@@ -1024,3 +1027,161 @@ def test_no_harness_run_does_not_inject_harness_env(
     assert "oss-crs-exchange" in compose_data["services"]
     assert "oss-crs-builder-sidecar" not in compose_data["services"]
     assert "oss-crs-runner-sidecar" not in compose_data["services"]
+
+
+def test_mcp_servers_rendered_in_compose(monkeypatch, tmp_path: Path) -> None:
+    """MCP servers from the compose config are rendered as services."""
+    _patch_renderer(monkeypatch)
+
+    # Create a mock MCP registry entry
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "ripgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "ripgrep",
+                "image": "ghcr.io/oss-crs/mcp-ripgrep:latest",
+                "url": "http://ripgrep:8000/mcp",
+                "source_path": "/OSS_CRS_TARGET_SOURCE",
+            },
+            f,
+        )
+
+    # Patch get_default_registry_dir to return our test registry
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+
+    crs = _make_crs(tmp_path, "crs-claude-code")
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["ripgrep"])
+    target = _make_target(tmp_path, has_repo=True)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    compose_data = yaml.safe_load(rendered)
+    services = compose_data["services"]
+
+    # MCP server service should be rendered
+    assert "mcp-ripgrep" in services
+    mcp_service = services["mcp-ripgrep"]
+    assert mcp_service["image"] == "ghcr.io/oss-crs/mcp-ripgrep:latest"
+    # source_path means the target source is mounted at that path
+    assert any(
+        ":/OSS_CRS_TARGET_SOURCE:ro" in v for v in mcp_service.get("volumes", [])
+    )
+    # MCP server should be on the infra-only network
+    assert "proj-infra-only-network" in mcp_service.get("networks", {})
+
+
+def test_mcp_servers_not_rendered_when_empty(monkeypatch, tmp_path: Path) -> None:
+    """No MCP services are rendered when mcp_servers is empty or missing."""
+    _patch_renderer(monkeypatch)
+
+    crs = _make_crs(tmp_path, "crs-claude-code")
+    target = _make_target(tmp_path, has_repo=True)
+
+    # No mcp_servers specified
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    rendered, _ = _render(crs_compose, target, tmp_path)
+    compose_data = yaml.safe_load(rendered)
+    mcp_services = [
+        name for name in compose_data.get("services", {}) if name.startswith("mcp-")
+    ]
+    assert mcp_services == []
+
+    # Empty mcp_servers list
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=[])
+    rendered, _ = _render(crs_compose, target, tmp_path)
+    compose_data = yaml.safe_load(rendered)
+    mcp_services = [
+        name for name in compose_data.get("services", {}) if name.startswith("mcp-")
+    ]
+    assert mcp_services == []
+
+
+def test_mcp_command_rendered(monkeypatch, tmp_path: Path) -> None:
+    """MCP server command override is rendered."""
+    _patch_renderer(monkeypatch)
+
+    # Create mock MCP registry entry with command override
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "semgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "semgrep",
+                "image": "semgrep/semgrep",
+                "url": "http://semgrep:8000/mcp",
+                "command": ["semgrep", "mcp"],
+            },
+            f,
+        )
+
+    # Patch get_default_registry_dir to return our test registry
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+
+    crs = _make_crs(tmp_path, "crs-claude-code")
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["semgrep"])
+    target = _make_target(tmp_path, has_repo=True)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    compose_data = yaml.safe_load(rendered)
+    services = compose_data["services"]
+
+    # Semgrep MCP server should be rendered with command override
+    assert "mcp-semgrep" in services
+    semgrep_service = services["mcp-semgrep"]
+    assert semgrep_service["image"] == "semgrep/semgrep"
+    assert semgrep_service["command"] == ["semgrep", "mcp"]
+
+
+def test_mcp_hook_mounted_for_internal_llm(monkeypatch, tmp_path: Path) -> None:
+    """With MCP servers + internal LiteLLM, the prompt hook is mounted."""
+    _patch_renderer(monkeypatch, llm_context_fn=_internal_llm_context(tmp_path))
+
+    # The internal context points at a config file; it must exist for the
+    # MCP config rewrite to read it.
+    (tmp_path / "litellm-config.yaml").write_text("model_list: []\n")
+
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "ripgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "ripgrep",
+                "image": "ghcr.io/oss-crs/mcp-ripgrep:latest",
+                "url": "http://ripgrep:8000/mcp",
+                "source_path": "/OSS_CRS_TARGET_SOURCE",
+            },
+            f,
+        )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+
+    crs = _make_crs(tmp_path, "crs-claude-code")
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["ripgrep"])
+    target = _make_target(tmp_path, has_repo=True)
+
+    rendered, warnings = _render(crs_compose, target, tmp_path)
+    assert warnings == []
+
+    compose_data = yaml.safe_load(rendered)
+    litellm_service = compose_data["services"]["oss-crs-litellm"]
+    volumes = litellm_service.get("volumes", [])
+    # Generated MCP config is mounted as the proxy config...
+    assert any(v.endswith(":/app/config.yaml:ro") for v in volumes)
+    # ...and the prompt hook module sits beside it.
+    hook_mounts = [v for v in volumes if v.endswith(":/app/oss_crs_mcp_hook.py:ro")]
+    assert len(hook_mounts) == 1
+    hook_host_path = Path(hook_mounts[0].split(":")[0])
+    assert hook_host_path.exists()
+    assert "proxy_handler_instance" in hook_host_path.read_text()

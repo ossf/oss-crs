@@ -104,6 +104,9 @@ services:
 {%- endfor %}
     volumes:
       - {{ llm_context.litellm_config_path }}:/app/config.yaml:ro
+{%- if llm_context.mcp_hook_path is defined %}
+      - {{ llm_context.mcp_hook_path }}:/app/oss_crs_mcp_hook.py:ro
+{%- endif %}
     networks:
       {{ crs_compose_name }}-infra-only-network:
       {{ crs_compose_name }}-network:
@@ -366,6 +369,28 @@ services:
         aliases:
 {%- for crs in crs_list %}
           - runner-sidecar.{{ crs.name }}
+{%- endfor %}
+{%- endif %}
+  ###########################################
+  # MCP SERVERS
+  ###########################################
+{%- if mcp_servers is defined and mcp_servers %}
+{%- for mcp_server in mcp_servers %}
+  mcp-{{ mcp_server.name }}:
+    image: {{ mcp_server.image }}
+    attach: false
+    restart: on-failure:3
+{%- if mcp_server.command %}
+    command: {{ mcp_server.command | tojson }}
+{%- endif %}
+{%- if mcp_server.source_path %}
+    volumes:
+      - {{ target_source_path }}:{{ mcp_server.source_path }}:ro
+{%- endif %}
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+        aliases:
+          - {{ mcp_server.name }}
 {%- endfor %}
 {%- endif %}
 {%- if llm_context is defined %}

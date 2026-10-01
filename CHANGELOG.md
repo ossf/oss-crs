@@ -14,6 +14,8 @@ stricter subset of Keep a Changelog).
 - `--offline` flag for all subcommands: disables git fetch
 - `oss-crs build-target` now validates `--bug-candidate`/`--bug-candidate-dir` the same way `oss-crs run` does: a missing path, or a directory passed to `--bug-candidate` (or a file passed to `--bug-candidate-dir`), fails before any container starts instead of being silently ignored.
 - `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
+- Added support for user-defined MCP servers
+- `libCRS mcp list|describe|call` — discover, inspect, and invoke LiteLLM MCP gateway tools
 
 ### Added
 - `oss-crs list-harnesses --fuzz-proj-path <PATH_TO_PROJ>` — builds an OSS-Fuzz project through its default Docker compile path and lists its runnable fuzz harnesses, reusing cached build artifacts until the project inputs or repository HEAD change.
