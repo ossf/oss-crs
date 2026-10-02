@@ -510,6 +510,7 @@ name = "oss-crs"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "docker" },
     { name = "gitpython" },
     { name = "jinja2" },
@@ -537,6 +538,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2025.1.31" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "gitpython", specifier = ">=3.1.58" },
     { name = "jinja2", specifier = ">=3.1.6" },
