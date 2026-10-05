@@ -208,3 +208,9 @@ class TestSSLContext:
         assert context.cert_store_stats()["x509_ca"] >= default_cas
         assert context.verify_mode == ssl.CERT_REQUIRED
         assert context.check_hostname is True
+
+    def test_forces_strict_x509_on_every_python(self, tmp_path) -> None:
+        """3.12 defaults to lenient, 3.13+ to strict; the check must not vary."""
+        context = ssl_context(_write_pem(tmp_path))
+        assert context is not None
+        assert context.verify_flags & ssl.VERIFY_X509_STRICT

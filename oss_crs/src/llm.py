@@ -362,8 +362,8 @@ class LLM:
                 self.fetch_error = (
                     f"TLS certificate verification failed: {e.reason}. "
                     "The CA was found, but a certificate in the chain fails the "
-                    "strict X.509 checks Python 3.13+ applies, as do LiteLLM and "
-                    "the CRS containers, so it must be reissued. See "
+                    "strict X.509 checks that Python 3.13+ applies by default, as do "
+                    "LiteLLM and Python CRSs, so it must be reissued. See "
                     "'Certificate requirements' in docs/llm-providers.md."
                 )
             elif isinstance(e.reason, ssl.SSLCertVerificationError):

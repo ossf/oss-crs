@@ -120,9 +120,10 @@ openssl req -x509 -newkey rsa:4096 -nodes -keyout ca.key -out ca.pem -days 365 \
 ```
 
 and sign the server certificate with `authorityKeyIdentifier=keyid` in its extensions
-(the default for `openssl x509 -req` from OpenSSL 3.0). The `/models` check reports
-either failure as needing a reissued certificate; there is no setting to relax it,
-because LiteLLM and the CRSs would reject the same certificate later.
+(the default for `openssl x509 -req` from OpenSSL 3.0). The `/models` check applies
+strict mode whatever Python runs `oss-crs`, and reports either failure as needing a
+reissued certificate; there is no setting to relax it, because LiteLLM and the CRSs
+would reject the same certificate later.
 
 ## What this covers
 

@@ -31,9 +31,9 @@ CA_EXTRA_NAME = "extra.pem"
 PEM_MARKER = "-----BEGIN CERTIFICATE-----"
 
 # OpenSSL verify codes raised only under X509_V_FLAG_X509_STRICT, which Python
-# 3.13+ (and urllib3/httpx on it) enable by default. They mean the chain was
-# found but a certificate in it is malformed, so pointing at the CA again won't
-# help; the certificate has to be reissued.
+# 3.13+ (and urllib3/httpx on it) enable by default and ssl_context() forces.
+# They mean the chain was found but a certificate in it is malformed, so
+# pointing at the CA again won't help; the certificate has to be reissued.
 STRICT_VERIFY_CODES = {
     85,  # X509_V_ERR_MISSING_AUTHORITY_KEY_IDENTIFIER
     92,  # X509_V_ERR_CA_CERT_MISSING_KEY_USAGE: `openssl req -x509` default
@@ -161,9 +161,14 @@ def ssl_context(extra_ca_certs: Optional[Path]) -> Optional[ssl.SSLContext]:
     ``load_verify_locations`` is additive on a default context, so no merged
     bundle is needed here. Returns None when no extra CA is configured, letting
     callers fall back to the default context.
+
+    Strict X.509 checking is forced on so the result does not depend on the
+    host's Python: 3.13+ enables it by default, and so do LiteLLM and Python
+    CRSs running on it, so a chain that passes only without it fails later.
     """
     if extra_ca_certs is None:
         return None
     context = ssl.create_default_context()
     context.load_verify_locations(cafile=str(extra_ca_certs))
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
     return context
