@@ -100,6 +100,30 @@ variable. The path is validated before any container starts: a missing file, or 
 OpenSSL cannot parse, fails immediately rather than surfacing as a TLS error an hour
 into a run.
 
+## Certificate requirements
+
+Python 3.13+ verifies certificates in strict X.509 mode, and so do `urllib3` and
+`httpx` running on it, which includes LiteLLM and most Python-based CRSs. Strict mode
+rejects two certificates that older clients, curl, and Node accept:
+
+- a CA certificate without a `keyUsage` extension, the default output of a bare
+  `openssl req -x509` ("CA cert does not include key usage extension");
+- a server certificate without an Authority Key Identifier ("Missing Authority Key
+  Identifier").
+
+Corporate CAs normally comply already. If you minted a test CA yourself, issue it with
+the extension:
+
+```sh
+openssl req -x509 -newkey rsa:4096 -nodes -keyout ca.key -out ca.pem -days 365 \
+  -subj "/CN=Test CA" -addext "keyUsage=critical,keyCertSign,cRLSign"
+```
+
+and sign the server certificate with `authorityKeyIdentifier=keyid` in its extensions
+(the default for `openssl x509 -req` from OpenSSL 3.0). The `/models` check reports
+either failure as needing a reissued certificate; there is no setting to relax it,
+because LiteLLM and the CRSs would reject the same certificate later.
+
 ## What this covers
 
 OSS-CRS mounts the CA read-only at `/etc/oss-crs/ca` in the internal LiteLLM proxy and

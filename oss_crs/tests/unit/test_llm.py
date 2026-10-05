@@ -401,6 +401,28 @@ class TestExternalModelFetchTLS:
         assert "--extra-ca-certs" in (result.error or "")
         assert "OSS_CRS_EXTRA_CA_CERTS" in (result.error or "")
 
+    def test_strict_x509_failure_asks_for_reissue(self, monkeypatch, tmp_path):
+        """Python 3.13+ rejects a CA without keyUsage, which `openssl req -x509`
+        omits. The CA is already configured, so re-suggesting it would loop."""
+        pem = tmp_path / "corp.pem"
+        pem.write_text(ORG_PEM)
+        llm = self._external_llm(monkeypatch, extra_ca_certs=pem)
+        error = ssl.SSLCertVerificationError(
+            "certificate verify failed: CA cert does not include key usage extension"
+        )
+        error.verify_code = 92
+
+        def fake_urlopen(request, timeout=None, context=None):
+            raise urllib.error.URLError(error)
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        result = llm.validate_required_llms([_FakeCRS(["gpt-4o"])])
+
+        assert result.success is False
+        assert "key usage" in (result.error or "")
+        assert "reissued" in (result.error or "")
+        assert "--extra-ca-certs" not in (result.error or "")
+
     def test_non_cert_failure_keeps_its_own_reason(self, monkeypatch):
         llm = self._external_llm(monkeypatch)
 

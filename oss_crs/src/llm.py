@@ -9,7 +9,7 @@ import yaml
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from .ca_certs import EXTRA_CA_CERTS_ENV, ssl_context
+from .ca_certs import EXTRA_CA_CERTS_ENV, STRICT_VERIFY_CODES, ssl_context
 from .config.crs_compose import LLMConfig
 from .constants import LITELLM_INTERNAL_URL
 from .ui import TaskResult
@@ -355,7 +355,18 @@ class LLM:
             # urlopen wraps the cert failure, so the reason is what identifies it.
             # Without this the user sees only "failed to fetch" and reaches for a
             # way to disable verification.
-            if isinstance(e.reason, ssl.SSLCertVerificationError):
+            if (
+                isinstance(e.reason, ssl.SSLCertVerificationError)
+                and getattr(e.reason, "verify_code", None) in STRICT_VERIFY_CODES
+            ):
+                self.fetch_error = (
+                    f"TLS certificate verification failed: {e.reason}. "
+                    "The CA was found, but a certificate in the chain fails the "
+                    "strict X.509 checks Python 3.13+ applies, as do LiteLLM and "
+                    "the CRS containers, so it must be reissued. See "
+                    "'Certificate requirements' in docs/llm-providers.md."
+                )
+            elif isinstance(e.reason, ssl.SSLCertVerificationError):
                 self.fetch_error = (
                     f"TLS certificate verification failed: {e.reason}. "
                     "If this endpoint's certificate chains to an internal CA, "
