@@ -41,9 +41,11 @@ See [Offline install via `oss-crs-deps`](../docs/design/libCRS.md) for details.
 | Log persistence | `register-log-dir` |
 | Builder sidecar | `apply-patch-build`, `run-pov`, `apply-patch-test` |
 | Service discovery | `get-service-domain` |
+| MCP tools | `mcp list`, `mcp describe`, `mcp call` |
 
 ## Documentation
 
 - [Full CLI reference and design](../docs/design/libCRS.md)
+- [MCP server configuration](../docs/config/mcp.md) - expose tool servers through the internal LiteLLM gateway
 - [CRS Development Guide](../docs/crs-development-guide.md) - how to use libCRS in your CRS
 - [Builder README](../builder/README.md) - builder sidecar API details

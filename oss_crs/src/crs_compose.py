@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from .config.crs_compose import CRSComposeConfig, CRSComposeEnv, RunEnv
+from .config.mcp import prepare_mcp_server_images
 from .env_policy import (
     OSS_FUZZ_TARGET_ENV,
     additional_env_value_is_resolved,
@@ -947,7 +948,11 @@ class CRSCompose:
                 lambda progress: self.__prepare_oss_crs_infra(
                     publish=publish, docker_registry=self.config.docker_registry
                 ),
-            )
+            ),
+            (
+                "mcp-servers",
+                lambda progress: self.__prepare_mcp_servers(no_pull=no_pull),
+            ),
         ]
         for crs in self.crs_list:
             tasks.append(
@@ -969,6 +974,31 @@ class CRSCompose:
             return progress.run_added_tasks().success
 
         return True
+
+    def __prepare_mcp_servers(self, no_pull: bool = False) -> "TaskResult":
+        """Build or pull this compose's per-CRS MCP server images once.
+
+        Collects the union of every CRS entry's ``mcp_servers`` (each CRS
+        owns its instances; shared images are built once). Local-source
+        servers are rebuilt every prepare (Docker layer caching keeps
+        no-change rebuilds cheap) so a stale ``latest`` tag can never
+        linger into a run; remote-only images are pulled when missing.
+        """
+        names: list[str] = []
+        for crs in self.crs_list:
+            for name in getattr(crs.resource, "mcp_servers", None) or []:
+                if name not in names:
+                    names.append(name)
+        try:
+            error = prepare_mcp_server_images(
+                names or None,
+                no_pull=no_pull,
+            )
+        except ValueError as e:
+            return TaskResult(success=False, error=str(e))
+        if error is not None:
+            return TaskResult(success=False, error=error)
+        return TaskResult(success=True)
 
     def build_target(
         self,

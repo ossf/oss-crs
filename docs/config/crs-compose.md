@@ -36,6 +36,8 @@ llm_config:                    # optional
   cpuset: <cpu-set>
   memory: <memory-limit>
   llm_budget: <optional-integer>
+  mcp_servers:                 # optional; requires internal LLM mode
+    - <mcp-server-name>        # registry/mcp/ server name
   additional_env:              # optional extra env vars
     <KEY>: <value>
   source:                      # optional — resolved from registry if omitted
@@ -96,6 +98,31 @@ llm_config:
       url_env: LITELLM_URL
       key_env: LITELLM_API_KEY
 ```
+
+---
+
+### Per-CRS `mcp_servers` (optional)
+
+Select MCP server definitions from `registry/mcp/` under each CRS entry:
+
+```yaml
+llm_config:
+  litellm:
+    mode: internal
+crs-bug-finding-claude-code:
+  cpuset: "2-7"
+  memory: 16G
+  mcp_servers:
+    - ast_grep
+```
+
+A non-empty list requires internal LLM mode. Missing/null `llm_config` and
+external mode fail configuration validation.
+
+Each CRS gets its own server containers and namespaced gateway aliases.
+Server names allow only ASCII letters, digits, and underscores. See
+[MCP servers](mcp.md) for registry fields, transports, fixed source mounts,
+build-artifact mounts, image preparation, and gateway access.
 
 ---
 

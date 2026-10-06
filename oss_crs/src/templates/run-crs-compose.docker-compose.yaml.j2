@@ -104,6 +104,9 @@ services:
 {%- endfor %}
     volumes:
       - {{ llm_context.litellm_config_path }}:/app/config.yaml:ro
+{%- if llm_context.mcp_hook_path is defined %}
+      - {{ llm_context.mcp_hook_path }}:/app/oss_crs_mcp_hook.py:ro
+{%- endif %}
     networks:
       {{ crs_compose_name }}-infra-only-network:
       {{ crs_compose_name }}-network:
@@ -366,6 +369,33 @@ services:
         aliases:
 {%- for crs in crs_list %}
           - runner-sidecar.{{ crs.name }}
+{%- endfor %}
+{%- endif %}
+  ###########################################
+  # MCP SERVERS (per-CRS instances)
+  ###########################################
+{%- if mcp_instances is defined and mcp_instances %}
+{%- for item in mcp_instances %}
+  mcp-{{ item.crs_name }}-{{ item.server.name }}:
+    image: {{ item.image }}
+    attach: false
+    restart: on-failure:3
+{%- if item.server.command %}
+    command: {{ item.server.command | tojson }}
+{%- endif %}
+{%- if item.server.requires_source or item.server.artifacts_path %}
+    volumes:
+{%- if item.server.requires_source %}
+      - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
+{%- endif %}
+{%- if item.server.artifacts_path %}
+      - {{ item.build_output_dir }}:{{ item.server.artifacts_path }}:ro
+{%- endif %}
+{%- endif %}
+    networks:
+      {{ crs_compose_name }}-infra-only-network:
+        aliases:
+          - {{ item.gateway_name }}
 {%- endfor %}
 {%- endif %}
 {%- if llm_context is defined %}

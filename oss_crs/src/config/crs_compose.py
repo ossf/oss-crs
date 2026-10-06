@@ -11,6 +11,7 @@ import yaml
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 from ..env_schema import validate_additional_env_keys
 from ..memory import parse_memory
+from .mcp import mcp_gateway_name, validate_mcp_server_name
 
 CRS_ENTRY_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -87,6 +88,14 @@ class CRSEntry(ResourceConfig):
 
     source: Optional[CRSSource] = None
     additional_env: dict[str, str] = Field(default_factory=dict)
+    mcp_servers: Optional[list[str]] = None
+
+    @field_validator("mcp_servers")
+    @classmethod
+    def validate_mcp_servers(cls, names: Optional[list[str]]) -> Optional[list[str]]:
+        for name in names or []:
+            validate_mcp_server_name(name)
+        return names
 
     @field_validator("additional_env", mode="before")
     @classmethod
@@ -180,6 +189,36 @@ class CRSComposeConfig(BaseModel):
     crs_entries: dict[str, CRSEntry] = Field(default_factory=dict)
     llm_config: Optional[LLMConfig] = None
 
+    @model_validator(mode="after")
+    def validate_mcp_servers_require_internal_llm(self):
+        users = sorted(
+            name for name, entry in self.crs_entries.items() if entry.mcp_servers
+        )
+        if users:
+            if (
+                self.llm_config is None
+                or self.llm_config.litellm.mode != self.llm_config.litellm.Mode.INTERNAL
+            ):
+                raise ValueError(
+                    f"'mcp_servers' requires 'llm_config.litellm.mode: internal' "
+                    f"(set by: {', '.join(users)})"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_mcp_gateway_names(self):
+        owners: dict[str, str] = {}
+        for crs_name, entry in self.crs_entries.items():
+            for server_name in entry.mcp_servers or []:
+                gateway_name = mcp_gateway_name(crs_name, server_name)
+                if gateway_name in owners:
+                    raise ValueError(
+                        f"Duplicate MCP gateway name {gateway_name!r} for "
+                        f"{owners[gateway_name]!r} and {crs_name!r}"
+                    )
+                owners[gateway_name] = crs_name
+        return self
+
     @field_validator("docker_registry")
     @classmethod
     def validate_docker_registry(cls, v: str) -> str:
@@ -221,6 +260,11 @@ class CRSComposeConfig(BaseModel):
         docker_registry = data.get(DOCKER_REGISTRY)
         oss_crs_infra = data.get(OSS_CRS_INFRA)
         llm_config = data.get(LLM_CONFIG)
+        if "mcp_servers" in data:
+            raise ValueError(
+                "Top-level 'mcp_servers' was moved per-CRS: place "
+                "'mcp_servers:' under each CRS entry instead."
+            )
         # Backward compatibility: old llm_config format
         # llm_config:
         #   litellm_config: /path/to/config.yaml
