@@ -8,13 +8,13 @@ materializes it, plus the env vars that point the usual clients at it, so those
 chains verify. There is deliberately no way here to skip verification.
 """
 
-import os
 import ssl
 from pathlib import Path
 from typing import Optional
 
 import certifi
 
+from .host_env import expand_path, resolve_option
 from .ui import TaskResult
 
 EXTRA_CA_CERTS_ENV = "OSS_CRS_EXTRA_CA_CERTS"
@@ -48,18 +48,8 @@ def resolve_extra_ca_certs(
 
     Precedence: explicit CLI flag, then the compose file, then the environment.
     """
-    if cli_value is not None:
-        return _expand(str(cli_value))
-    if compose_value:
-        return _expand(compose_value)
-    env_value = os.environ.get(EXTRA_CA_CERTS_ENV)
-    if env_value:
-        return _expand(env_value)
-    return None
-
-
-def _expand(value: str) -> Path:
-    return Path(os.path.expandvars(value)).expanduser()
+    value = resolve_option(EXTRA_CA_CERTS_ENV, cli=cli_value, compose=compose_value)
+    return expand_path(value) if value is not None else None
 
 
 def validate_extra_ca_certs(path: Path) -> TaskResult:
