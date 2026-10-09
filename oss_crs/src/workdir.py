@@ -14,6 +14,7 @@ logic for the CRS Compose work directory structure:
             └── <run_id>/
                 ├── BUILD_ID
                 ├── EXCHANGE_DIR/<target_key>/<harness>/
+                ├── spend/litellm-spend-report.json
                 └── crs/<crs_name>/<target_key>/
                     ├── SUBMIT_DIR/<harness>/
                     ├── SHARED_DIR/<harness>/
@@ -508,10 +509,10 @@ class WorkDir:
         self, run_id: str, sanitizer: str, create_parent: bool = True
     ) -> Path:
         """Get run-level LiteLLM spend report file path."""
-        run_dir = self.get_run_dir(run_id, sanitizer)
+        spend_dir = self.get_run_dir(run_id, sanitizer) / "spend"
         if create_parent:
-            run_dir.mkdir(parents=True, exist_ok=True)
-        path = run_dir / "litellm-spend-report.json"
+            spend_dir.mkdir(parents=True, exist_ok=True)
+        path = spend_dir / "litellm-spend-report.json"
         if create_parent:
             path.touch(exist_ok=True)
         return path
