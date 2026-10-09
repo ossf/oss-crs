@@ -3,7 +3,8 @@
 
 Covers the structured JSONL logging added to the builder-sidecar and
 runner-sidecar servers: ``_make_log_entry`` (build / run-pov / run-test
-classification) and ``_log_api_call`` (per-CRS JSONL file mechanics).
+classification), ``_log_api_call`` (per-CRS JSONL file mechanics), and the
+builder's /build and /test endpoints end-to-end through ``_run_job``.
 
 Unlike the upstream PR, the real functions are importable here, so we test the
 actual implementation instead of a duplicated copy. Both sidecars expose a
@@ -261,3 +262,61 @@ class TestLogApiCallFile:
         monkeypatch.setattr(builder_server, "_API_LOG_DIR", broken)
         # Must not raise despite the unwritable target.
         builder_server._log_api_call("crsA", {"event": "run-pov"})
+
+
+# ---------------------------------------------------------------------------
+# Tests: endpoint -> _run_job -> _log_api_call (real submit path)
+# ---------------------------------------------------------------------------
+
+
+_OK_RESULT = {"exit_code": 0, "rebuild_id": 1, "stdout": "", "stderr": ""}
+
+
+class _InlineExecutor:
+    """Run submitted jobs synchronously so the metrics line exists on return."""
+
+    def submit(self, fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+
+class TestRunJobLogsMetrics:
+    """Metrics lines are written for jobs submitted via the real endpoints."""
+
+    def _client(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        monkeypatch.setattr(builder_server, "_API_LOG_DIR", tmp_path)
+        monkeypatch.setattr(builder_server, "_executor", _InlineExecutor())
+        monkeypatch.setattr(builder_server, "job_results", {})
+        monkeypatch.setattr(builder_server, "_handle_build", lambda *a, **k: _OK_RESULT)
+        monkeypatch.setattr(builder_server, "_handle_test", lambda *a, **k: _OK_RESULT)
+        return TestClient(builder_server.app)
+
+    def _assert_one_line(self, tmp_path, event):
+        log_file = tmp_path / "crs-x" / "libcrs-sidecar-metrics.jsonl"
+        assert log_file.exists()
+        lines = log_file.read_text().splitlines()
+        assert len(lines) == 1
+        entry = json.loads(lines[0])
+        assert entry["event"] == event
+        assert entry["crs"] == "crs-x"
+
+    def test_build_writes_metrics(self, tmp_path, monkeypatch):
+        client = self._client(tmp_path, monkeypatch)
+        resp = client.post(
+            "/build",
+            files={"patch": ("p.diff", b"patch")},
+            data={"crs_name": "crs-x", "rebuild_id": "1"},
+        )
+        assert resp.status_code == 200
+        self._assert_one_line(tmp_path, "apply-patch-build")
+
+    def test_test_writes_metrics(self, tmp_path, monkeypatch):
+        client = self._client(tmp_path, monkeypatch)
+        resp = client.post(
+            "/test",
+            files={"patch": ("p.diff", b"patch")},
+            data={"crs_name": "crs-x", "rebuild_id": "1"},
+        )
+        assert resp.status_code == 200
+        self._assert_one_line(tmp_path, "apply-patch-test")

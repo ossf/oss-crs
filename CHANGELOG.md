@@ -106,6 +106,9 @@ stricter subset of Keep a Changelog).
 - The local run path now passes a `Path` compose-file object consistently into
   `docker_compose_up()`, so helper-sidecar teardown classification applies on
   the main local run path.
+- The builder sidecar now records `apply-patch-build` and `apply-patch-test`
+  metrics again, so run `meta.json` reports non-zero `patch_builds` and
+  `patch_tests` counts.
 
 ### Security
 - CRS entry names are now validated at config load time before being used in

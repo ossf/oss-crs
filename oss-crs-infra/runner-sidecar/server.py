@@ -118,8 +118,8 @@ def _log_api_call(crs_name: str, entry: dict) -> None:
         crs_dir.mkdir(parents=True, exist_ok=True)
         with (crs_dir / _API_LOG_NAME).open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
-    except Exception:
-        pass  # best-effort logging
+    except Exception as e:
+        print(f"metrics log failed: {e!r}", flush=True)  # best-effort logging
 
 
 @app.get("/health")

@@ -146,8 +146,8 @@ def _log_api_call(crs_name: str, entry: dict) -> None:
         crs_dir.mkdir(parents=True, exist_ok=True)
         with (crs_dir / _API_LOG_NAME).open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
-    except Exception:
-        pass  # best-effort logging
+    except Exception as e:
+        print(f"metrics log failed: {e!r}", flush=True)  # best-effort logging
 
 
 def _make_job_id(
@@ -254,13 +254,13 @@ async def submit_build(
         _run_job,
         "build",
         job_id,
-        patch_content,
-        fuzz_proj_patch_content,
-        crs_name,
-        builder_name,
-        rebuild_id,
-        cpuset,
-        mem_limit,
+        patch_content=patch_content,
+        fuzz_proj_patch_content=fuzz_proj_patch_content,
+        crs_name=crs_name,
+        builder_name=builder_name,
+        rebuild_id=rebuild_id,
+        cpuset=cpuset,
+        mem_limit=mem_limit,
     )
     return JobResponse(id=job_id, status="queued")
 
@@ -326,12 +326,12 @@ async def run_test(
         _run_job,
         "test",
         job_id,
-        patch_content,
-        fuzz_proj_patch_content,
-        crs_name,
-        rebuild_id,
-        cpuset,
-        mem_limit,
+        patch_content=patch_content,
+        fuzz_proj_patch_content=fuzz_proj_patch_content,
+        crs_name=crs_name,
+        rebuild_id=rebuild_id,
+        cpuset=cpuset,
+        mem_limit=mem_limit,
     )
     return JobResponse(id=job_id, status="queued")
 
@@ -432,19 +432,19 @@ def _handle_test(
     )
 
 
-def _run_job(action: str, job_id: str, *args):
+def _run_job(action: str, job_id: str, **kwargs):
     """Execute a job in the thread pool."""
     job_results[job_id]["status"] = "running"
-    # crs_name is the second positional arg for both build and test jobs.
-    crs_name = args[1] if len(args) > 1 else "unknown"
+    # Handler args arrive by keyword, so crs_name can't be misindexed.
+    crs_name = kwargs.get("crs_name", "unknown")
     ts_start = time.time()
     t0 = time.monotonic()
     result: dict = {}
     try:
         if action == "build":
-            result = _handle_build(job_id, *args)
+            result = _handle_build(job_id, **kwargs)
         elif action == "test":
-            result = _handle_test(job_id, *args)
+            result = _handle_test(job_id, **kwargs)
         else:
             result = {"error": f"Unknown action: {action}"}
             job_results[job_id] = {
