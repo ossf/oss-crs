@@ -97,6 +97,10 @@ This can be done automatically by passing the `-s` flag to `git commit`:
 git commit -s -m "feat: add new CRS integration"
 ```
 
+## Use of AI Tools
+
+OSS-CRS tracks the [OpenSSF AI Contribution Policy](https://github.com/ossf/tac/pull/605) and adopts it as our policy for AI-assisted and AI-generated contributions. AI tools may be used to help prepare a contribution, but a human contributor must review and understand every change they submit; you are responsible for the correctness and quality of your contribution regardless of the tools used to produce it.
+
 ## Code of Conduct
 
 This project follows the [LF Projects Code of Conduct](https://lfprojects.org/policies/code-of-conduct/). Please report any unacceptable behavior to the TSC or the Series Manager.
