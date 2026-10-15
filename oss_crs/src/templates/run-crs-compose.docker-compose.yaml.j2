@@ -112,6 +112,9 @@ services:
 {%- endfor %}
     volumes:
       - {{ llm_context.litellm_config_path }}:/app/config.yaml:ro
+{%- if llm_context.mcp_hook_path is defined %}
+      - {{ llm_context.mcp_hook_path }}:/app/oss_crs_mcp_hook.py:ro
+{%- endif %}
 {%- if extra_ca_dir %}
       - {{ extra_ca_dir }}:{{ extra_ca_dir_container }}:ro
 {%- endif %}
@@ -377,6 +380,57 @@ services:
         aliases:
 {%- for crs in crs_list %}
           - runner-sidecar.{{ crs.name }}
+{%- endfor %}
+{%- endif %}
+  ###########################################
+  # MCP SERVERS (per-CRS instances)
+  ###########################################
+{%- if mcp_instances is defined and mcp_instances %}
+{%- for item in mcp_instances %}
+  mcp-{{ item.crs_name }}-{{ item.server.name }}:
+    image: {{ item.image }}
+    attach: false
+    restart: on-failure:3
+{%- if cgroup_parents and item.crs_name in cgroup_parents %}
+    # Same cgroup as the owning CRS: resources managed by parent cgroup.
+    cgroup_parent: "{{ cgroup_parents[item.crs_name] }}"
+{%- else %}
+    cpuset: "{{ item.cpuset }}"
+    mem_limit: "{{ item.memory }}"
+{%- endif %}
+    # Owner identity and sidecar routing for servers that drive builds and
+    # replays themselves (e.g. trace). Framework-set, mirroring env_policy
+    # for run modules; inert to servers that read neither.
+    environment:
+      - OSS_CRS_NAME={{ item.crs_name }}
+      - BUILDER_MODULE=builder-sidecar
+      - RUNNER_MODULE=runner-sidecar
+{%- if item.server.command %}
+    command: {{ item.server.command | tojson }}
+{%- endif %}
+{%- if item.server.requires_source or item.server.requires_build_artifacts %}
+    volumes:
+{%- if item.server.requires_source %}
+      - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
+{%- endif %}
+{%- if item.server.requires_build_artifacts %}
+      # Base build output read-only plus the shared rebuild tree
+      # read-write: artifact-tree consumers in this class write trace,
+      # verdict, and input files next to the builds they replay.
+      - {{ item.build_output_dir }}:/OSS_CRS_BUILD_OUT_DIR:ro
+      - {{ rebuild_out_dir }}:/OSS_CRS_REBUILD_OUT_DIR:rw
+{%- endif %}
+{%- endif %}
+    # Main compose network (alongside the isolated one): sidecar DNS
+    # aliases (builder-sidecar.<crs>, runner-sidecar.<crs>) resolve only
+    # among containers sharing it, and servers that drive builds and
+    # replays themselves must reach them. This matches the posture CRS
+    # run modules already have by joining both networks.
+    networks:
+      {{ crs_compose_name }}-network:
+      {{ crs_compose_name }}-infra-only-network:
+        aliases:
+          - {{ item.gateway_name }}
 {%- endfor %}
 {%- endif %}
 {%- if llm_context is defined %}

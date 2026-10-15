@@ -30,13 +30,18 @@ def _handle_signal(_signum, _frame):
     _SHUTDOWN = True
 
 
-def create_llm_key(key: str, budget: int) -> str | None:
+def create_llm_key(
+    key: str, budget: int, mcp_servers: list[str] | None = None
+) -> str | None:
     """
     Create an LLM API key using LiteLLM's key/generate endpoint.
 
     Args:
         key: specified key
         budget: Max budget for this key (in USD)
+        mcp_servers: Gateway MCP servers this key may reach (deny by
+            default; an empty list reaches none). Always sent so an
+            unset field can never inherit admin defaults.
 
     Returns:
         The generated API key string, or None if failed
@@ -49,6 +54,7 @@ def create_llm_key(key: str, budget: int) -> str | None:
     payload = {
         "key": key,
         "max_budget": budget,
+        "object_permission": {"mcp_servers": list(mcp_servers or [])},
     }
 
     try:
@@ -247,6 +253,7 @@ def main():
         api_key = create_llm_key(
             info["api_key"],
             info["llm_budget"],
+            info.get("mcp_servers") or [],
         )
         if api_key:
             print(f"Generated API key for CRS '{crs_name}': {api_key}")

@@ -555,6 +555,83 @@ $ libCRS apply-patch-test /tmp/fix.diff /tmp/test-result
 - `test.sh` is resolved by the builder sidecar (checked at `/src/run_tests.sh`, `/src/test.sh`, `$OSS_CRS_PROJ_PATH/test.sh`).
 - If no test script is found, the sidecar returns a skipped-success result (`retcode=0`) by contract.
 
+### MCP Commands
+
+These commands access tools through the internal LiteLLM MCP gateway using
+the injected LLM endpoint and API key.
+See [MCP server configuration](../config/mcp.md) for enabling servers.
+
+#### `mcp list` ✅
+
+List tool names and the first line of each description, or the full tool list
+as JSON.
+
+```bash
+libCRS mcp list [--server NAME] [--json] [--max-output-chars N]
+```
+
+| Argument | Description |
+|---|---|
+| `--server` | Filter by MCP server name, alias, or ID |
+| `--json` | Print the full tool list as JSON |
+| `--max-output-chars` | Limit JSON output to this many characters; default 20000, `0` disables truncation |
+
+#### `mcp describe` ✅
+
+Show a tool's description, server identity, and input schema.
+
+```bash
+libCRS mcp describe TOOL [--server NAME] [--json]
+```
+
+| Argument | Description |
+|---|---|
+| `TOOL` | Tool name returned by `mcp list` |
+| `--server` | MCP server hint (name, alias, or ID) |
+| `--json` | Print the full tool entry as JSON |
+
+#### `mcp call` ✅
+
+Invoke a tool and print its text content, falling back to structured content
+or JSON when necessary.
+
+```bash
+libCRS mcp call TOOL [--server NAME] [--args '<json>'] [--args-file PATH] [--timeout SEC] [--max-output-chars N] [--json]
+```
+
+| Argument | Description |
+|---|---|
+| `TOOL` | Tool name returned by `mcp list` |
+| `--server` | Explicit server name, alias, or ID; needed when a tool name is ambiguous across servers |
+| `--args` | Arguments as a JSON object; default `{}` |
+| `--args-file` | Read a JSON object from a file, overriding `--args` |
+| `--timeout` | Tool request timeout in seconds; default 300 |
+| `--max-output-chars` | Limit printed text or JSON to this many characters; default 20000, `0` disables truncation |
+| `--json` | Print the raw tool result as JSON |
+
+Start by inspecting the tool's schema, then supply its documented arguments.
+For a server exposing `find_code`, for example:
+
+```bash
+libCRS mcp list
+libCRS mcp describe find_code
+libCRS mcp call find_code --args '{"project_folder": "/OSS_CRS_TARGET_SOURCE", "pattern": "malloc($size)"}'
+```
+
+Source paths in tool arguments refer to the MCP container. Servers configured
+with `requires_source: true` receive source at `/OSS_CRS_TARGET_SOURCE`.
+Use the namespaced alias shown by `mcp describe` with `--server` when needed.
+
+**Output and exit status:** Truncated output includes a note explaining how
+to rerun with `--max-output-chars 0`. JSON truncation may produce incomplete
+JSON, so use `--json --max-output-chars 0` when parsing output in scripts.
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Successful command |
+| `1` | Gateway runtime failure (HTTP, transport, or non-JSON response), or a tool result with `isError: true` |
+| `2` | Usage/configuration error, such as invalid arguments, missing gateway configuration, an unknown tool, or an ambiguous tool without `--server` |
+
 ## Typical Usage in a CRS
 
 ### During Target Build Phase
