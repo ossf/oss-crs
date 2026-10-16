@@ -2,29 +2,38 @@
 """WorkDir: Centralized path management for CRS Compose work directories.
 
 This module provides a WorkDir class that encapsulates all path construction
-logic for the CRS Compose work directory structure:
+logic for the CRS Compose work directory structure. A WorkDir is rooted at
+``<work_dir>/crs_compose/<compose_hash>``; the root ``--work-dir`` also holds
+the human-navigable run index (see ``run_index.py``):
 
     <work_dir>/
-    └── <sanitizer>/
-        ├── builds/
-        │   └── <build_id>/
-        │       ├── crs/<crs_name>/<target_key>/BUILD_OUT_DIR/
-        │       └── targets/<target_key>/snapshot-out-<sanitizer>/
-        └── runs/
-            └── <run_id>/
-                ├── BUILD_ID
-                ├── EXCHANGE_DIR/<target_key>/<harness>/
-                ├── spend/litellm-spend-report.json
-                └── crs/<crs_name>/<target_key>/
-                    ├── SUBMIT_DIR/<harness>/
-                    ├── SHARED_DIR/<harness>/
-                    └── LOG_DIR/<harness>/
+    ├── index/
+    │   ├── by-target/<target_name>/<YYYYMMDD-HHMMSS>_<run_id>  -> run dir (relative symlink)
+    │   └── by-crs/<crs_name>/<YYYYMMDD-HHMMSS>_<run_id>        -> run dir (relative symlink)
+    └── crs_compose/<compose_hash>/          # WorkDir.path
+        └── <sanitizer>/
+            ├── builds/
+            │   └── <build_id>/
+            │       ├── crs/<crs_name>/<target_key>/BUILD_OUT_DIR/
+            │       └── targets/<target_key>/snapshot-out-<sanitizer>/
+            └── runs/
+                └── <run_id>/
+                    ├── BUILD_ID
+                    ├── run-info.json        # provenance, written at run start
+                    ├── meta.json            # artifact/LLM/sidecar counters, written at run end
+                    ├── spend/litellm-spend-report.json
+                    ├── EXCHANGE_DIR/<target_key>/<harness>/
+                    └── crs/<crs_name>/<target_key>/
+                        ├── SUBMIT_DIR/<harness>/
+                        ├── SHARED_DIR/<harness>/
+                        └── LOG_DIR/<harness>/
 """
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from .run_index import RUN_INFO_FILE_NAME
 from .target import Target
 from .utils import normalize_run_id
 from .constants import SUBMITTED_ARTIFACT_DIR_NAMES, UNHARNESSED
@@ -119,6 +128,15 @@ class WorkDir:
         if not self.path.exists():
             return []
         return sorted(d.name for d in self.path.iterdir() if d.is_dir())
+
+    def get_run_index_dir(self) -> Path:
+        """Root of the human-navigable run index: ``<work_dir>/index``.
+
+        It sits beside ``crs_compose/`` rather than inside it so that the
+        enumerators below, which follow symlinks, never mistake index entries
+        for compose hashes, sanitizers, or runs.
+        """
+        return self.path.parent.parent / "index"
 
     def iter_sibling_compose_workdirs(self) -> list[tuple[str, "WorkDir"]]:
         """Enumerate every compose-hash workdir under the shared root.
@@ -505,6 +523,10 @@ class WorkDir:
         """Get the run metadata file path for a run."""
         return self.get_run_dir(run_id, sanitizer) / "meta.json"
 
+    def get_run_info_file(self, run_id: str, sanitizer: str) -> Path:
+        """Get the run provenance file (run-info.json) path for a run."""
+        return self.get_run_dir(run_id, sanitizer) / RUN_INFO_FILE_NAME
+
     def get_litellm_spend_report_file(
         self, run_id: str, sanitizer: str, create_parent: bool = True
     ) -> Path:
@@ -569,4 +591,12 @@ class WorkDir:
         run_dir.mkdir(parents=True, exist_ok=True)
         self.get_run_meta_file(run_id, sanitizer).write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+        )
+
+    def write_run_info_for_run(self, run_id: str, sanitizer: str, info: dict) -> None:
+        """Write run provenance to run-info.json for a specific run."""
+        run_dir = self.get_run_dir(run_id, sanitizer)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        self.get_run_info_file(run_id, sanitizer).write_text(
+            json.dumps(info, indent=2, sort_keys=True) + "\n"
         )

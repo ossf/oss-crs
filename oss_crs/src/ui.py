@@ -778,7 +778,13 @@ class MultiTaskProgress:
     def add_items_to_head(self, items) -> None:
         self._head += items
 
-    def show_run_result(self, crs_results: list[dict]) -> None:
+    def show_run_result(
+        self,
+        crs_results: list[dict],
+        *,
+        run_dir: Optional[Path] = None,
+        index_link: Optional[Path] = None,
+    ) -> None:
         """
         Display a summary of CRS run results.
 
@@ -789,10 +795,20 @@ class MultiTaskProgress:
             crs_results: List of dicts with keys:
                 - name: CRS name
                 - submit_dir: Path to the CRS submit directory
+            run_dir: The run directory, printed so a run with zero artifacts
+                still tells the user where it landed.
+            index_link: The run's ``<work_dir>/index/by-target/...`` link.
         """
         output = Text()
         output.append("\nCRS Run Results\n", style="bold green")
         output.append("─" * 40 + "\n", style="green")
+        if run_dir is not None:
+            output.append("Run dir: ", style="bold")
+            output.append(f"{run_dir}\n", style="dim")
+            if index_link is not None:
+                output.append("Index:   ", style="bold")
+                output.append(f"{index_link}\n", style="dim")
+            output.append("\n")
         for i, entry in enumerate(crs_results):
             submit_dir = entry["submit_dir"]
             pov_dir = submit_dir / "povs"
