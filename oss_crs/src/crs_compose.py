@@ -195,13 +195,15 @@ class CRSCompose:
         extra_ca_certs: Optional[Path] = None,
     ) -> "CRSCompose":
         config = CRSComposeConfig.from_yaml_file(compose_file)
-        return cls(
+        compose = cls(
             config,
             work_dir,
             skip_crs_init=skip_crs_init,
             offline=offline,
             extra_ca_certs=extra_ca_certs,
         )
+        compose.compose_file = Path(compose_file).resolve()
+        return compose
 
     def __init__(
         self,
@@ -232,6 +234,8 @@ class CRSCompose:
             for name, crs_cfg in self.config.crs_entries.items()
         ]
         self.deadline: Optional[float] = None
+        # Set by from_yaml_file(); recorded in each run's run-info.json.
+        self.compose_file: Optional[Path] = None
 
     def _validate_source_only_run(self) -> TaskResult:
         non_auditing = [crs.name for crs in self.crs_list if not crs.config.is_auditing]
