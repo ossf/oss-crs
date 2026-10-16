@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from .ca_certs import resolve_extra_ca_certs, validate_extra_ca_certs
@@ -38,6 +39,7 @@ from .utils import (
     multi_select,
 )
 from .workdir import WorkDir
+from .run_index import build_run_info, find_links_to, link_run, make_link_name
 from . import webui
 from .cgroup import (
     check_cgroup_parent_available,
@@ -1266,6 +1268,9 @@ class CRSCompose:
             self.work_dir.get_build_id_file(run_id, sanitizer).unlink(missing_ok=True)
         else:
             self.work_dir.write_build_id_for_run(run_id, sanitizer, build_id)
+        self._record_run_start(
+            target, run_id, sanitizer, None if source_only else build_id
+        )
 
         result = self.__run(
             target,
@@ -2307,6 +2312,56 @@ class CRSCompose:
                 f"for run '{run_id}': {type(exc).__name__}: {exc}"
             )
 
+    def _record_run_start(
+        self,
+        target: Target,
+        run_id: str,
+        sanitizer: str,
+        build_id: Optional[str],
+    ) -> None:
+        """Write run-info.json and link the run under ``<work_dir>/index``.
+
+        Best effort: a failure here is logged and never fails the run.
+        """
+        started = datetime.now().astimezone()
+        run_dir = self.work_dir.get_run_dir(run_id, sanitizer)
+        index_dir = self.work_dir.get_run_index_dir()
+        compose_hash = self.work_dir.path.name
+        crs_names = [crs.name for crs in self.crs_list]
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+            info = build_run_info(
+                target=target,
+                run_id=run_id,
+                sanitizer=sanitizer,
+                build_id=build_id,
+                compose_hash=compose_hash,
+                compose_file=getattr(self, "compose_file", None),
+                crs_names=crs_names,
+                started=started,
+            )
+            self.work_dir.write_run_info_for_run(run_id, sanitizer, info)
+        except Exception as exc:
+            log_dim(
+                "Note: Failed to write run-info.json "
+                f"for run '{run_id}': {type(exc).__name__}: {exc}"
+            )
+        try:
+            link_run(
+                index_dir,
+                run_dir,
+                target_name=target.name,
+                crs_names=crs_names,
+                link_name=make_link_name(started, run_id),
+                sanitizer=sanitizer,
+                compose_hash=compose_hash,
+            )
+        except Exception as exc:
+            log_dim(
+                f"Note: Failed to index run '{run_id}' under {index_dir}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
     def __show_result_local(
         self, target: Target, run_id: str, sanitizer: str, progress: MultiTaskProgress
     ) -> None:
@@ -2319,7 +2374,13 @@ class CRSCompose:
             }
             for crs in self.crs_list
         ]
-        return progress.show_run_result(crs_results)
+        run_dir = self.work_dir.get_run_dir(run_id, sanitizer)
+        links = find_links_to(self.work_dir.get_run_index_dir(), run_dir)
+        return progress.show_run_result(
+            crs_results,
+            run_dir=Path(os.path.abspath(run_dir)),
+            index_link=Path(os.path.abspath(links[0])) if links else None,
+        )
 
     def __prepare_local_running_env(
         self,

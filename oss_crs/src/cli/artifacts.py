@@ -224,6 +224,9 @@ def handle_artifacts(
         return True
 
     output.meta = RunMeta.from_work_dir(work_dir, run_id, sanitizer)
+    run_info_path = work_dir.get_run_info_file(run_id, sanitizer)
+    if run_info_path.exists():
+        output.run_info = str(run_info_path)
 
     output.exchange_dir = ExchangeDir.from_work_dir(work_dir, target, run_id, sanitizer)
     output.run_logs = RunLogs.from_work_dir(work_dir, target, run_id, sanitizer)
