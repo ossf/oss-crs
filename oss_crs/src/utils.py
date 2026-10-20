@@ -92,10 +92,14 @@ def generate_random_key(length: int = 10) -> str:
 
 
 def generate_run_id() -> str:
-    """Generate a run ID from unix timestamp + 2 chars of randomness."""
-    ts = int(time.time())
-    suffix = "".join(random.choice(RAND_CHARS) for _ in range(2))
-    return f"{ts}{suffix}"
+    """Generate a run ID from unix timestamp + 6 random alphanumeric chars.
+
+    Runs started in the same second would share a run directory and a Docker
+    Compose project name if their ids collided, so the suffix is wide enough
+    to make that effectively impossible: 36**6 suffixes per second, where two
+    characters gave 1296.
+    """
+    return f"{int(time.time())}{generate_random_key(6)}"
 
 
 def normalize_run_id(run_id: str) -> str:
