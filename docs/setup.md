@@ -96,6 +96,48 @@ Once setup is complete, `oss-crs build-target` and `oss-crs run` will automatica
 
 No additional configuration is needed after running `oss-crs setup`.
 
+## Rootless Docker & Podman
+
+`prepare`, `build-target`, `run` and `list-harnesses` work under
+[rootless Docker](https://docs.docker.com/engine/security/rootless/) or
+[rootless Podman](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md).
+Follow the upstream guide for your runtime, including the subordinate ID range
+(`/etc/subuid` / `/etc/subgid`) it requires; images with several users
+(`_apt`, `postgres`, `nixbld*`) fail without one.
+
+Compose and the builder and lifecycle sidecars need a Docker-compatible API
+socket. With Podman, enable `podman.socket`. `oss-crs` uses `DOCKER_HOST` if
+set, and otherwise `$XDG_RUNTIME_DIR/podman/podman.sock` when it exists.
+
+Run `oss-crs setup --check` to see the detected runtime, whether a subordinate
+ID range is configured and, on Podman, which Compose v2 is used.
+
+`oss-crs setup` (cgroup-parent mode) needs sudo and rootful Docker, so you can
+skip it for rootless runtimes; runs then use per-container limits (see
+[Auto-Detection](#auto-detection)).
+
+### Podman
+
+`oss-crs` runs compose through `podman compose` with
+[Docker Compose v2](https://docs.docker.com/compose/install/standalone/) as the
+provider; `podman-compose` and Compose v1 are not supported. Install the
+`docker-compose` v2 binary on `PATH` or as `~/.docker/cli-plugins/docker-compose`,
+or set `PODMAN_COMPOSE_PROVIDER` to its path. On Podman, `oss-crs` builds compose
+images with `podman build` itself, because Compose v2 needs BuildKit for
+`additional_contexts`.
+
+`depends_on: condition: service_healthy` relies on Podman's healthchecks, which
+Podman runs from systemd user timers. If those timers cannot run Podman (for
+example because its storage is configured only through environment variables
+that systemd units do not see), healthchecks never pass and `oss-crs run`
+waits forever. Put such settings in `~/.config/containers/storage.conf` instead.
+
+### Privileged Containers
+
+Build, run and `list-harnesses` containers are privileged by default. Pass
+`--unprivileged` to `build-target`, `run` or `list-harnesses` to drop this,
+e.g. when a rootless Docker/Podman setup rejects `--privileged`.
+
 ## Troubleshooting
 
 ### Docker not using cgroupfs after setup

@@ -13,6 +13,7 @@ import yaml
 from rich.console import Console, Group
 
 from .constants import PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
+from .docker_bin import docker_cmd, is_podman_cli
 from .utils import bold, get_console, green, log_error, yellow  # noqa: F401 (re-exported)
 from rich.live import Live
 from rich.markup import escape
@@ -833,15 +834,23 @@ class MultiTaskProgress:
         project_name: str,
         docker_compose_path: Path,
     ) -> TaskResult:
-        cmd = [
-            "docker",
+        if is_podman_cli():
+            ret = self._build_compose_images_directly(project_name, docker_compose_path)
+            if ret.success:
+                return ret
+            docker_compose_contents = docker_compose_path.read_text()
+            ret.error = (ret.error or "") + (
+                f"\n📝 Docker compose file contents:\n---\n{docker_compose_contents}\n---"
+            )
+            return ret
+        cmd = docker_cmd(
             "compose",
             "-p",
             project_name,
             "-f",
             str(docker_compose_path),
             "build",
-        ]
+        )
         ret = self.run_command_with_streaming_output(
             cmd=cmd,
             info_text="Building Docker images with docker-compose",
@@ -854,11 +863,65 @@ class MultiTaskProgress:
         )
         return ret
 
+    def _build_compose_images_directly(
+        self,
+        project_name: str,
+        docker_compose_path: Path,
+    ) -> TaskResult:
+        """Build each `build:` service with `docker build`, as Compose would name it.
+
+        On Podman, Compose v2 has no BuildKit and its classic builder rejects
+        `additional_contexts`, which `podman build --build-context` supports.
+        `run` and `up` then use the existing image instead of building.
+        """
+        compose_data = yaml.safe_load(docker_compose_path.read_text()) or {}
+        compose_dir = docker_compose_path.parent
+        for service_name, service in (compose_data.get("services") or {}).items():
+            if not isinstance(service, dict) or "build" not in service:
+                continue
+            build = service["build"]
+            if isinstance(build, str):
+                build = {"context": build}
+            unsupported = set(build) - _DIRECT_BUILD_KEYS
+            if unsupported:
+                return TaskResult(
+                    success=False,
+                    error=(
+                        f"Service {service_name}: build keys "
+                        f"{sorted(unsupported)} are not supported with Podman."
+                    ),
+                )
+            context = compose_dir / build.get("context", ".")
+            dockerfile = context / build.get("dockerfile", "Dockerfile")
+            image = service.get("image") or f"{project_name}-{service_name}"
+            cmd = docker_cmd(
+                "build",
+                "-f",
+                str(dockerfile),
+                "-t",
+                image,
+                "--label",
+                f"com.docker.compose.project={project_name}",
+            )
+            if "target" in build:
+                cmd += ["--target", str(build["target"])]
+            for arg in _compose_mapping(build.get("args")):
+                cmd += ["--build-arg", arg]
+            for extra in _compose_mapping(build.get("additional_contexts")):
+                cmd += ["--build-context", extra]
+            cmd.append(str(context))
+            ret = self.run_command_with_streaming_output(
+                cmd=cmd,
+                info_text=f"Building image {image} for service {service_name}",
+            )
+            if not ret.success:
+                return ret
+        return TaskResult(success=True)
+
     def docker_compose_run(
         self, project_name: str, docker_compose_path: Path, service_name: str
     ) -> TaskResult:
-        cmd = [
-            "docker",
+        cmd = docker_cmd(
             "compose",
             "-p",
             project_name,
@@ -867,7 +930,7 @@ class MultiTaskProgress:
             "run",
             "--rm",
             service_name,
-        ]
+        )
         return self.run_command_with_streaming_output(
             cmd=cmd,
             info_text=f"Running service {service_name} with docker-compose",
@@ -887,8 +950,7 @@ class MultiTaskProgress:
         running_helpers_before_stop = self._get_running_helper_services(
             project_name, docker_compose_path, helper_services
         )
-        cmd = [
-            "docker",
+        cmd = docker_cmd(
             "compose",
             "-p",
             project_name,
@@ -896,7 +958,7 @@ class MultiTaskProgress:
             str(docker_compose_path),
             "up",
             "--abort-on-container-exit",
-        ]
+        )
         result = self.run_command_with_streaming_output(
             cmd=cmd,
             info_text="Bringing up services with docker-compose",
@@ -907,15 +969,14 @@ class MultiTaskProgress:
         # or services with attach: false.
         try:
             subprocess.run(
-                [
-                    "docker",
+                docker_cmd(
                     "compose",
                     "-p",
                     project_name,
                     "-f",
                     str(docker_compose_path),
                     "stop",
-                ],
+                ),
                 capture_output=True,
                 timeout=60,
             )
@@ -950,8 +1011,7 @@ class MultiTaskProgress:
         ignored_helper_exit_services: Optional[set[str]] = None,
     ) -> TaskResult:
         """Check if any containers exited with non-zero exit code."""
-        cmd = [
-            "docker",
+        cmd = docker_cmd(
             "compose",
             "-p",
             project_name,
@@ -961,7 +1021,7 @@ class MultiTaskProgress:
             "-a",
             "--format",
             "{{.Service}}:{{.ExitCode}}:{{.Name}}",
-        ]
+        )
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
             failed_containers = []
@@ -1027,8 +1087,7 @@ class MultiTaskProgress:
 
         try:
             event_process = subprocess.Popen(
-                [
-                    "docker",
+                docker_cmd(
                     "compose",
                     "-p",
                     project_name,
@@ -1036,7 +1095,7 @@ class MultiTaskProgress:
                     str(docker_compose_path),
                     "events",
                     "--json",
-                ],
+                ),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
@@ -1084,8 +1143,7 @@ class MultiTaskProgress:
         if not helper_services:
             return set()
 
-        cmd = [
-            "docker",
+        cmd = docker_cmd(
             "compose",
             "-p",
             project_name,
@@ -1094,7 +1152,7 @@ class MultiTaskProgress:
             "ps",
             "--format",
             "{{.Service}}",
-        ]
+        )
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
         except Exception:
@@ -1222,8 +1280,7 @@ class MultiTaskProgress:
             )
         try:
             result = subprocess.run(
-                [
-                    "docker",
+                docker_cmd(
                     "compose",
                     "-p",
                     project_name,
@@ -1234,7 +1291,7 @@ class MultiTaskProgress:
                     "--rmi",
                     "local",
                     "--remove-orphans",
-                ],
+                ),
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -1255,15 +1312,14 @@ class MultiTaskProgress:
             image_refs: set[str] = set()
 
             # Prefer compose project labels when available.
-            labeled_cmd = [
-                "docker",
+            labeled_cmd = docker_cmd(
                 "image",
                 "ls",
                 "--filter",
                 f"label=com.docker.compose.project={project_name}",
                 "--format",
                 "{{.Repository}}:{{.Tag}}",
-            ]
+            )
             labeled_result = subprocess.run(
                 labeled_cmd,
                 capture_output=True,
@@ -1283,7 +1339,7 @@ class MultiTaskProgress:
 
             # Fallback discovery: prefix-based repository matching, then verify
             # compose ownership by image label before deleting.
-            ls_cmd = ["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]
+            ls_cmd = docker_cmd("image", "ls", "--format", "{{.Repository}}:{{.Tag}}")
             ls_result = subprocess.run(
                 ls_cmd,
                 capture_output=True,
@@ -1296,14 +1352,13 @@ class MultiTaskProgress:
                     ref = line.strip()
                     if ref and ref.startswith(prefix) and not ref.endswith(":<none>"):
                         inspect_result = subprocess.run(
-                            [
-                                "docker",
+                            docker_cmd(
                                 "image",
                                 "inspect",
                                 "--format",
                                 '{{.Id}} {{index .Config.Labels "com.docker.compose.project"}}',
                                 ref,
-                            ],
+                            ),
                             capture_output=True,
                             text=True,
                             timeout=30,
@@ -1333,7 +1388,7 @@ class MultiTaskProgress:
             }
             if image_refs:
                 rm_result = subprocess.run(
-                    ["docker", "image", "rm", "-f", *sorted(image_refs)],
+                    docker_cmd("image", "rm", "-f", *sorted(image_refs)),
                     capture_output=True,
                     text=True,
                     timeout=120,
@@ -1348,6 +1403,18 @@ class MultiTaskProgress:
                 self.set_error_info(task_name, down_error)
             return TaskResult(success=False, error=down_error)
         return TaskResult(success=True)
+
+
+_DIRECT_BUILD_KEYS = {"context", "dockerfile", "args", "additional_contexts", "target"}
+
+
+def _compose_mapping(value: object) -> list[str]:
+    """`KEY=VALUE` items from a compose mapping given as a dict or a list."""
+    if isinstance(value, dict):
+        return [f"{key}={val}" for key, val in value.items()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value]
+    return []
 
 
 def _count_files(dir_path: Path) -> int:

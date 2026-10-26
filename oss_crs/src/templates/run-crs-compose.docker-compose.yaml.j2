@@ -22,7 +22,9 @@ services:
 {% for module_name, module_config in crs.config.crs_run_phase.modules.items() %}
 {% if module_config.dockerfile %}
   {{ crs.name }}_{{ module_name }}:
+{%- if privileged %}
     privileged: true
+{%- endif %}
     image: {{ run_module_image(crs.name, module_name, module_config) }}
     environment:
 {%- for env_key, env_value in module_envs[crs.name + "_" + module_name].items() %}
@@ -236,7 +238,7 @@ services:
     image: {{ infra_sidecar_images['lifecycle'] }}
     attach: false
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - {{ docker_sock | default('/var/run/docker.sock') }}:/var/run/docker.sock:ro
       - {{ exchange_dir }}:/OSS_CRS_EXCHANGE_DIR:rw
     environment:
       - COMPOSE_PROJECT={{ crs_compose_name }}
@@ -297,7 +299,7 @@ services:
     attach: false
     restart: on-failure:3
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - {{ docker_sock | default('/var/run/docker.sock') }}:/var/run/docker.sock
       - {{ rebuild_out_dir }}:/rebuild_out:rw
       - {{ fuzz_proj_path }}:/OSS_CRS_FUZZ_PROJ:ro
       # Build contexts for rebuilding the CRS builder image on a patched project

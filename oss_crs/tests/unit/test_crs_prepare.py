@@ -1,12 +1,24 @@
 # SPDX-License-Identifier: MIT
 import json
+import os
 import textwrap
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
+import pytest
+
+from oss_crs.src import docker_bin
 from oss_crs.src.config.crs_compose import CRSEntry, CRSSource
 from oss_crs.src.crs import CRS
+from oss_crs.src.docker_bin import describe_daemon
 from oss_crs.src.ui import TaskResult
 from oss_crs.src.workdir import WorkDir
+
+
+@pytest.fixture(autouse=True)
+def _bake_supported(monkeypatch):
+    """Default to a Docker CLI with `buildx bake`; tests opt out explicitly."""
+    monkeypatch.setattr("oss_crs.src.crs.bake_supported", lambda: True)
 
 
 class _CaptureProgress:
@@ -471,3 +483,247 @@ def test_target_dependent_run_modules_excludes_opted_out_modules(tmp_path):
     assert crs._CRS__target_dependent_run_modules() == []
     independent = crs._CRS__target_independent_run_modules()
     assert [name for name, _ in independent] == ["lsp"]
+
+
+# ---------------------------------------------------------------------------
+# Rootless daemon detection + bake fallback
+# ---------------------------------------------------------------------------
+
+
+def test_describe_daemon_classifies_docker_host(monkeypatch):
+    monkeypatch.setenv("DOCKER_HOST", "unix:///run/user/1000/docker.sock")
+    assert describe_daemon() == (
+        "rootless-docker",
+        "unix:///run/user/1000/docker.sock",
+    )
+
+    monkeypatch.setenv("DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
+    assert describe_daemon()[0] == "podman"
+
+
+def _write_subid_files(tmp_path, monkeypatch, subuid: str, subgid: str, nss: str = ""):
+    (tmp_path / "subuid").write_text(subuid)
+    (tmp_path / "subgid").write_text(subgid)
+    (tmp_path / "nsswitch.conf").write_text(nss)
+    monkeypatch.setattr(docker_bin, "_SUBUID_PATH", tmp_path / "subuid")
+    monkeypatch.setattr(docker_bin, "_SUBGID_PATH", tmp_path / "subgid")
+    monkeypatch.setattr(docker_bin, "_NSSWITCH_PATH", tmp_path / "nsswitch.conf")
+    monkeypatch.setattr(docker_bin.getpass, "getuser", lambda: "alice")
+
+
+def test_have_subuid_range_requires_both_uid_and_gid(tmp_path, monkeypatch):
+    _write_subid_files(tmp_path, monkeypatch, "alice:100000:65536\n", "")
+    assert docker_bin.have_subuid_range() is False
+
+    _write_subid_files(
+        tmp_path, monkeypatch, "alice:100000:65536\n", "alice:100000:65536\n"
+    )
+    assert docker_bin.have_subuid_range() is True
+
+
+def test_have_subuid_range_queries_nss_when_files_and_sss(tmp_path, monkeypatch):
+    _write_subid_files(tmp_path, monkeypatch, "", "", nss="subid: files sss\n")
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="0: alice 100000 65536\n")
+
+    monkeypatch.setattr(docker_bin.subprocess, "run", fake_run)
+    assert docker_bin.have_subuid_range() is True
+    assert calls == [["getsubids", "alice"], ["getsubids", "-g", "alice"]]
+
+
+def test_have_subuid_range_skips_nss_for_files_only(tmp_path, monkeypatch):
+    _write_subid_files(tmp_path, monkeypatch, "", "", nss="subid: files\n")
+    monkeypatch.setattr(
+        docker_bin.subprocess,
+        "run",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("called getsubids")),
+    )
+    assert docker_bin.have_subuid_range() is False
+
+
+@pytest.mark.real_cli_probe
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [
+        ("podman version 5.4.1\n", True),
+        ("Docker version 27.3.1, build ce12230\n", False),
+        ("", False),
+    ],
+)
+def test_cli_is_podman_uses_version_output(monkeypatch, stdout, expected):
+    calls = []
+    monkeypatch.setattr(docker_bin, "docker_bin", lambda: "docker")
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=stdout)
+
+    monkeypatch.setattr(docker_bin.subprocess, "run", fake_run)
+    assert docker_bin._cli_is_podman() is expected
+    assert docker_bin._cli_is_podman() is expected
+    assert calls == [["docker", "--version"]]
+
+
+@pytest.mark.real_cli_probe
+def test_cli_is_podman_detects_wrapper_script(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "engine").write_text("#!/bin/sh\necho 'podman version 5.4.1'\n")
+    (real / "engine").chmod(0o755)
+    wrapper = tmp_path / "docker"
+    wrapper.write_text(f'#!/bin/sh\nexec {real / "engine"} "$@"\n')
+    wrapper.chmod(0o755)
+    monkeypatch.setattr(docker_bin, "docker_bin", lambda: str(wrapper))
+    assert docker_bin._cli_is_podman() is True
+
+
+@pytest.mark.real_cli_probe
+def test_cli_is_podman_false_when_cli_missing(monkeypatch):
+    monkeypatch.setattr(docker_bin, "docker_bin", lambda: "/nonexistent/docker")
+    assert docker_bin._cli_is_podman() is False
+
+
+def _fake_compose(path, version: str):
+    path.write_text(f"#!/bin/sh\necho '{version}'\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_compose_v2_provider_skips_compose_v1(tmp_path, monkeypatch):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fake_compose(bindir / "docker-compose", "1.29.2")
+    monkeypatch.delenv("PODMAN_COMPOSE_PROVIDER", raising=False)
+    monkeypatch.setenv("PATH", str(bindir))
+    monkeypatch.setattr(docker_bin, "_COMPOSE_PLUGIN_DIRS", (plugins,))
+    assert docker_bin.compose_v2_provider() is None
+
+    docker_bin.compose_v2_provider.cache_clear()
+    v2 = _fake_compose(plugins / "docker-compose", "2.40.3")
+    assert docker_bin.compose_v2_provider() == str(v2)
+
+
+def test_compose_v2_provider_honours_env(monkeypatch):
+    monkeypatch.setenv("PODMAN_COMPOSE_PROVIDER", "/opt/compose")
+    assert docker_bin.compose_v2_provider() == "/opt/compose"
+
+
+def test_docker_cmd_compose_on_podman_sets_v2_provider(monkeypatch):
+    monkeypatch.setattr(docker_bin, "_cli_is_podman", lambda: True)
+    monkeypatch.setattr(docker_bin, "docker_bin", lambda: "docker")
+    monkeypatch.setattr(docker_bin, "compose_v2_provider", lambda: "/opt/compose")
+    monkeypatch.delenv("PODMAN_COMPOSE_PROVIDER", raising=False)
+    monkeypatch.delenv("PODMAN_COMPOSE_WARNING_LOGS", raising=False)
+    assert docker_bin.docker_cmd("compose", "ps") == ["docker", "compose", "ps"]
+    assert docker_bin.os.environ["PODMAN_COMPOSE_PROVIDER"] == "/opt/compose"
+    assert docker_bin.os.environ["PODMAN_COMPOSE_WARNING_LOGS"] == "false"
+
+
+def test_docker_cmd_compose_on_podman_without_v2_fails(monkeypatch):
+    monkeypatch.setattr(docker_bin, "_cli_is_podman", lambda: True)
+    monkeypatch.setattr(docker_bin, "compose_v2_provider", lambda: None)
+    with pytest.raises(RuntimeError, match="Docker Compose v2"):
+        docker_bin.docker_cmd("compose", "ps")
+    assert docker_bin.docker_cmd("ps")[1:] == ["ps"]
+
+
+def test_bake_supported_false_for_podman_without_running_cli(monkeypatch):
+    monkeypatch.setattr(docker_bin, "_cli_is_podman", lambda: True)
+    monkeypatch.setattr(
+        docker_bin.subprocess,
+        "run",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("ran CLI")),
+    )
+    assert docker_bin.bake_supported() is False
+
+
+@pytest.mark.parametrize(("returncode", "expected"), [(0, True), (1, False)])
+def test_bake_supported_uses_docker_bake_help_exit_code(
+    monkeypatch, returncode, expected
+):
+    calls = []
+    monkeypatch.setattr(docker_bin, "_cli_is_podman", lambda: False)
+    monkeypatch.setattr(docker_bin, "docker_bin", lambda: "docker")
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=returncode)
+
+    monkeypatch.setattr(docker_bin.subprocess, "run", fake_run)
+    assert docker_bin.bake_supported() is expected
+    assert calls == [["docker", "buildx", "bake", "--help"]]
+
+
+def _write_bake_hcl(crs: CRS) -> None:
+    (crs.crs_path / "docker-bake.hcl").write_text(
+        textwrap.dedent(
+            """\
+            target "builder" {
+              dockerfile = "builder.Dockerfile"
+              tags = ["test-crs-builder:latest"]
+            }
+            """
+        )
+    )
+
+
+def test_prepare_without_bake_builds_targets_from_hcl(tmp_path, monkeypatch):
+    monkeypatch.setattr("oss_crs.src.crs.bake_supported", lambda: False)
+    crs = _make_crs(tmp_path, {})
+    _write_bake_hcl(crs)
+    progress = _CaptureProgress()
+
+    with patch(
+        "oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)
+    ) as run:
+        result = crs._CRS__prepare_bake(multi_task_progress=progress, no_pull=True)
+
+    assert result.success is True
+    assert not any("bake" in c.args[0] for c in run.call_args_list)
+    [call] = progress.calls
+    assert call["cmd"][1:3] == ["buildx", "build"]
+    assert "bake" not in call["cmd"]
+    assert "test-crs-builder:latest" in call["cmd"]
+
+
+def test_prepare_without_bake_rejects_publish(tmp_path, monkeypatch):
+    monkeypatch.setattr("oss_crs.src.crs.bake_supported", lambda: False)
+    crs = _make_crs(tmp_path, {})
+    _write_bake_hcl(crs)
+    progress = _CaptureProgress()
+
+    result = crs._CRS__prepare_bake(
+        multi_task_progress=progress, publish=True, docker_registry="ghcr.io/x"
+    )
+
+    assert result.success is False
+    assert "buildx bake" in (result.error or "")
+    assert progress.calls == []
+
+
+def test_bake_image_tags_without_bake_parse_hcl(tmp_path, monkeypatch):
+    monkeypatch.setattr("oss_crs.src.crs.bake_supported", lambda: False)
+    crs = _make_crs(tmp_path, {})
+    _write_bake_hcl(crs)
+
+    with patch(
+        "oss_crs.src.crs.subprocess.run",
+        side_effect=AssertionError("ran bake --print"),
+    ):
+        assert crs.get_bake_image_tags() == ["test-crs-builder:latest"]
+
+
+def test_export_docker_host_uses_detected_rootless_socket(monkeypatch):
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr(
+        docker_bin,
+        "describe_daemon",
+        lambda: ("podman", "unix:///run/user/1000/podman/podman.sock"),
+    )
+    docker_bin.export_docker_host()
+    assert os.environ["DOCKER_HOST"] == "unix:///run/user/1000/podman/podman.sock"

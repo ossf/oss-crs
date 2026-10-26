@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: MIT
 import hashlib
+import os
 import shutil
 import subprocess
 import random
 import secrets
 import string
+import sys
 import time
 import re
 from pathlib import Path
@@ -19,6 +21,7 @@ from questionary.question import Question
 from rich.console import Console
 
 from .constants import OSS_CRS_ALPINE_TAG, PRESERVED_BUILDER_REPO, PRESERVED_RUNNER_REPO
+from .docker_bin import docker_cmd
 
 
 RAND_CHARS = string.ascii_lowercase + string.digits
@@ -215,14 +218,51 @@ def build_snapshot_tag(crs_name: str, build_name: str, build_id: str) -> str:
     return f"oss-crs-snapshot:build-{crs_name}-{build_name}-{build_id}"
 
 
+def _remove_tree_direct(path: Path) -> None:
+    """Remove a tree without a container runtime (rootless/offline-safe)."""
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    if not path.exists():
+        return
+
+    def make_writable(func, p, _exc):
+        try:
+            os.chmod(Path(p).parent, 0o700)
+        except OSError:
+            pass
+        try:
+            os.chmod(p, 0o700)
+        except OSError:
+            pass
+        func(p)
+
+    # support older versions but avoid warnings for newer versions
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=make_writable)
+    else:
+        shutil.rmtree(path, onerror=make_writable)
+
+
 def rm_with_docker(path: Path, image_tag: str = OSS_CRS_ALPINE_TAG) -> None:
-    command = [
-        "docker",
+    """Remove a path, preferring direct removal (rootless-safe).
+
+    Direct removal works for everything the invoking user owns, including
+    files with read-only bits (chmod fallback). The container fallback is
+    only for truly root-owned leftovers that direct removal cannot delete.
+    """
+    try:
+        _remove_tree_direct(path)
+        if not path.exists() and not path.is_symlink():
+            return
+    except OSError:
+        pass
+    command = docker_cmd(
         "run",
         "--rm",
         "-v",
         f"{path.parent}:/data",
-    ]
+    )
     if image_tag == OSS_CRS_ALPINE_TAG:
         command.extend([image_tag, "rm", "-rf", f"/data/{path.name}"])
     else:

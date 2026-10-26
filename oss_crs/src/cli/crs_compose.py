@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from ..crs_compose import ArtifactInput, CRSCompose, RUN_ARTIFACT_INPUT_SPECS
 from ..config.crs_compose import CRSComposeConfig
+from ..docker_bin import docker_cmd, export_docker_host
 from ..target import Target
 from ..constants import WEBUI_CONTAINER_NAME, WEBUI_DEFAULT_PORT
 from ..utils import get_console, log_success, log_error, log_warning, log_dim
@@ -222,6 +223,12 @@ def add_build_target_command(subparsers):
         default=False,
         help="Build an additional coverage-instrumented binary (used by --web-ui at run time).",
     )
+    build_target.add_argument(
+        "--unprivileged",
+        action="store_true",
+        default=False,
+        help="Run build containers without privileged:true (privileged by default).",
+    )
 
 
 def add_run_command(subparsers):
@@ -306,6 +313,12 @@ def add_run_command(subparsers):
             "Launch a WebUI dashboard to monitor CRS run status "
             f"(served on port {WEBUI_DEFAULT_PORT})."
         ),
+    )
+    run.add_argument(
+        "--unprivileged",
+        action="store_true",
+        default=False,
+        help="Run CRS module containers without privileged:true (privileged by default).",
     )
 
 
@@ -423,7 +436,7 @@ def add_web_ui_command(subparsers):
 
 def _is_webui_running() -> bool:
     result = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Running}}", WEBUI_CONTAINER_NAME],
+        docker_cmd("inspect", "--format", "{{.State.Running}}", WEBUI_CONTAINER_NAME),
         capture_output=True,
         text=True,
     )
@@ -432,7 +445,7 @@ def _is_webui_running() -> bool:
 
 def _get_webui_port() -> str | None:
     result = subprocess.run(
-        ["docker", "port", WEBUI_CONTAINER_NAME],
+        docker_cmd("port", WEBUI_CONTAINER_NAME),
         capture_output=True,
         text=True,
     )
@@ -457,14 +470,14 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
 
     # Remove stopped container if exists
     subprocess.run(
-        ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
+        docker_cmd("rm", "-f", WEBUI_CONTAINER_NAME),
         capture_output=True,
     )
 
     # Build image with spinner
     with console.status("[bold blue]Building WebUI image...", spinner="dots"):
         build_result = subprocess.run(
-            ["docker", "build", "-t", image_name, str(webui_context)],
+            docker_cmd("build", "-t", image_name, str(webui_context)),
             capture_output=True,
             text=True,
         )
@@ -482,8 +495,7 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
     # Start container with spinner
     with console.status("[bold blue]Starting WebUI container...", spinner="dots"):
         run_result = subprocess.run(
-            [
-                "docker",
+            docker_cmd(
                 "run",
                 "-d",
                 "--name",
@@ -508,7 +520,7 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
                 "--restart",
                 "unless-stopped",
                 image_name,
-            ],
+            ),
             capture_output=True,
             text=True,
         )
@@ -533,7 +545,7 @@ def handle_web_ui(args) -> bool:
 
         with console.status("[bold blue]Stopping WebUI...", spinner="dots"):
             subprocess.run(
-                ["docker", "rm", "-f", WEBUI_CONTAINER_NAME],
+                docker_cmd("rm", "-f", WEBUI_CONTAINER_NAME),
                 capture_output=True,
             )
         log_success("WebUI stopped")
@@ -870,6 +882,7 @@ def _sigterm_handler(signum, frame):
 def cli() -> bool | int:
     signal.signal(signal.SIGTERM, _sigterm_handler)
     load_dotenv()
+    export_docker_host()
     parser = argparse.ArgumentParser(
         prog="oss-crs", description="OSS-CRS: Cyber Reasoning System orchestration CLI"
     )
@@ -973,6 +986,7 @@ def cli() -> bool | int:
             diff=args.diff,
             incremental_build=args.incremental_build,
             coverage=args.coverage,
+            privileged=not args.unprivileged,
         ):
             return False
     elif args.command == "run":
@@ -1026,6 +1040,7 @@ def cli() -> bool | int:
             early_exit=args.early_exit,
             incremental_build=args.incremental_build,
             web_ui=args.web_ui,
+            privileged=not args.unprivileged,
         )
         if run_rc != 0:
             return run_rc

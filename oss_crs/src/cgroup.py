@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .docker_bin import docker_cmd
 from .memory import parse_memory
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ def check_docker_cgroup_driver() -> tuple[bool, str]:
     """
     try:
         result = subprocess.run(
-            ["docker", "info", "--format", "{{.CgroupDriver}}"],
+            docker_cmd("info", "--format", "{{.CgroupDriver}}"),
             capture_output=True,
             text=True,
             check=True,

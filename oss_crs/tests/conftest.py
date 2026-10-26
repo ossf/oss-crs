@@ -16,6 +16,10 @@ def pytest_configure(config):
         "markers",
         "cgroup_parent_required: mark tests that require cgroup-parent support",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_cli_probe: run the real `_cli_is_podman` instead of assuming Docker",
+    )
 
 
 @pytest.fixture

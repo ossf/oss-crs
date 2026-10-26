@@ -1543,3 +1543,35 @@ def test_extra_ca_not_mounted_into_infra_sidecars(monkeypatch, tmp_path: Path) -
             continue
         for volume in service.get("volumes") or []:
             assert "/etc/oss-crs/ca" not in volume, f"{name} must not mount the CA dir"
+
+
+def test_docker_sock_warns_for_daemonless_podman(monkeypatch, tmp_path: Path) -> None:
+    from oss_crs.src.templates import renderer
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr(renderer, "OSS_CRS_ROOT_PATH", tmp_path)
+    monkeypatch.setattr(
+        renderer, "describe_daemon", lambda: ("podman", "daemonless (/usr/bin/podman)")
+    )
+    monkeypatch.setattr(renderer.os.path, "exists", lambda _p: False)
+
+    sock, warning = renderer._docker_sock_from_env()
+
+    assert sock == str(tmp_path / ".oss-crs-workdir" / "podman.sock")
+    assert warning is not None and "podman.socket" in warning
+
+
+def test_docker_sock_prefers_detected_podman_api_socket(monkeypatch) -> None:
+    from oss_crs.src.templates import renderer
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr(
+        renderer,
+        "describe_daemon",
+        lambda: ("podman", "unix:///run/user/1000/podman/podman.sock"),
+    )
+
+    assert renderer._docker_sock_from_env() == (
+        "/run/user/1000/podman/podman.sock",
+        None,
+    )

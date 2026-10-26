@@ -171,6 +171,8 @@ def test_docker_compose_down_attempts_image_cleanup_even_on_down_failure(
     result = progress.docker_compose_down("proj", Path("/tmp/docker-compose.yml"))
 
     assert result.success is False
+    assert result.error is not None and "exit code 1" in result.error
+    assert sum(1 for c in docker_cmds if "down" in c) == 1
     assert [
         "docker",
         "image",
@@ -720,3 +722,81 @@ def test_run_command_with_streaming_output_prints_plain_logs_when_headless(
     output = console_output.getvalue()
     assert "line 1" in output
     assert "line 2" in output
+
+
+def test_docker_compose_build_on_podman_builds_images_directly(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import oss_crs.src.ui as ui
+
+    compose_path = tmp_path / "docker-compose.yaml"
+    compose_path.write_text(
+        """\
+services:
+  target_builder:
+    build:
+      context: /crs
+      dockerfile: /crs/builder.Dockerfile
+      args:
+        - target_base_image=base:latest
+      additional_contexts:
+        libcrs: /libcrs
+  publisher:
+    image: pub:1
+    build:
+      context: ./pub
+      args:
+        base: x
+  plain:
+    image: alpine
+"""
+    )
+    monkeypatch.setattr(ui, "is_podman_cli", lambda: True)
+    progress = MultiTaskProgress(tasks=[], title="test")
+    cmds: list[list[str]] = []
+    monkeypatch.setattr(
+        progress,
+        "run_command_with_streaming_output",
+        lambda cmd, **_kw: cmds.append(cmd) or TaskResult(success=True),
+    )
+
+    assert progress.docker_compose_build("proj", compose_path).success
+    assert cmds == [
+        [
+            "docker", "build", "-f", "/crs/builder.Dockerfile",
+            "-t", "proj-target_builder",
+            "--label", "com.docker.compose.project=proj",
+            "--build-arg", "target_base_image=base:latest",
+            "--build-context", "libcrs=/libcrs",
+            "/crs",
+        ],
+        [
+            "docker", "build", "-f", f"{tmp_path}/pub/Dockerfile",
+            "-t", "pub:1",
+            "--label", "com.docker.compose.project=proj",
+            "--build-arg", "base=x",
+            f"{tmp_path}/pub",
+        ],
+    ]  # fmt: skip
+
+
+def test_docker_compose_build_on_podman_rejects_unsupported_keys(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import oss_crs.src.ui as ui
+
+    compose_path = tmp_path / "docker-compose.yaml"
+    compose_path.write_text(
+        "services:\n  s:\n    build:\n      context: .\n      secrets: [x]\n"
+    )
+    monkeypatch.setattr(ui, "is_podman_cli", lambda: True)
+    progress = MultiTaskProgress(tasks=[], title="test")
+    monkeypatch.setattr(
+        progress,
+        "run_command_with_streaming_output",
+        lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError("built")),
+    )
+
+    result = progress.docker_compose_build("proj", compose_path)
+    assert not result.success
+    assert "secrets" in (result.error or "")

@@ -24,6 +24,7 @@ from ..constants import (
     POSTGRES_PORT,
     POSTGRES_USER,
 )
+from ..docker_bin import describe_daemon
 from ..env_policy import build_run_service_env, build_target_builder_env
 from ..llm import DEFAULT_LITELLM_CONFIG_PATH
 from ..utils import (
@@ -42,6 +43,39 @@ if TYPE_CHECKING:
 CUR_DIR = Path(__file__).parent
 OSS_CRS_ROOT_PATH = (CUR_DIR / "../../../").resolve()
 LIBCRS_PATH = (OSS_CRS_ROOT_PATH / "libCRS").resolve()
+
+
+_DAEMONLESS_PODMAN_SOCK_WARNING = (
+    "No container API socket found: daemonless Podman has no Docker-compatible "
+    "API, so oss-crs-builder-sidecar and oss-crs-lifecycle cannot manage "
+    "containers. Run `systemctl --user start podman.socket` (or `podman system "
+    "service`) and set DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock."
+)
+
+
+def _docker_sock_from_env() -> tuple[str, Optional[str]]:
+    """Host path of the container API socket, plus a warning if it is unusable.
+
+    Uses DOCKER_HOST=unix://<path> when set, then a detected rootless Docker /
+    Podman API socket, then /var/run/docker.sock. Under daemonless Podman with
+    no API socket, returns an empty placeholder file (so the bind mount
+    succeeds) together with a warning that the sidecars needing the API will
+    not work.
+    """
+    host = os.environ.get("DOCKER_HOST", "")
+    if host.startswith("unix://"):
+        return host[len("unix://") :], None
+    kind, detail = describe_daemon()
+    if kind in ("podman", "rootless-docker") and detail.startswith("unix://"):
+        return detail[len("unix://") :], None
+    if os.path.exists("/var/run/docker.sock") or kind != "podman":
+        return "/var/run/docker.sock", None
+    sock_dir = OSS_CRS_ROOT_PATH / ".oss-crs-workdir"
+    sock_dir.mkdir(parents=True, exist_ok=True)
+    sock = sock_dir / "podman.sock"
+    if not sock.exists():
+        sock.touch()
+    return str(sock), _DAEMONLESS_PODMAN_SOCK_WARNING
 
 
 def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
@@ -90,6 +124,7 @@ def render_build_target_docker_compose(
     sanitizer: str,
     build_fetch_dir: Optional[Path] = None,
     target_source_path: Optional[Path] = None,
+    privileged: bool = True,
 ) -> tuple[str, list[str]]:
     """Render the docker-compose file for building a target.
 
@@ -152,6 +187,7 @@ def render_build_target_docker_compose(
         "target_source_path": str(target_source_path)
         if target_source_path
         else str(target.repo_path.resolve()),
+        "privileged": privileged,
     }
     return render_template(template_path, context), env_plan.warnings
 
@@ -427,6 +463,7 @@ def render_run_crs_compose_docker_compose(
     sidecar_env: dict[str, str] | None = None,
     web_ui: bool = False,
     source_only: bool = False,
+    privileged: bool = True,
 ) -> tuple[str, list[str]]:
     template_path = CUR_DIR / "run-crs-compose.docker-compose.yaml.j2"
     compose_env = crs_compose.crs_compose_env
@@ -473,6 +510,7 @@ def render_run_crs_compose_docker_compose(
         litellm_spend_report_path = str(tmp_dir / "litellm-spend-report.json")
 
     litellm_spend_report_dir = str(Path(litellm_spend_report_path).parent)
+    docker_sock, docker_sock_warning = _docker_sock_from_env()
 
     context = {
         "libCRS_path": str(LIBCRS_PATH),
@@ -527,6 +565,8 @@ def render_run_crs_compose_docker_compose(
         "postgres_host": POSTGRES_HOST,
         "rebuild_out_dir": rebuild_out_dir,
         "incremental_build": incremental_build,
+        "privileged": privileged,
+        "docker_sock": docker_sock,
         "preserved_builder_image_name": preserved_builder_image_name,
         "sidecar_env": sidecar_env or {},
         "web_ui": web_ui,
@@ -564,6 +604,8 @@ def render_run_crs_compose_docker_compose(
 
     module_envs: dict[str, dict[str, str]] = {}
     warnings: list[str] = []
+    if docker_sock_warning:
+        warnings.append(docker_sock_warning)
     for crs in crs_compose.crs_list:
         for module_name, module_config in crs.config.crs_run_phase.modules.items():
             if not module_config.dockerfile:

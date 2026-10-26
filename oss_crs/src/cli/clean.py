@@ -11,6 +11,7 @@ import docker.errors
 from ..constants import (
     OSS_CRS_ALPINE_TAG,
 )
+from ..docker_bin import docker_cmd
 from ..utils import (
     confirm,
     get_console,
@@ -75,8 +76,7 @@ def _dir_size(path: Path) -> str:
     except PermissionError:
         # Fall back to docker to read root-owned files
         result = subprocess.run(
-            [
-                "docker",
+            docker_cmd(
                 "run",
                 "--rm",
                 "-v",
@@ -85,7 +85,7 @@ def _dir_size(path: Path) -> str:
                 "du",
                 "-sb",
                 "/data",
-            ],
+            ),
             capture_output=True,
             text=True,
         )
