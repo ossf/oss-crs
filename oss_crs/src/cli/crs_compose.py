@@ -44,7 +44,11 @@ def add_common_arguments(parser):
     parser.add_argument(
         "--offline",
         required=False,
-        help="Disables network access for CRS Compose operations",
+        help=(
+            "Disables network access for CRS Compose operations. The internal "
+            "LiteLLM proxy uses its bundled model cost map instead of fetching "
+            "it at startup"
+        ),
         action="store_true",
     )
     parser.add_argument(
