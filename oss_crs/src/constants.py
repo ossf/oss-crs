@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Container images used by the infrastructure sidecar stack.
-LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:80a12a210e6626e39daaa31fb6ce70f4c4d97ee10e21d4584a9e87f45bf3a2f1"  # v1.106.0
+LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:db36453d25e76c9eb689d7d51b8e5fa48843243d7a86ed1284cf574ce0107b3f"  # v1.106.4
 POSTGRES_IMAGE = "postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6"  # 18.6
 
 # Stable local tags for the internal LiteLLM stack images. ``prepare`` pulls
