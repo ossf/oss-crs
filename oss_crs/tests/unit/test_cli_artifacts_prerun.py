@@ -57,6 +57,9 @@ class _FakeWorkDir:
     def get_run_meta_file(self, run_id: str, sanitizer: str):
         return self._tmp / sanitizer / "runs" / run_id / "meta.json"
 
+    def get_run_info_file(self, run_id: str, sanitizer: str):
+        return self._tmp / sanitizer / "runs" / run_id / "run-info.json"
+
     def get_exchange_dir(
         self, target, run_id: str, sanitizer: str, *, create: bool = False
     ):
@@ -428,6 +431,22 @@ def test_artifacts_includes_meta_stats_when_meta_json_exists(tmp_path, capsys) -
     assert '"pov_runs": 8' in out
     assert '"bug_candidates": 2' in out
     assert '"reports": 3' in out
+
+
+def test_artifacts_reports_run_info_only_when_present(tmp_path, capsys) -> None:
+    compose = _make_compose(tmp_path, resolved_run_id="existing-run-id")
+    args = _make_args("existing-run-id")
+    target = _FakeTarget("fuzz_target")
+
+    assert handle_artifacts(args, compose, target) is True
+    assert "run_info" not in json.loads(capsys.readouterr().out)
+
+    run_info = tmp_path / "address" / "runs" / "existing-run-id" / "run-info.json"
+    run_info.parent.mkdir(parents=True)
+    run_info.write_text("{}\n")
+
+    assert handle_artifacts(args, compose, target) is True
+    assert json.loads(capsys.readouterr().out)["run_info"] == str(run_info)
 
 
 def test_artifacts_advertises_per_crs_sidecar_metrics_path(tmp_path, capsys) -> None:
