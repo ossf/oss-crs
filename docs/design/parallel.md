@@ -7,7 +7,7 @@
 The `--build-id` flag isolates build artifacts, allowing parallel builds of different target versions or configurations.
 
 **Default behavior:**
-- `build-target`: Generates a new timestamp-based ID (e.g., `1739819274ab`), creating a fresh build each time
+- `build-target`: Generates a new timestamp-based ID (e.g., `1739819274ab3kq9`), creating a fresh build each time
 - `run`: Uses the latest existing build, or generates a new one if none exists
 
 To reuse an existing build (avoid rebuilding), explicitly specify `--build-id`:
@@ -85,7 +85,7 @@ uv run oss-crs run \
 
 | Command     | Default                                                        |
 |-------------|----------------------------------------------------------------|
-| `run`       | Auto-generated timestamp + random bytes (e.g., `1739819274ab`) |
+| `run`       | Auto-generated timestamp + 6 random characters (e.g., `1739819274ab3kq9`) |
 | `artifacts` | Interactive selection in reverse chronological order           |
 
 Run artifacts are stored at:
@@ -137,7 +137,7 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
 
 ```
 ? Select run-id:
-> 2025-02-17 16:01:57  (1739819274ab)
+> 2025-02-17 19:07:54  (1739819274ab3kq9)
   2025-02-17 15:58:30  (test-explicit)
   2025-02-17 15:55:00  (experiment-1)
 ```
@@ -146,35 +146,35 @@ If `--run-id` is omitted, an interactive prompt lists available runs sorted by t
 
 ```json
 {
-  "build_id": "1739819200cd",
-  "run_id": "1739819274ab",
+  "build_id": "1739819200cd7x2m",
+  "run_id": "1739819274ab3kq9",
   "sanitizer": "address",
   "exchange_dir": {
-    "base": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml",
-    "pov": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/povs",
-    "seed": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/seeds",
-    "bug_candidate": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/bug-candidates",
-    "report": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/reports",
-    "patch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/patches",
-    "diff": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml/diffs"
+    "base": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml",
+    "pov": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/povs",
+    "seed": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/seeds",
+    "bug_candidate": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/bug-candidates",
+    "report": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/reports",
+    "patch": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/patches",
+    "diff": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml/diffs"
   },
   "run_logs": {
-    "base": "/path/to/address/runs/1739819274ab/logs/target/xml",
-    "compose_stdout_log": "/path/to/address/runs/1739819274ab/logs/target/xml/docker-compose.stdout.log",
-    "compose_stderr_log": "/path/to/address/runs/1739819274ab/logs/target/xml/docker-compose.stderr.log",
-    "service_logs": "/path/to/address/runs/1739819274ab/logs/target/xml/services"
+    "base": "/path/to/address/runs/1739819274ab3kq9/logs/target/xml",
+    "compose_stdout_log": "/path/to/address/runs/1739819274ab3kq9/logs/target/xml/docker-compose.stdout.log",
+    "compose_stderr_log": "/path/to/address/runs/1739819274ab3kq9/logs/target/xml/docker-compose.stderr.log",
+    "service_logs": "/path/to/address/runs/1739819274ab3kq9/logs/target/xml/services"
   },
   "crs": {
     "crs-libfuzzer": {
-      "build": "/path/to/address/builds/1739819200cd/crs/crs-libfuzzer/target/BUILD_OUT_DIR",
-      "submit_dir": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml",
-      "pov": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/povs",
-      "seed": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/seeds",
-      "bug_candidate": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/bug-candidates",
-      "report": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/reports",
-      "patch": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/patches",
-      "fetch": "/path/to/address/runs/1739819274ab/EXCHANGE_DIR/target/xml",
-      "shared": "/path/to/address/runs/1739819274ab/crs/crs-libfuzzer/target/SHARED_DIR/xml"
+      "build": "/path/to/address/builds/1739819200cd7x2m/crs/crs-libfuzzer/target/BUILD_OUT_DIR",
+      "submit_dir": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml",
+      "pov": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/povs",
+      "seed": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/seeds",
+      "bug_candidate": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/bug-candidates",
+      "report": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/reports",
+      "patch": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SUBMIT_DIR/xml/patches",
+      "fetch": "/path/to/address/runs/1739819274ab3kq9/EXCHANGE_DIR/target/xml",
+      "shared": "/path/to/address/runs/1739819274ab3kq9/crs/crs-libfuzzer/target/SHARED_DIR/xml"
     }
   }
 }
