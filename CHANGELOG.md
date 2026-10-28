@@ -51,6 +51,7 @@ stricter subset of Keep a Changelog).
 - fuzzing-brain to registry/ and example/ (bug-finding, C/C++, multi-provider LLM)
 - buttercup-seed-gen to registry/ and example/
 - 42-directed and 42-seedgen to registry/ and example/
+- scrutineer to registry/ and example/ (auditing, source-only)
 - `libCRS download-source fuzz-proj <dest>`: copies clean fuzz project
 - `libCRS download-source target-source <dest>`: copies clean target source
 
