@@ -58,3 +58,17 @@ markers = [
     "smoke: marks tests as smoke tests",
     "cgroup_parent_required: marks tests that require cgroup-parent support",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["oss_crs/src", "libCRS/libCRS", "oss-crs-infra"]
+omit = [
+    "*/tests/*",
+    "*conftest.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
