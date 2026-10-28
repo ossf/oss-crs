@@ -19,6 +19,7 @@ from .setup import add_setup_command, handle_setup
 from .export import handle_export
 from .import_cmd import handle_import
 from .list_harnesses import add_list_harnesses_command, handle_list_harnesses
+from .check import add_check_command, handle_check
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -399,10 +400,6 @@ def add_archive_command(subparsers):
         default=False,
         help="Include all artifacts (exchange dir, logs, shared dirs) in addition to submitted artifacts.",
     )
-
-
-def add_check_command(subparsers):
-    pass
 
 
 def add_web_ui_command(subparsers):
@@ -904,6 +901,8 @@ def cli() -> bool | int:
         return handle_setup(args)
     if args.command == "web-ui":
         return handle_web_ui(args)
+    if args.command == "check":
+        return handle_check(args)
 
     # Resolve all Path arguments to absolute paths so that relative paths
     # (e.g., --fuzz-proj-path ../ghostscript) work regardless of cwd.
@@ -1055,8 +1054,6 @@ def cli() -> bool | int:
         )
     elif args.command == "export":
         return handle_export(args, crs_compose)
-    elif args.command == "check":
-        pass
     return True
 
 
