@@ -16,6 +16,7 @@ stricter subset of Keep a Changelog).
 - `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
 - Added per-CRS token tracking (`prompt_tokens`/`completion_tokens`) alongside dollar spend.
 - Added support for MCP servers via the LiteLLM gateway which are accessible via libCRS mcp.
+- Internal LiteLLM proxy healthcheck `start_period` raised from 90s to 300s (about 350s in total before the container is marked unhealthy, up from about 140s). litellm's startup fetch of the remote model cost map is timed out per network step, not overall, so on slow networks (e.g. Docker-outside-of-Docker CI runners) startup could exceed the old budget and abort the run with `dependency failed to start: container oss-crs-litellm-1 is unhealthy`. Fast hosts are unaffected: the container turns healthy on its first passing check. `--offline` still skips the fetch entirely.
 
 ### Added
 - `oss-crs list-harnesses --fuzz-proj-path <PATH_TO_PROJ>` — builds an OSS-Fuzz project through its default Docker compile path and lists its runnable fuzz harnesses, reusing cached build artifacts until the project inputs or repository HEAD change.

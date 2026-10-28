@@ -139,9 +139,12 @@ despite `litellm` genuinely still starting (not crashed, not resource-starved
 **Root cause:** by default, `litellm` fetches a remote model-cost map at
 startup. In a DooD CI environment with extra network hops, this can be slow
 enough to blow past the container's healthcheck budget
-(`start_period: 90s` + `retries: 10` × `interval: 5s` ≈ 140 seconds).
+(`start_period: 90s` + `retries: 10` × `interval: 5s` ≈ 140 seconds). The
+default was raised to `start_period: 300s` (≈ 350 seconds in total) in
+[ossf/oss-crs#367](https://github.com/ossf/oss-crs/issues/367).
 
-**Fix / workaround:** pass `--offline` to `oss-crs run` and `build-target`.
+**Fix / workaround:** if startup still exceeds the budget on a very slow
+network, pass `--offline` to `oss-crs run` and `build-target`.
 This sets `LITELLM_LOCAL_MODEL_COST_MAP=True`, skipping the slow fetch
 entirely, without disabling the actual LLM API calls (those still work
 normally). This was filed as an upstream issue against `ossf/oss-crs`

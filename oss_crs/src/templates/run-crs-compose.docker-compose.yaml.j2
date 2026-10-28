@@ -137,7 +137,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 90s  # ~140 Prisma migrations run on first boot
+      # Generous on purpose: first boot runs Prisma migrations, and litellm's
+      # startup cost-map fetch is timed out per network step, not overall, so
+      # slow networks can take minutes. Failed checks in this window don't
+      # count and the first passing check ends it, so fast hosts don't wait
+      # longer. See ossf/oss-crs#367.
+      start_period: 300s
   oss-crs-postgres:
     image: {{ postgres_image }}
     attach: false

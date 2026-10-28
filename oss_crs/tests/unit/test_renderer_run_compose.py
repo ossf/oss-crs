@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -896,6 +897,15 @@ def _internal_llm_context(tmp_path: Path):
     }
 
 
+def _compose_duration_seconds(value: str) -> int:
+    """Parse a compose duration like "90s", "5m", "1m30s" or "1h" into seconds."""
+    match = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", value)
+    if not value or match is None:
+        raise ValueError(f"unsupported compose duration: {value!r}")
+    hours, minutes, seconds = (int(group or 0) for group in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 @pytest.mark.parametrize(
     "offline,expected_env",
     [
@@ -926,8 +936,14 @@ def test_offline_gates_litellm_local_cost_map_env(
         f"got: {litellm_service.get('environment')}"
     )
 
-    # Ensure we set a start period; also needed for online - Prisma migrations are slow
-    assert "start_period" in litellm_service["healthcheck"]
+    # Generous start period, online too: Prisma migrations plus a cost-map fetch
+    # that can be slow on slow networks (#367). Lower bound only, not the value.
+    start_period = _compose_duration_seconds(
+        litellm_service["healthcheck"]["start_period"]
+    )
+    assert start_period >= 270, (
+        f"litellm start_period must be at least 270s; got {start_period}s"
+    )
 
     # The proxy is started from secret-derived exports in `command`; adding an
     # `environment:` key must not displace them.
