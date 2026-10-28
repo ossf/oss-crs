@@ -21,6 +21,18 @@ from rich.table import Table
 from rich.text import Text
 
 FRAMEWORK_HELPER_SERVICE_PREFIX = "oss-crs-"
+# Command output embedded in error/stop messages is cut to its last N lines so
+# a long-running, noisy CRS does not flood the terminal when the run ends.
+# Full run logs are persisted separately under the run's logs directory.
+MAX_ERROR_OUTPUT_LINES = 100
+
+
+def _tail_output(lines: list[str], max_lines: int = MAX_ERROR_OUTPUT_LINES) -> str:
+    """Join the last ``max_lines`` lines, noting how many earlier ones were dropped."""
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    omitted = len(lines) - max_lines
+    return f"... ({omitted} earlier lines omitted)\n" + "\n".join(lines[-max_lines:])
 
 
 @dataclass
@@ -713,7 +725,7 @@ class MultiTaskProgress:
                 process.wait()
             except KeyboardInterrupt:
                 _graceful_terminate(process)
-                error = "\n".join(output_lines)
+                error = _tail_output(output_lines)
                 error += "\n\n📝 Process interrupted by user"
                 return TaskResult(
                     success=False,
@@ -727,7 +739,7 @@ class MultiTaskProgress:
 
             if timed_out.is_set():
                 error_msg = f"■ Timed out.\nContainers were gracefully stopped.\n{' '.join(cmd)}\n\n"
-                error_msg += "\n".join(output_lines)
+                error_msg += _tail_output(output_lines)
                 if task_name:
                     self.set_error_info(task_name, error_msg)
                 return TaskResult(
@@ -752,7 +764,7 @@ class MultiTaskProgress:
             else:
                 # Set error info with last output lines
                 error_msg = f"Command failed with exit code {process.returncode}:\n{' '.join(cmd)}\n\n"
-                error_msg += "\n".join(output_lines)
+                error_msg += _tail_output(output_lines)
                 if task_name:
                     self.set_error_info(task_name, error_msg)
                 return TaskResult(success=False, error=error_msg)
@@ -937,7 +949,9 @@ class MultiTaskProgress:
             )
             if not check_result.success:
                 check_result.error = (
-                    (result.output or "") + "\n\n" + (check_result.error or "")
+                    _tail_output((result.output or "").splitlines())
+                    + "\n\n"
+                    + (check_result.error or "")
                 )
                 return check_result
 

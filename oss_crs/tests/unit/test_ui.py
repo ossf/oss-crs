@@ -3,12 +3,18 @@
 
 import io
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 from rich.console import Console
 
-from oss_crs.src.ui import MultiTaskProgress, TaskResult
+from oss_crs.src.ui import (
+    MAX_ERROR_OUTPUT_LINES,
+    MultiTaskProgress,
+    TaskResult,
+    _tail_output,
+)
 
 
 def test_run_added_tasks_fails_on_cleanup_failure_by_default() -> None:
@@ -720,3 +726,141 @@ def test_run_command_with_streaming_output_prints_plain_logs_when_headless(
     output = console_output.getvalue()
     assert "line 1" in output
     assert "line 2" in output
+
+
+class _FakeStreamingStdout:
+    def __init__(self, lines: list[str], closed: threading.Event):
+        self._lines = lines
+        self._closed = closed
+
+    def readline(self) -> str:
+        if self._lines:
+            return self._lines.pop(0)
+        # Mimic a long-running process: block until it is terminated.
+        self._closed.wait(timeout=5)
+        return ""
+
+
+class _FakeStreamingProcess:
+    def __init__(self, lines: list[str], returncode: int, block: bool = False):
+        self._closed = threading.Event()
+        if not block:
+            self._closed.set()
+        self.stdout = _FakeStreamingStdout(lines, self._closed)
+        self.returncode = returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = 143
+        self._closed.set()
+
+    def kill(self):
+        self.returncode = 137
+        self._closed.set()
+
+
+def _numbered_lines(count: int) -> list[str]:
+    return [f"log line {i}\n" for i in range(count)]
+
+
+def test_tail_output_keeps_short_output_intact() -> None:
+    lines = ["a", "b", "c"]
+
+    assert _tail_output(lines, max_lines=3) == "a\nb\nc"
+
+
+def test_tail_output_keeps_last_lines_and_notes_omitted_count() -> None:
+    lines = [str(i) for i in range(10)]
+
+    assert _tail_output(lines, max_lines=3) == "... (7 earlier lines omitted)\n7\n8\n9"
+
+
+def test_run_command_with_streaming_output_truncates_failure_output(
+    monkeypatch,
+) -> None:
+    console_output = io.StringIO()
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=console_output, force_interactive=False, width=120),
+    )
+    total = MAX_ERROR_OUTPUT_LINES + 150
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: _FakeStreamingProcess(
+            _numbered_lines(total), returncode=1
+        ),
+    )
+
+    progress.add_task(
+        "stream",
+        lambda p: p.run_command_with_streaming_output(["fake", "cmd"]),
+    )
+
+    with progress:
+        result = progress.run_added_tasks()
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.startswith("Command failed with exit code 1:\nfake cmd\n\n")
+    assert "... (150 earlier lines omitted)" in result.error
+    assert f"log line {total - 1}" in result.error
+    assert f"log line {total - MAX_ERROR_OUTPUT_LINES}\n" in result.error
+    assert f"log line {total - MAX_ERROR_OUTPUT_LINES - 1}\n" not in result.error
+    assert progress.error_info["stream"] == result.error
+
+
+def test_run_command_with_streaming_output_truncates_timeout_output(
+    monkeypatch,
+) -> None:
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=io.StringIO(), force_interactive=False, width=120),
+        deadline=time.monotonic() + 0.2,
+    )
+    total = MAX_ERROR_OUTPUT_LINES + 5
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: _FakeStreamingProcess(
+            _numbered_lines(total), returncode=0, block=True
+        ),
+    )
+
+    result = progress.run_command_with_streaming_output(["fake", "cmd"])
+
+    assert result.success is False
+    assert result.interrupted is True
+    assert result.interrupt_reason == "timeout"
+    assert result.error is not None
+    assert result.error.startswith("■ Timed out.")
+    assert "... (5 earlier lines omitted)" in result.error
+    assert "log line 4\n" not in result.error
+    assert f"log line {total - 1}" in result.error
+
+
+def test_run_command_with_streaming_output_keeps_full_success_output(
+    monkeypatch,
+) -> None:
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=io.StringIO(), force_interactive=False, width=120),
+    )
+    total = MAX_ERROR_OUTPUT_LINES + 50
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: _FakeStreamingProcess(
+            _numbered_lines(total), returncode=0
+        ),
+    )
+
+    result = progress.run_command_with_streaming_output(["fake", "cmd"])
+
+    assert result.success is True
+    assert result.output == "\n".join(f"log line {i}" for i in range(total))
