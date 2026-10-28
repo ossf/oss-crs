@@ -201,7 +201,7 @@ class TestRunPOV:
         with patch.dict("os.environ", {"OUT_DIR": "/custom/out"}):
             client.post("/run-pov", **_pov_upload())
         call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["env"]["OUT"] == "/custom/out/test-crs/1/build"
+        assert Path(call_kwargs["env"]["OUT"]).as_posix() == "/custom/out/test-crs/1/build"
 
     @patch("runner_server.subprocess.run")
     @patch("runner_server.os.path.exists", return_value=True)
@@ -303,4 +303,4 @@ class TestRunPOVDefaultRebuildId:
         assert response.status_code == 200
         call_kwargs = mock_run.call_args[1]
         out_env = call_kwargs["env"]["OUT"]
-        assert out_env == "/out/test-crs/42/build"
+        assert Path(out_env).as_posix() == "/out/test-crs/42/build"

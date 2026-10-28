@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Guarded Unix-only `fcntl`, `os.getuid()`, and `os.getgid()` with cross-platform fallbacks and normalized path/permission assertions for cross-platform portability.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.

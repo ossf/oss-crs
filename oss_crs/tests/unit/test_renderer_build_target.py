@@ -110,4 +110,4 @@ def test_infra_prefix_does_not_leak_colon_into_path(monkeypatch, tmp_path, docke
     rendered_dockerfile = svc["build"]["dockerfile"]
 
     assert "oss-crs-infra:" not in rendered_dockerfile
-    assert rendered_dockerfile.endswith("/Dockerfile")
+    assert rendered_dockerfile.replace("\\", "/").endswith("/Dockerfile")

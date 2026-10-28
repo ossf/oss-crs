@@ -492,7 +492,7 @@ def ensure_web_ui_running(port: int = WEBUI_DEFAULT_PORT) -> bool:
                 # so the container can write to the host-owned /webui_logs bind
                 # mount regardless of the image's default UID.
                 "--user",
-                f"{os.getuid()}:{os.getgid()}",
+                f"{getattr(os, 'getuid', lambda: 1000)()}:{getattr(os, 'getgid', lambda: 1000)()}",
                 "--network",
                 "host",
                 "-e",

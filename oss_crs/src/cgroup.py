@@ -28,7 +28,7 @@ def get_user_cgroup_base() -> Path:
     Returns:
         Path to /sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/oss-crs
     """
-    uid = os.getuid()
+    uid = getattr(os, "getuid", lambda: 1000)()
     return CGROUP_FS_ROOT / f"user.slice/user-{uid}.slice/user@{uid}.service/oss-crs"
 
 
@@ -38,7 +38,7 @@ def get_user_service_cgroup() -> Path:
     Returns:
         Path to /sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service
     """
-    uid = os.getuid()
+    uid = getattr(os, "getuid", lambda: 1000)()
     return CGROUP_FS_ROOT / f"user.slice/user-{uid}.slice/user@{uid}.service"
 
 
@@ -206,8 +206,8 @@ def generate_cgroup_setup_commands() -> list[tuple[str, str]]:
     Returns:
         List of (description, command) tuples
     """
-    uid = os.getuid()
-    gid = os.getgid()
+    uid = getattr(os, "getuid", lambda: 1000)()
+    gid = getattr(os, "getgid", lambda: 1000)()
     user_service = get_user_service_cgroup()
     oss_crs_path = get_user_cgroup_base()
 
