@@ -940,8 +940,9 @@ class CRSCompose:
         This is a framework-level prepare step that runs once during prepare.
         The image is built with ``docker build`` (Nix runs inside the build
         stage) and tagged ``oss-crs-deps:latest``. CRS builder Dockerfiles can
-        then use ``COPY --from=oss-crs-deps`` to get libCRS and rsync without
-        any network access at build time.
+        then use ``COPY --from=oss-crs-deps`` to get libCRS and rsync, or the
+        ``/wheelhouse`` for the libCRS Python API, without any network access
+        at build time.
         """
         libcrs_dir = renderer.LIBCRS_PATH
         success, detail = build_deps_image(libcrs_dir)

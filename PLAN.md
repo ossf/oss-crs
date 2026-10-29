@@ -19,7 +19,7 @@ This document tracks the current state of OSS-CRS, upcoming features, and the lo
 
 ### libCRS (CRS Communication Library)
 
-- [x] `submit-build-output` — rsync-based build artifact submission
+- [x] `submit-build-output` — build artifact submission (pure-Python copy)
 - [x] `download-build-output` — retrieve build artifacts during run phase
 - [x] `skip-build-output` — mark optional outputs as intentionally skipped
 - [x] `register-submit-dir` — background daemon with `watchdog` for batch submission (dedup by MD5)

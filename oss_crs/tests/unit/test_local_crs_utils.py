@@ -31,7 +31,7 @@ def _mock_response(status_code=200, json_data=None, content=b""):
 
 
 def _setup_rebuild_logs(tmp_path, rebuild_id, stdout="", stderr="", exit_code="0"):
-    """Create log files at the path apply_patch_build/test reads via rsync_copy."""
+    """Create log files at the path apply_patch_build/test reads via copy_path."""
     crs_name = "test-crs"
     rebuild_out = tmp_path / "rebuild_out"
     log_dir = rebuild_out / crs_name / str(rebuild_id)
@@ -247,9 +247,9 @@ class TestDownloadBuildOutput:
 class TestDownloadBuildOutputWithRebuildId:
     """download_build_output with rebuild_id copies from OSS_CRS_REBUILD_OUT_DIR."""
 
-    @patch("libCRS.libCRS.local.rsync_copy")
+    @patch("libCRS.libCRS.local.copy_path")
     def test_copies_from_rebuild_out_dir_with_rebuild_id(
-        self, mock_rsync, crs_utils, tmp_path
+        self, mock_copy, crs_utils, tmp_path
     ):
         dst = tmp_path / "artifacts"
         rebuild_out = tmp_path / "rebuild_out"
@@ -263,16 +263,16 @@ class TestDownloadBuildOutputWithRebuildId:
         ):
             crs_utils.download_build_output("build", dst, rebuild_id=1)
 
-        # Verify rsync_copy was called with the rebuild output path
-        call_args = mock_rsync.call_args
+        # Verify copy_path was called with the rebuild output path
+        call_args = mock_copy.call_args
         src_path = call_args[0][0]
         assert "rebuild_out" in str(src_path)
         assert "test-crs" in str(src_path)
         assert "1" in str(src_path)
 
-    @patch("libCRS.libCRS.local.rsync_copy")
+    @patch("libCRS.libCRS.local.copy_path")
     def test_ephemeral_container_uses_rebuild_out_dir(
-        self, mock_rsync, crs_utils, tmp_path
+        self, mock_copy, crs_utils, tmp_path
     ):
         """When OSS_CRS_REBUILD_ID is set, copies from rebuild output directory."""
         dst = tmp_path / "artifacts"
@@ -288,7 +288,7 @@ class TestDownloadBuildOutputWithRebuildId:
         ):
             crs_utils.download_build_output("build", dst)
 
-        call_args = mock_rsync.call_args
+        call_args = mock_copy.call_args
         src_path = call_args[0][0]
         assert "test-crs" in str(src_path)
         assert "2" in str(src_path)

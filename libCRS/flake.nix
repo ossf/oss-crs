@@ -28,6 +28,17 @@
           ];
         };
 
+        # Tools used by libCRS/deps.Dockerfile to export a wheelhouse of
+        # libCRS and its locked dependencies (from uv.lock), so CRSs can
+        # install the libCRS Python API into their own interpreter offline.
+        wheelhouse-tools = pkgs.buildEnv {
+          name = "libcrs-wheelhouse-tools";
+          paths = [
+            (pkgs.python3.withPackages (ps: [ ps.pip ps.setuptools ps.wheel ]))
+            pkgs.uv
+          ];
+        };
+
         # The runtime closure is consumed by libCRS/deps.Dockerfile, which
         # runs `nix build .#libcrs-runtime` inside a nixos/nix container and
         # copies the closure into the "oss-crs-deps" image via `docker build`.

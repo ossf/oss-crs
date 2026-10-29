@@ -198,7 +198,8 @@ CMD ["compile_target"]
 
 > **Offline builds:** `install.sh` needs network access (it downloads `uv` and
 > installs `rsync`). For a fully offline build, replace the two `libCRS` lines
-> with `COPY --from=oss-crs-deps` — see the
+> with `COPY --from=oss-crs-deps`. For the Python API, install from the
+> `/wheelhouse` it ships. See the
 > [Offline install via `oss-crs-deps`](design/libCRS.md) doc.
 
 ### Example Build Script
@@ -233,7 +234,7 @@ fi
 ### Key Points
 
 - Each build step in `target_build_phase` runs as a separate Docker container.
-- Build outputs are typically **directories**, not tarballs — `libCRS submit-build-output` handles both files and directories via `rsync`.
+- Build outputs are typically **directories**, not tarballs — `libCRS submit-build-output` handles both files and directories (copied with `rsync -a` semantics).
 - Use `libCRS submit-build-output <src> <dst>` to make build artifacts available to the run phase.
 - Use `libCRS skip-build-output <dst>` to mark optional outputs as intentionally skipped.
 - The `outputs` list in `crs.yaml` declares what paths the build step is expected to produce. Every output must either be submitted or explicitly skipped.

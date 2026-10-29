@@ -37,7 +37,7 @@ RUN /opt/libCRS/install.sh --python
 
 This installs:
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
-- `rsync` (used for file operations)
+- `rsync` (kept for CRS scripts that use it; libCRS itself no longer needs it)
 - The `libCRS` CLI tool, available at `/usr/local/bin/libCRS` (when `--cli` or `--all`)
 - The `libcrs` Python package into the system Python (when `--python` or `--all`)
 
@@ -46,12 +46,13 @@ This installs:
 - Python >= 3.10
 - `watchdog >= 6.0.0` (filesystem event monitoring for `register-submit-dir`)
 - `requests >= 2.28.0` (HTTP client for builder sidecar communication)
-- `rsync` (installed automatically by `install.sh`)
 
 ### Offline install via `oss-crs-deps`
 
 `install.sh` downloads `uv` and installs `rsync`, so it needs network access at
 build time. For **fully offline builds**, use the `oss-crs-deps` image instead.
+libCRS copies files in pure Python, so neither the CLI nor the Python API needs
+an `rsync` binary at runtime.
 It ships libCRS and rsync as a self-contained Nix closure, built once during
 `oss-crs prepare`, and is pulled into a container with three `COPY` lines:
 
@@ -62,8 +63,25 @@ COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
 ```
 
 This coexists with `install.sh` — pick `install.sh` for normal networked builds
-and `oss-crs-deps` when the build must be offline. Note: libCRS is only available
-as a CLI tool, not as a python library.
+and `oss-crs-deps` when the build must be offline. The `rsync` line is optional
+and only needed if your own scripts call `rsync`.
+
+#### Offline Python API install (`/wheelhouse`)
+
+The Nix closure above provides the CLI. To `import libCRS` from your CRS's own
+Python interpreter (any Python >= 3.10), install it from the wheelhouse that
+`oss-crs-deps` also ships. It holds the libCRS wheel plus its dependencies at
+the versions pinned in `libCRS/uv.lock`, all as interpreter-independent wheels:
+
+```dockerfile
+COPY --from=oss-crs-deps /wheelhouse /tmp/libcrs-wheelhouse
+RUN python3 -m pip install --no-index --find-links /tmp/libcrs-wheelhouse libcrs \
+ && rm -rf /tmp/libcrs-wheelhouse
+```
+
+`uv pip install --system --no-index --find-links /tmp/libcrs-wheelhouse libcrs`
+works the same way. An `oss-crs-deps` image built by an older `prepare` has no
+`/wheelhouse`, so the next `oss-crs prepare` rebuilds it automatically.
 
 ## Environment Variables
 
@@ -705,8 +723,8 @@ libCRS submit patch /tmp/patch.diff
 
 | Feature | Status | Notes |
 |---|---|---|
-| `submit-build-output` | ✅ Implemented | Uses `rsync` for file copying |
-| `download-build-output` | ✅ Implemented | Uses `rsync` for file copying |
+| `submit-build-output` | ✅ Implemented | Pure-Python copy with `rsync -a` semantics |
+| `download-build-output` | ✅ Implemented | Pure-Python copy with `rsync -a` semantics |
 | `download-source` | ✅ Implemented | Copies from `/OSS_CRS_FUZZ_PROJ` or `/OSS_CRS_TARGET_SOURCE` mounts |
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
 | `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |

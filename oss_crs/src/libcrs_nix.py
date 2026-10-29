@@ -16,6 +16,12 @@ CRS builder Dockerfiles can then do::
     COPY --from=oss-crs-deps /nix/store /nix/store
     COPY --from=oss-crs-deps /usr/local/bin/libCRS /usr/local/bin/libCRS
     COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
+
+It also ships ``/wheelhouse``: the libCRS wheel and its locked dependencies,
+for installing the libCRS Python API offline into a CRS's own interpreter::
+
+    COPY --from=oss-crs-deps /wheelhouse /tmp/libcrs-wheelhouse
+    RUN pip install --no-index --find-links /tmp/libcrs-wheelhouse libcrs
 """
 
 from __future__ import annotations
@@ -29,6 +35,10 @@ from .constants import NIX_BUILDER_IMAGE, OSS_CRS_DEPS_IMAGE
 # Dockerfile (relative to the libCRS directory) that builds the deps image.
 DEPS_DOCKERFILE_NAME = "deps.Dockerfile"
 
+# Label set by deps.Dockerfile on images that ship /wheelhouse. Images without
+# it predate the wheelhouse and are treated as missing so prepare rebuilds them.
+DEPS_WHEELHOUSE_LABEL = "org.ossf.oss-crs.deps.wheelhouse"
+
 
 def docker_available() -> bool:
     """Return True when the ``docker`` CLI is on PATH."""
@@ -36,14 +46,22 @@ def docker_available() -> bool:
 
 
 def deps_image_exists() -> bool:
-    """Return True when the oss-crs-deps image is already loaded."""
+    """Return True when a current oss-crs-deps image (with /wheelhouse) is loaded."""
     if not docker_available():
         return False
     result = subprocess.run(
-        ["docker", "image", "inspect", OSS_CRS_DEPS_IMAGE],
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            f'{{{{ index .Config.Labels "{DEPS_WHEELHOUSE_LABEL}" }}}}',
+            OSS_CRS_DEPS_IMAGE,
+        ],
         capture_output=True,
+        text=True,
     )
-    return result.returncode == 0
+    return result.returncode == 0 and result.stdout.strip() == "1"
 
 
 def build_deps_image(libcrs_dir: Path) -> tuple[bool, str]:

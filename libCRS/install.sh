@@ -30,7 +30,8 @@ if [ -f "$HOME/.local/bin/env" ]; then
 fi
 export PATH="$HOME/.local/bin:$PATH"
 
-# Install runtime dependency required by libCRS copy helpers.
+# libCRS no longer needs rsync (it copies in pure Python). It is still
+# installed because CRS scripts may rely on it being present.
 apt-get update
 apt-get install -y --no-install-recommends rsync
 

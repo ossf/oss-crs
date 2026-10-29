@@ -28,7 +28,15 @@ COPY --from=oss-crs-deps /usr/local/bin/libCRS /usr/local/bin/libCRS
 COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
 ```
 
-Note: libCRS is only available as a CLI tool, not as a python library.
+The `rsync` line is optional: libCRS copies files in pure Python. To use the
+libCRS Python API offline from your own interpreter, install it from the
+wheelhouse that `oss-crs-deps` also ships:
+
+```dockerfile
+COPY --from=oss-crs-deps /wheelhouse /tmp/libcrs-wheelhouse
+RUN python3 -m pip install --no-index --find-links /tmp/libcrs-wheelhouse libcrs
+```
+
 See [Offline install via `oss-crs-deps`](../docs/design/libCRS.md) for details.
 
 ## Commands

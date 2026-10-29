@@ -12,7 +12,7 @@ from typing import Callable
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
-from .common import file_hash, is_data_file, rsync_copy
+from .common import file_hash, is_data_file, copy_path
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ class SubmitHelper:
                 if dst is None or dst.exists():
                     continue
                 try:
-                    rsync_copy(item.file_path, dst)
+                    copy_path(item.file_path, dst)
                 except Exception:
                     logger.exception("flush failed for %s", item.file_path)
         self._last_flush_time = time.time()
@@ -168,7 +168,7 @@ class SubmitHelper:
         suffix = file_path.suffix or ""
         dst = self.__dst_path(content_hash, suffix)
         if dst is not None and not dst.exists():
-            rsync_copy(file_path, dst)
+            copy_path(file_path, dst)
 
     def register_dir(self, dir_path: Path, batch_time: int, batch_size: int) -> None:
         """Watch a directory for new files and submit them in batches.

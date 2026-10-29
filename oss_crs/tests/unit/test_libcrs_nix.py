@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 from oss_crs.src.libcrs_nix import (
+    DEPS_WHEELHOUSE_LABEL,
     docker_available,
     deps_image_exists,
     build_deps_image,
@@ -30,14 +31,27 @@ class TestDepsImageExists:
 
     @patch("oss_crs.src.libcrs_nix.subprocess.run")
     @patch("oss_crs.src.libcrs_nix.docker_available", return_value=True)
-    def test_returns_true_when_image_inspect_succeeds(self, mock_avail, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
+    def test_returns_true_when_image_has_wheelhouse_label(self, mock_avail, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="1\n")
         assert deps_image_exists() is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:3] == ["docker", "image", "inspect"]
+        assert DEPS_WHEELHOUSE_LABEL in " ".join(cmd)
+        assert cmd[-1] == OSS_CRS_DEPS_IMAGE
+
+    @patch("oss_crs.src.libcrs_nix.subprocess.run")
+    @patch("oss_crs.src.libcrs_nix.docker_available", return_value=True)
+    def test_returns_false_for_image_built_before_wheelhouse(
+        self, mock_avail, mock_run
+    ):
+        # `docker image inspect` prints "<no value>" for a missing label.
+        mock_run.return_value = MagicMock(returncode=0, stdout="<no value>\n")
+        assert deps_image_exists() is False
 
     @patch("oss_crs.src.libcrs_nix.subprocess.run")
     @patch("oss_crs.src.libcrs_nix.docker_available", return_value=True)
     def test_returns_false_when_image_inspect_fails(self, mock_avail, mock_run):
-        mock_run.return_value = MagicMock(returncode=1)
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
         assert deps_image_exists() is False
 
     @patch("oss_crs.src.libcrs_nix.docker_available", return_value=False)

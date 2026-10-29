@@ -10,7 +10,7 @@ from pathlib import Path
 import requests as http_requests
 
 from .base import CRSUtils, DataType, SourceType
-from .common import rsync_copy, get_env
+from .common import copy_path, get_env
 from .fetch import FetchHelper
 from .sync import DirSyncHelper
 from .submit import SubmitHelper, submit_report
@@ -46,20 +46,20 @@ class LocalCRSUtils(CRSUtils):
 
         if not src.exists():
             raise RuntimeError(f"download-source {source_type}: {src} does not exist")
-        rsync_copy(src, Path(dst_path))
+        copy_path(src, Path(dst_path))
 
     def submit_build_output(
         self, src_path: str, dst_path: Path, rebuild_id: "int | None" = None
     ) -> None:
         """Write build output to the build output directory.
 
-        Both build-target and run phases use the same mechanism: rsync to the
+        Both build-target and run phases use the same mechanism: copy to the
         mounted OSS_CRS_BUILD_OUT_DIR. The ephemeral container mounts the
         rebuild output dir at the same path, so no HTTP upload is needed.
         """
         src = Path(src_path)
         dst = _get_build_out_dir() / dst_path
-        rsync_copy(src, dst)
+        copy_path(src, dst)
 
     def skip_build_output(self, dst_path: str) -> None:
         with tempfile.NamedTemporaryFile() as tmp_file:
@@ -404,7 +404,7 @@ class LocalCRSUtils(CRSUtils):
             work = tdp / "work"
             work.mkdir()
             # Isolate from the host's user/system git config, but supply our own
-            # identity AND safe.directory=*: the rsynced base files keep their
+            # identity AND safe.directory=*: the copied base files keep their
             # source ownership, which would otherwise trip git's dubious-ownership
             # guard. safe.directory is only honored from system/global config
             # (never -c or local), so it must live in this global config file.
@@ -420,10 +420,7 @@ class LocalCRSUtils(CRSUtils):
                 "GIT_CONFIG_SYSTEM": os.devnull,
             }
             # 1. Seed the work tree with the pristine base and commit it.
-            subprocess.run(
-                ["rsync", "-a", "--exclude=.git", f"{base_dir}/", f"{work}/"],
-                check=True,
-            )
+            copy_path(base_dir, work, exclude=frozenset({".git"}))
             # Pin the base mtimes to the epoch so that the modified files copied
             # in below always look newer. Otherwise git's racy-clean optimization
             # skips re-hashing a same-size edit made within the same second.
@@ -436,17 +433,7 @@ class LocalCRSUtils(CRSUtils):
             git("add", "-A")
             git("commit", "-q", "-m", "base", "--allow-empty")
             # 2. Mirror the modified tree over the base (captures add/del/modify).
-            subprocess.run(
-                [
-                    "rsync",
-                    "-a",
-                    "--delete",
-                    "--exclude=.git",
-                    f"{new_dir}/",
-                    f"{work}/",
-                ],
-                check=True,
-            )
+            copy_path(new_dir, work, exclude=frozenset({".git"}), delete=True)
             git("add", "-A")
             return git("diff", "--cached", "--binary").stdout
 
@@ -505,7 +492,7 @@ class LocalCRSUtils(CRSUtils):
             for log_file in ("stdout.log", "stderr.log", "exit_code"):
                 src = log_src / log_file
                 if src.exists():
-                    rsync_copy(src, response_dir / log_file)
+                    copy_path(src, response_dir / log_file)
         elif server_error:
             # Server-side exception before any rebuild_id was assigned — surface it.
             (response_dir / "stderr.log").write_text(server_error)
@@ -618,7 +605,7 @@ class LocalCRSUtils(CRSUtils):
             for log_file in ("stdout.log", "stderr.log", "exit_code"):
                 src = log_src / log_file
                 if src.exists():
-                    rsync_copy(src, response_dir / log_file)
+                    copy_path(src, response_dir / log_file)
 
         (response_dir / "retcode").write_text(str(exit_code))
 
@@ -652,4 +639,4 @@ class LocalCRSUtils(CRSUtils):
             src = _get_build_out_dir() / src_path
 
         dst = Path(dst_path)
-        rsync_copy(src, dst)
+        copy_path(src, dst)
