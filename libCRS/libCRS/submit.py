@@ -7,14 +7,15 @@ import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
-
-from .common import file_hash, is_data_file, rsync_copy
+from .common import file_hash, rsync_copy
 
 logger = logging.getLogger(__name__)
+
+# Polling (rather than inotify) keeps each register-submit-dir daemon from
+# holding an inotify instance; many parallel daemons would otherwise exhaust
+# the host's fs.inotify.max_user_instances limit.
+POLL_INTERVAL = 2  # seconds
 
 
 def _unique_tarball_path(reports_dir: Path, base: str) -> Path:
@@ -86,27 +87,6 @@ class SubmitData:
     content_hash: str
 
 
-class NewFileHandler(FileSystemEventHandler):
-    def __init__(self, callback: Callable[[Path], None]):
-        super().__init__()
-        self.callback = callback
-
-    def on_created(self, event: FileSystemEvent) -> None:
-        if not event.is_directory:
-            self.callback(Path(os.fsdecode(event.src_path)))
-
-    def on_modified(self, event: FileSystemEvent) -> None:
-        if not event.is_directory:
-            self.callback(Path(os.fsdecode(event.src_path)))
-
-    def on_moved(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
-        dest_path = getattr(event, "dest_path", None)
-        if dest_path is not None:
-            self.callback(Path(os.fsdecode(dest_path)))
-
-
 class SubmitHelper:
     def __init__(self, shared_fs_dir: Path | None):
         self.shared_fs_dir = shared_fs_dir
@@ -170,39 +150,66 @@ class SubmitHelper:
         if dst is not None and not dst.exists():
             rsync_copy(file_path, dst)
 
-    def register_dir(self, dir_path: Path, batch_time: int, batch_size: int) -> None:
-        """Watch a directory for new files and submit them in batches.
+    def _poll_dir(
+        self,
+        dir_path: Path,
+        seen: dict[Path, tuple[int, int]],
+        batch_time: float,
+        batch_size: int,
+    ) -> dict[Path, tuple[int, int]]:
+        """Enqueue data files that are new or changed since the last poll, then flush.
+
+        Files are tracked by (mtime_ns, size), so a file still being written is
+        picked up again once its contents change. Returns the updated snapshot.
+        """
+        current: dict[Path, tuple[int, int]] = {}
+        try:
+            entries = list(os.scandir(dir_path))
+        except OSError:
+            logger.exception("failed to scan %s", dir_path)
+            return seen
+        for entry in entries:
+            # Same filter as is_data_file(), using the cached DirEntry type to
+            # avoid an extra stat per file on large fuzzer queues.
+            if entry.name.startswith("."):
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+                st = entry.stat()
+            except OSError:
+                continue
+            file_path = Path(entry.path)
+            signature = (st.st_mtime_ns, st.st_size)
+            current[file_path] = signature
+            if seen.get(file_path) != signature:
+                self.__enqueue_file(file_path)
+        self.__flush(batch_time, batch_size)
+        return current
+
+    def register_dir(
+        self,
+        dir_path: Path,
+        batch_time: int,
+        batch_size: int,
+        poll_interval: float = POLL_INTERVAL,
+    ) -> None:
+        """Poll a directory for new files and submit them in batches.
 
         Args:
             dir_path: Directory to watch for new files
             batch_time: Maximum time in seconds to wait before flushing the batch
             batch_size: Maximum number of files to accumulate before flushing
+            poll_interval: Seconds between directory scans
         """
         if self.registered_dir is not None:
             raise RuntimeError("Directory already registered")
         self.registered_dir = dir_path
 
-        def handle_new_file(file_path: Path) -> None:
-            if is_data_file(file_path):
-                self.__enqueue_file(file_path)
-                self.__flush(batch_time, batch_size)
-
-        # Process existing files in the directory
-        for file_path in dir_path.iterdir():
-            handle_new_file(file_path)
-
-        # Set up the observer
-        observer = Observer()
-        observer.schedule(
-            NewFileHandler(handle_new_file), str(dir_path), recursive=False
-        )
-        observer.start()
-
+        seen: dict[Path, tuple[int, int]] = {}
         try:
             while True:
-                time.sleep(batch_time)
-                self.__flush(batch_time, batch_size)
+                seen = self._poll_dir(dir_path, seen, batch_time, batch_size)
+                time.sleep(poll_interval)
         finally:
-            observer.stop()
-            observer.join()
-            self.__flush(batch_time, batch_size)
+            self._poll_dir(dir_path, seen, batch_time, batch_size)

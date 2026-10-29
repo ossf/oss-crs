@@ -44,7 +44,6 @@ This installs:
 ### Dependencies
 
 - Python >= 3.10
-- `watchdog >= 6.0.0` (filesystem event monitoring for `register-submit-dir`)
 - `requests >= 2.28.0` (HTTP client for builder sidecar communication)
 - `rsync` (installed automatically by `install.sh`)
 
@@ -117,7 +116,7 @@ CRS containers never communicate directly. All inter-CRS data flows through a tw
  ┌──────────────────┐                                        ┌──────────────────┐
  │                  │                                        │                  │
  │  SubmitHelper    │                                        │  FetchHelper     │
- │  (watchdog +     │                                        │  (poll every 5s) │
+ │  (poll every 2s +│                                        │  (poll every 5s) │
  │   MD5 dedup +    │                                        │                  │
  │   batch flush)   │                                        │  InfraClient     │
  │       │          │                                        │    .fetch_new()  │
@@ -254,7 +253,7 @@ $ libCRS register-submit-dir [--log <log_path>] <type> <path>
 
 **How it works:**
 1. A daemon process is forked into the background.
-2. The daemon uses `watchdog` to monitor the directory for new data files (dotfiles are ignored).
+2. The daemon polls the directory every 2 seconds for new or changed data files (dotfiles are ignored). It does not use inotify, so many parallel daemons cannot exhaust the host's `fs.inotify.max_user_instances` limit.
 3. New files are deduplicated by MD5 hash and queued for submission.
 4. Queued files are flushed in batches (every 10 seconds or when 100 files accumulate).
 5. Flushed files are copied to `SUBMIT_DIR/<type_dir>/` (host-visible, per-CRS). The exchange sidecar handles copying to EXCHANGE_DIR.
@@ -709,7 +708,7 @@ libCRS submit patch /tmp/patch.diff
 | `download-build-output` | ✅ Implemented | Uses `rsync` for file copying |
 | `download-source` | ✅ Implemented | Copies from `/OSS_CRS_FUZZ_PROJ` or `/OSS_CRS_TARGET_SOURCE` mounts |
 | `skip-build-output` | ✅ Implemented | Creates `.skip` sentinel file |
-| `register-submit-dir` | ✅ Implemented | Daemon with `watchdog` + batch submission |
+| `register-submit-dir` | ✅ Implemented | Polling daemon + batch submission |
 | `register-shared-dir` | ✅ Implemented | Symlink-based sharing |
 | `register-log-dir` | ✅ Implemented | Symlink-based log persistence to host |
 | `submit` | ✅ Implemented | Single-file submission |

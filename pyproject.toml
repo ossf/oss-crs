@@ -40,7 +40,6 @@ dev = [
     "pyright>=1.1.407",
     "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
-    "watchdog>=4.0.0",
     "ty>=0.0.4",
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",

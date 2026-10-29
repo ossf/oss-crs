@@ -14,7 +14,7 @@
           src = ./.;
           pyproject = true;
           build-system = [ pkgs.python3Packages.setuptools ];
-          dependencies = with pkgs.python3Packages; [ watchdog requests ];
+          dependencies = with pkgs.python3Packages; [ requests ];
           doCheck = false;
         };
 

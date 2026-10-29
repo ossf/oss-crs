@@ -22,7 +22,7 @@ This document tracks the current state of OSS-CRS, upcoming features, and the lo
 - [x] `submit-build-output` — rsync-based build artifact submission
 - [x] `download-build-output` — retrieve build artifacts during run phase
 - [x] `skip-build-output` — mark optional outputs as intentionally skipped
-- [x] `register-submit-dir` — background daemon with `watchdog` for batch submission (dedup by MD5)
+- [x] `register-submit-dir` — background polling daemon for batch submission (dedup by MD5)
 - [x] `register-shared-dir` — symlink-based inter-container file sharing within a CRS
 - [x] `submit` — manual single-file submission (`pov`, `seed`, `bug-candidate`)
 - [x] `get-service-domain` — DNS-verified service endpoint resolution
