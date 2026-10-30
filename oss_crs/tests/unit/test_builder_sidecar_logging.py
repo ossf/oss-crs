@@ -5,34 +5,12 @@ Covers the structured JSONL logging added to the builder-sidecar and
 runner-sidecar servers: ``_make_log_entry`` (build / run-pov / run-test
 classification), ``_log_api_call`` (per-CRS JSONL file mechanics), and the
 builder's /build and /test endpoints end-to-end through ``_run_job``.
-
-Unlike the upstream PR, the real functions are importable here, so we test the
-actual implementation instead of a duplicated copy. Both sidecars expose a
-module named ``server``; the builder is imported via sys.path as ``server`` (to
-satisfy its local ``docker_ops`` import) and the runner is loaded via importlib
-under the collision-safe alias ``runner_server``.
 """
 
-# ruff: noqa: E402
-
-import importlib.util
 import json
-import sys
-from pathlib import Path
 
-_INFRA = Path(__file__).resolve().parent.parent.parent.parent / "oss-crs-infra"
-_BUILDER_DIR = _INFRA / "builder-sidecar"
-sys.path.insert(0, str(_BUILDER_DIR))
-
-import server as builder_server
-
-# Load runner-sidecar server.py under a collision-safe alias so it does not
-# clobber builder-sidecar's cached ``server`` module in the same pytest session.
-_RUNNER_SERVER_PATH = _INFRA / "runner-sidecar" / "server.py"
-_spec = importlib.util.spec_from_file_location("runner_server", _RUNNER_SERVER_PATH)
-runner_server = importlib.util.module_from_spec(_spec)
-sys.modules["runner_server"] = runner_server
-_spec.loader.exec_module(runner_server)
+from oss_crs_infra.builder_sidecar import server as builder_server
+from oss_crs_infra.runner_sidecar import server as runner_server
 
 
 def _entry(event, job_id, result, duration_ms=100, ts_start=1000.0):

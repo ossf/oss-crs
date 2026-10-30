@@ -6,7 +6,6 @@ the master-key secret stubbed (only during import). HTTP is mocked; date
 handling is asserted against the real clock.
 """
 
-import importlib.util
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,19 +15,12 @@ from unittest import mock
 import pytest
 import requests
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-KEYGEN_DIR = REPO_ROOT / "oss-crs-infra" / "litellm-key-gen"
-
 
 @pytest.fixture(scope="module")
 def keygen() -> ModuleType:
     with mock.patch("builtins.open", mock.mock_open(read_data="test-master")):
-        spec = importlib.util.spec_from_file_location(
-            "litellm_key_gen_main", KEYGEN_DIR / "main.py"
-        )
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        from oss_crs_infra.litellm_key_gen import main as module
+
     yield module
 
 

@@ -11,7 +11,7 @@ import pytest
 
 # Patch socket.gethostbyname before importing local to avoid DNS errors
 with patch("socket.gethostbyname", return_value="127.0.0.1"):
-    from libCRS.libCRS.local import LocalCRSUtils
+    from libCRS.local import LocalCRSUtils
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ def _rebuild_env(tmp_path, rebuild_id, stdout="", stderr="", exit_code="0"):
 
 @pytest.fixture
 def crs_utils():
-    with patch("libCRS.libCRS.local.socket.gethostbyname", return_value="127.0.0.1"):
+    with patch("libCRS.local.socket.gethostbyname", return_value="127.0.0.1"):
         utils = LocalCRSUtils()
         # Pre-mark both builder and runner as healthy to skip health polling
         utils._builders_healthy = {"test-builder": True, "test-runner": True}
@@ -75,7 +75,7 @@ def crs_utils():
 class TestApplyPatchBuild:
     """INT-01: apply_patch_build calls /build and parses nested response."""
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_successful_build_parses_nested_response(
         self, mock_requests, crs_utils, tmp_path
     ):
@@ -112,7 +112,7 @@ class TestApplyPatchBuild:
         assert (response_dir / "stdout.log").read_text() == "Build OK"
         assert (response_dir / "rebuild_id").read_text() == "build-abc"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_failed_build(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "job123", "status": "queued"})
         poll_resp = _mock_response(
@@ -145,7 +145,7 @@ class TestApplyPatchBuild:
         assert (response_dir / "retcode").read_text() == "1"
         assert (response_dir / "stderr.log").read_text() == "compile error"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_sends_builder_name_in_form_data(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "j1", "status": "queued"})
         poll_resp = _mock_response(
@@ -194,7 +194,7 @@ class TestApplyPatchBuild:
         assert exit_code == 1
         assert (response_dir / "retcode").read_text() == "1"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_stores_last_builder_and_build_id_on_success(
         self, mock_requests, crs_utils, tmp_path
     ):
@@ -247,7 +247,7 @@ class TestDownloadBuildOutput:
 class TestDownloadBuildOutputWithRebuildId:
     """download_build_output with rebuild_id copies from OSS_CRS_REBUILD_OUT_DIR."""
 
-    @patch("libCRS.libCRS.local.rsync_copy")
+    @patch("libCRS.local.rsync_copy")
     def test_copies_from_rebuild_out_dir_with_rebuild_id(
         self, mock_rsync, crs_utils, tmp_path
     ):
@@ -270,7 +270,7 @@ class TestDownloadBuildOutputWithRebuildId:
         assert "test-crs" in str(src_path)
         assert "1" in str(src_path)
 
-    @patch("libCRS.libCRS.local.rsync_copy")
+    @patch("libCRS.local.rsync_copy")
     def test_ephemeral_container_uses_rebuild_out_dir(
         self, mock_rsync, crs_utils, tmp_path
     ):
@@ -302,7 +302,7 @@ class TestDownloadBuildOutputWithRebuildId:
 class TestRunPov:
     """INT-03: run_pov routes to runner-sidecar, not builder-sidecar."""
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_routes_to_runner_sidecar(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 0, "stderr": ""}
@@ -317,7 +317,7 @@ class TestRunPov:
         call_url = mock_requests.post.call_args[0][0]
         assert "test-runner" in call_url or "run-pov" in call_url
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_sends_pov_as_file_upload(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 1, "stderr": "CRASH"}
@@ -340,7 +340,7 @@ class TestRunPov:
         assert files is not None
         assert "pov" in files
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_sends_harness_and_rebuild_id_in_data(
         self, mock_requests, crs_utils, tmp_path
     ):
@@ -360,7 +360,7 @@ class TestRunPov:
         assert data["harness_name"] == "fuzzer"
         assert data["rebuild_id"] == "1"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_writes_pov_exit_code(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 1, "stderr": "AddressSanitizer"}
@@ -377,7 +377,7 @@ class TestRunPov:
         assert (response_dir / "retcode").read_text() == "1"
         assert (response_dir / "stderr.log").read_text() == "AddressSanitizer"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_pov_success_writes_exit_code_0(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 0, "stderr": ""}
@@ -393,7 +393,7 @@ class TestRunPov:
         assert exit_code == 0
         assert (response_dir / "retcode").read_text() == "0"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_does_not_use_submit_and_poll(self, mock_requests, crs_utils, tmp_path):
         """run_pov is synchronous: no job ID polling should occur."""
         mock_requests.post.return_value = _mock_response(
@@ -410,7 +410,7 @@ class TestRunPov:
         # No GET calls were made (no job polling)
         assert mock_requests.get.call_count == 0
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_omits_rebuild_id_when_none(self, mock_requests, crs_utils, tmp_path):
         """When rebuild_id is None (base build), the client must not send a
         rebuild_id field at all.  The server uses Form(None) default to detect
@@ -446,7 +446,7 @@ class TestRunPov:
 class TestApplyPatchTest:
     """INT-04: apply_patch_test calls /test with patch and nested response parsing."""
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_parses_nested_test_response(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "t1", "status": "queued"})
         poll_resp = _mock_response(
@@ -477,7 +477,7 @@ class TestApplyPatchTest:
         assert (response_dir / "retcode").read_text() == "0"
         assert (response_dir / "stdout.log").read_text() == "tests passed"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_failed_test_writes_exit_code_1(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "t2", "status": "queued"})
         poll_resp = _mock_response(
@@ -508,7 +508,7 @@ class TestApplyPatchTest:
         assert (response_dir / "retcode").read_text() == "1"
         assert (response_dir / "stderr.log").read_text() == "test failure"
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_sends_builder_name_and_build_id(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "t3", "status": "queued"})
         poll_resp = _mock_response(
@@ -532,7 +532,7 @@ class TestApplyPatchTest:
         assert "crs_name" in data
         assert "builder_name" not in data  # test endpoint no longer needs builder_name
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_sends_patch_file_to_test_endpoint(
         self, mock_requests, crs_utils, tmp_path
     ):
@@ -569,7 +569,7 @@ class TestApplyPatchTest:
 class TestResponseDirCompat:
     """INT-05: Response directory files maintain expected names."""
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_build_response_files(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "j1", "status": "queued"})
         poll_resp = _mock_response(
@@ -602,7 +602,7 @@ class TestResponseDirCompat:
         assert (response_dir / "stderr.log").exists()
         assert (response_dir / "rebuild_id").exists()
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_pov_response_files(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 0, "stderr": "no crash"}
@@ -616,7 +616,7 @@ class TestResponseDirCompat:
         assert (response_dir / "retcode").exists()
         assert (response_dir / "stderr.log").exists()
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_test_response_files(self, mock_requests, crs_utils, tmp_path):
         submit_resp = _mock_response(json_data={"id": "j2", "status": "queued"})
         poll_resp = _mock_response(
@@ -641,7 +641,7 @@ class TestResponseDirCompat:
 
         assert (response_dir / "retcode").exists()
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_build_exit_code_is_string_integer(
         self, mock_requests, crs_utils, tmp_path
     ):
@@ -670,7 +670,7 @@ class TestResponseDirCompat:
         assert content == "0"
         int(content)  # Must be parseable as int
 
-    @patch("libCRS.libCRS.local.http_requests")
+    @patch("libCRS.local.http_requests")
     def test_pov_exit_code_is_string_integer(self, mock_requests, crs_utils, tmp_path):
         mock_requests.post.return_value = _mock_response(
             json_data={"exit_code": 77, "stderr": ""}

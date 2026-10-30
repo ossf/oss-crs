@@ -5,7 +5,7 @@
 import subprocess
 import sys
 
-RUFF_PATHS = ["oss_crs", "oss-crs-infra", "libCRS"]
+RUFF_PATHS = ["oss_crs", "oss-crs-infra", "oss_crs_infra", "libCRS"]
 PYRIGHT_PATHS = ["oss_crs/src", "libCRS/libCRS", "oss-crs-infra"]
 
 
@@ -23,19 +23,12 @@ def _run() -> int:
         ("ruff format", ["ruff", "format", "--check", *RUFF_PATHS]),
         ("pyright", ["pyright", *PYRIGHT_PATHS]),
         ("unit tests", ["pytest", "-m", "not integration", "-v", "oss_crs"]),
-        # libCRS is a standalone sibling package whose tests import it as
-        # `libCRS` (the installed name), while oss_crs's own tests reach it via
-        # the repo-root namespace as `libCRS.libCRS`. The two conventions can't
-        # share one sys.path, so run libCRS's suite separately with its own
-        # root on the path.
         (
             "libCRS unit tests",
             [
                 "pytest",
                 "-m",
                 "not integration",
-                "-o",
-                "pythonpath=libCRS",
                 "-v",
                 "libCRS/tests",
             ],

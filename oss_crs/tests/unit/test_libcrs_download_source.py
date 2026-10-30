@@ -4,9 +4,8 @@
 from pathlib import Path
 
 import pytest
-
-from libCRS.libCRS.base import SourceType
-from libCRS.libCRS.local import LocalCRSUtils
+from libCRS.base import SourceType
+from libCRS.local import LocalCRSUtils
 
 
 def test_download_source_fuzz_proj_calls_rsync_copy(
@@ -22,8 +21,8 @@ def test_download_source_fuzz_proj_calls_rsync_copy(
         calls["src"] = s
         calls["dst"] = d
 
-    monkeypatch.setattr("libCRS.libCRS.local.rsync_copy", _fake_rsync)
-    monkeypatch.setattr("libCRS.libCRS.local._FUZZ_PROJ_MOUNT", mount)
+    monkeypatch.setattr("libCRS.local.rsync_copy", _fake_rsync)
+    monkeypatch.setattr("libCRS.local._FUZZ_PROJ_MOUNT", mount)
 
     utils = LocalCRSUtils()
     result = utils.download_source(SourceType.FUZZ_PROJ, tmp_path / "dst")
@@ -37,7 +36,7 @@ def test_download_source_fuzz_proj_raises_when_mount_missing(
     monkeypatch, tmp_path: Path
 ) -> None:
     missing = tmp_path / "nonexistent"
-    monkeypatch.setattr("libCRS.libCRS.local._FUZZ_PROJ_MOUNT", missing)
+    monkeypatch.setattr("libCRS.local._FUZZ_PROJ_MOUNT", missing)
 
     utils = LocalCRSUtils()
     with pytest.raises(RuntimeError, match="does not exist"):
@@ -56,8 +55,8 @@ def test_download_source_target_source_calls_rsync_copy(
         calls["src"] = s
         calls["dst"] = d
 
-    monkeypatch.setattr("libCRS.libCRS.local.rsync_copy", _fake_rsync)
-    monkeypatch.setattr("libCRS.libCRS.local._TARGET_SOURCE_MOUNT", mount)
+    monkeypatch.setattr("libCRS.local.rsync_copy", _fake_rsync)
+    monkeypatch.setattr("libCRS.local._TARGET_SOURCE_MOUNT", mount)
 
     utils = LocalCRSUtils()
     result = utils.download_source(SourceType.TARGET_SOURCE, tmp_path / "dst")
@@ -71,7 +70,7 @@ def test_download_source_target_source_raises_when_mount_missing(
     monkeypatch, tmp_path: Path
 ) -> None:
     missing = tmp_path / "nonexistent"
-    monkeypatch.setattr("libCRS.libCRS.local._TARGET_SOURCE_MOUNT", missing)
+    monkeypatch.setattr("libCRS.local._TARGET_SOURCE_MOUNT", missing)
 
     utils = LocalCRSUtils()
     with pytest.raises(RuntimeError, match="does not exist"):
@@ -87,8 +86,8 @@ def test_download_source_rejects_unknown_source_type(tmp_path: Path) -> None:
 def test_download_source_returns_none(monkeypatch, tmp_path: Path) -> None:
     mount = tmp_path / "fuzz-proj"
     mount.mkdir()
-    monkeypatch.setattr("libCRS.libCRS.local.rsync_copy", lambda s, d: None)
-    monkeypatch.setattr("libCRS.libCRS.local._FUZZ_PROJ_MOUNT", mount)
+    monkeypatch.setattr("libCRS.local.rsync_copy", lambda s, d: None)
+    monkeypatch.setattr("libCRS.local._FUZZ_PROJ_MOUNT", mount)
 
     utils = LocalCRSUtils()
     result = utils.download_source(SourceType.FUZZ_PROJ, tmp_path / "dst")

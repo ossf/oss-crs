@@ -8,6 +8,8 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Standardized `libCRS` and `oss-crs-infra` package namespaces: added `pythonpath = ["libCRS", "."]` to root `pyproject.toml` and canonicalized `libCRS` test imports, removing `-o pythonpath=libCRS` from `scripts/verify.py`; introduced the `oss_crs_infra` package namespace for infra sidecars and services, eliminating dynamic `importlib.util.spec_from_file_location` and `sys.path.insert` workarounds in tests.
+
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
@@ -55,6 +57,7 @@ stricter subset of Keep a Changelog).
 - `libCRS download-source target-source <dest>`: copies clean target source
 
 ### Changed
+
 - Post-run results are now printed outside the Rich UI box so long artifact directory paths are never truncated by panel border wrapping. Directories are only shown when the artifact count is non-zero.
 - `oss-crs artifacts` and `oss-crs archive` now ignore unrecognized CLI arguments, allowing run command args to be forwarded directly.
 - Example litellm configs now use standard provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) by default instead of `EXTERNAL_LITELLM_API_KEY`/`EXTERNAL_LITELLM_API_BASE`. Use `oss-crs setup` or `gen-compose --litellm-proxy` to configure proxy routing.
