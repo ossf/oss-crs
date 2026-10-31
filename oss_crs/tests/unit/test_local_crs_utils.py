@@ -8,6 +8,9 @@ No real Docker or sidecar services needed.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
+
+from oss_crs.src.sidecar_contracts import JobResponse, POVResult
 
 # Patch socket.gethostbyname before importing local to avoid DNS errors
 with patch("socket.gethostbyname", return_value="127.0.0.1"):
@@ -28,6 +31,20 @@ def _mock_response(status_code=200, json_data=None, content=b""):
     if status_code >= 400:
         resp.raise_for_status.side_effect = Exception(f"HTTP {status_code}")
     return resp
+
+
+def _mock_builder_response(json_data, status_code=200):
+    """Return a mock builder response validated against the real JobResponse contract."""
+    if status_code < 400 and json_data is not None:
+        JobResponse.model_validate(json_data)
+    return _mock_response(status_code=status_code, json_data=json_data)
+
+
+def _mock_runner_response(json_data, status_code=200):
+    """Return a mock runner response validated against the real POVResult contract."""
+    if status_code < 400 and json_data is not None:
+        POVResult.model_validate(json_data)
+    return _mock_response(status_code=status_code, json_data=json_data)
 
 
 def _setup_rebuild_logs(tmp_path, rebuild_id, stdout="", stderr="", exit_code="0"):
@@ -80,8 +97,10 @@ class TestApplyPatchBuild:
         self, mock_requests, crs_utils, tmp_path
     ):
         # Sidecar returns nested format
-        submit_resp = _mock_response(json_data={"id": "job123", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(
+            json_data={"id": "job123", "status": "queued"}
+        )
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "job123",
                 "status": "done",
@@ -89,7 +108,7 @@ class TestApplyPatchBuild:
                     "exit_code": 0,
                     "stdout": "Build OK",
                     "stderr": "",
-                    "rebuild_id": "build-abc",
+                    "rebuild_id": 1,
                 },
             }
         )
@@ -100,8 +119,8 @@ class TestApplyPatchBuild:
         patch_file.write_text("diff content")
         response_dir = tmp_path / "response"
 
-        env = _rebuild_env(tmp_path, "build-abc", stdout="Build OK")
-        env["OSS_CRS_BUILD_ID"] = "build-abc"
+        env = _rebuild_env(tmp_path, 1, stdout="Build OK")
+        env["OSS_CRS_BUILD_ID"] = "1"
         with patch.dict("os.environ", env):
             exit_code = crs_utils.apply_patch_build(
                 patch_file, response_dir, "test-builder"
@@ -110,12 +129,14 @@ class TestApplyPatchBuild:
         assert exit_code == 0
         assert (response_dir / "retcode").read_text() == "0"
         assert (response_dir / "stdout.log").read_text() == "Build OK"
-        assert (response_dir / "rebuild_id").read_text() == "build-abc"
+        assert (response_dir / "rebuild_id").read_text() == "1"
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_failed_build(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "job123", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(
+            json_data={"id": "job123", "status": "queued"}
+        )
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "job123",
                 "status": "done",
@@ -123,7 +144,7 @@ class TestApplyPatchBuild:
                     "exit_code": 1,
                     "stdout": "",
                     "stderr": "compile error",
-                    "rebuild_id": "b1",
+                    "rebuild_id": 1,
                 },
             }
         )
@@ -134,8 +155,8 @@ class TestApplyPatchBuild:
         patch_file.write_text("bad diff")
         response_dir = tmp_path / "response"
 
-        env = _rebuild_env(tmp_path, "b1", stderr="compile error", exit_code="1")
-        env["OSS_CRS_BUILD_ID"] = "b1"
+        env = _rebuild_env(tmp_path, 1, stderr="compile error", exit_code="1")
+        env["OSS_CRS_BUILD_ID"] = "1"
         with patch.dict("os.environ", env):
             exit_code = crs_utils.apply_patch_build(
                 patch_file, response_dir, "test-builder"
@@ -147,8 +168,8 @@ class TestApplyPatchBuild:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_sends_builder_name_in_form_data(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "j1", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "j1", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "j1",
                 "status": "done",
@@ -156,7 +177,7 @@ class TestApplyPatchBuild:
                     "exit_code": 0,
                     "stdout": "",
                     "stderr": "",
-                    "rebuild_id": "b1",
+                    "rebuild_id": 1,
                 },
             }
         )
@@ -167,8 +188,8 @@ class TestApplyPatchBuild:
         patch_file.write_text("diff")
         response_dir = tmp_path / "response"
 
-        env = _rebuild_env(tmp_path, "b1")
-        env["OSS_CRS_BUILD_ID"] = "b1"
+        env = _rebuild_env(tmp_path, 1)
+        env["OSS_CRS_BUILD_ID"] = "1"
         with patch.dict("os.environ", env):
             crs_utils.apply_patch_build(patch_file, response_dir, "test-builder")
 
@@ -198,8 +219,8 @@ class TestApplyPatchBuild:
     def test_stores_last_builder_and_build_id_on_success(
         self, mock_requests, crs_utils, tmp_path
     ):
-        submit_resp = _mock_response(json_data={"id": "j1", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "j1", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "j1",
                 "status": "done",
@@ -207,7 +228,7 @@ class TestApplyPatchBuild:
                     "exit_code": 0,
                     "stdout": "",
                     "stderr": "",
-                    "rebuild_id": "stored-build-id",
+                    "rebuild_id": 42,
                 },
             }
         )
@@ -218,12 +239,12 @@ class TestApplyPatchBuild:
         patch_file.write_text("diff")
         response_dir = tmp_path / "response"
 
-        env = _rebuild_env(tmp_path, "stored-build-id")
-        env["OSS_CRS_BUILD_ID"] = "stored-build-id"
+        env = _rebuild_env(tmp_path, 42)
+        env["OSS_CRS_BUILD_ID"] = "42"
         with patch.dict("os.environ", env):
             crs_utils.apply_patch_build(patch_file, response_dir, "test-builder")
 
-        assert crs_utils._last_rebuild_id == "stored-build-id"
+        assert crs_utils._last_rebuild_id == 42
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +325,7 @@ class TestRunPov:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_routes_to_runner_sidecar(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": ""}
         )
         response_dir = tmp_path / "response"
@@ -319,7 +340,7 @@ class TestRunPov:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_sends_pov_as_file_upload(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 1, "stderr": "CRASH"}
         )
         response_dir = tmp_path / "response"
@@ -344,7 +365,7 @@ class TestRunPov:
     def test_sends_harness_and_rebuild_id_in_data(
         self, mock_requests, crs_utils, tmp_path
     ):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": ""}
         )
         response_dir = tmp_path / "response"
@@ -362,7 +383,7 @@ class TestRunPov:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_writes_pov_exit_code(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 1, "stderr": "AddressSanitizer"}
         )
         response_dir = tmp_path / "response"
@@ -379,7 +400,7 @@ class TestRunPov:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_pov_success_writes_exit_code_0(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": ""}
         )
         response_dir = tmp_path / "response"
@@ -396,7 +417,7 @@ class TestRunPov:
     @patch("libCRS.libCRS.local.http_requests")
     def test_does_not_use_submit_and_poll(self, mock_requests, crs_utils, tmp_path):
         """run_pov is synchronous: no job ID polling should occur."""
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": ""}
         )
         response_dir = tmp_path / "response"
@@ -417,7 +438,7 @@ class TestRunPov:
         this.  Sending a sentinel string instead of omitting the field caused
         a writable-overlay bug on the server side.
         """
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": ""}
         )
         response_dir = tmp_path / "response"
@@ -448,8 +469,8 @@ class TestApplyPatchTest:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_parses_nested_test_response(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "t1", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "t1", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "t1",
                 "status": "done",
@@ -457,7 +478,7 @@ class TestApplyPatchTest:
                     "exit_code": 0,
                     "stdout": "tests passed",
                     "stderr": "",
-                    "rebuild_id": "b1",
+                    "rebuild_id": 1,
                 },
             }
         )
@@ -467,7 +488,7 @@ class TestApplyPatchTest:
         patch_file = tmp_path / "test.diff"
         patch_file.write_text("patch content")
 
-        env = _rebuild_env(tmp_path, "b1", stdout="tests passed")
+        env = _rebuild_env(tmp_path, 1, stdout="tests passed")
         with patch.dict("os.environ", env):
             exit_code = crs_utils.apply_patch_test(
                 patch_file, response_dir, "test-builder"
@@ -479,8 +500,8 @@ class TestApplyPatchTest:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_failed_test_writes_exit_code_1(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "t2", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "t2", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "t2",
                 "status": "done",
@@ -488,7 +509,7 @@ class TestApplyPatchTest:
                     "exit_code": 1,
                     "stdout": "",
                     "stderr": "test failure",
-                    "rebuild_id": "b2",
+                    "rebuild_id": 2,
                 },
             }
         )
@@ -498,7 +519,7 @@ class TestApplyPatchTest:
         patch_file = tmp_path / "test.diff"
         patch_file.write_text("patch content")
 
-        env = _rebuild_env(tmp_path, "b2", stderr="test failure", exit_code="1")
+        env = _rebuild_env(tmp_path, 2, stderr="test failure", exit_code="1")
         with patch.dict("os.environ", env):
             exit_code = crs_utils.apply_patch_test(
                 patch_file, response_dir, "test-builder"
@@ -510,8 +531,8 @@ class TestApplyPatchTest:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_sends_builder_name_and_build_id(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "t3", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "t3", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "t3",
                 "status": "done",
@@ -537,8 +558,8 @@ class TestApplyPatchTest:
         self, mock_requests, crs_utils, tmp_path
     ):
         """apply_patch_test sends the patch file to the /test endpoint."""
-        submit_resp = _mock_response(json_data={"id": "t4", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "t4", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "t4",
                 "status": "done",
@@ -571,8 +592,8 @@ class TestResponseDirCompat:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_build_response_files(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "j1", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "j1", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "j1",
                 "status": "done",
@@ -580,7 +601,7 @@ class TestResponseDirCompat:
                     "exit_code": 0,
                     "stdout": "ok",
                     "stderr": "warn",
-                    "rebuild_id": "bid",
+                    "rebuild_id": 1,
                 },
             }
         )
@@ -591,8 +612,8 @@ class TestResponseDirCompat:
         patch_file.write_text("")
         response_dir = tmp_path / "resp"
 
-        env = _rebuild_env(tmp_path, "bid", stdout="ok", stderr="warn")
-        env["OSS_CRS_BUILD_ID"] = "bid"
+        env = _rebuild_env(tmp_path, 1, stdout="ok", stderr="warn")
+        env["OSS_CRS_BUILD_ID"] = "1"
         with patch.dict("os.environ", env):
             crs_utils.apply_patch_build(patch_file, response_dir, "test-builder")
 
@@ -604,7 +625,7 @@ class TestResponseDirCompat:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_pov_response_files(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 0, "stderr": "no crash"}
         )
         response_dir = tmp_path / "resp"
@@ -618,8 +639,8 @@ class TestResponseDirCompat:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_test_response_files(self, mock_requests, crs_utils, tmp_path):
-        submit_resp = _mock_response(json_data={"id": "j2", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "j2", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "j2",
                 "status": "done",
@@ -646,8 +667,8 @@ class TestResponseDirCompat:
         self, mock_requests, crs_utils, tmp_path
     ):
         """build_exit_code file contains a plain integer string, not JSON."""
-        submit_resp = _mock_response(json_data={"id": "j3", "status": "queued"})
-        poll_resp = _mock_response(
+        submit_resp = _mock_builder_response(json_data={"id": "j3", "status": "queued"})
+        poll_resp = _mock_builder_response(
             json_data={
                 "id": "j3",
                 "status": "done",
@@ -672,7 +693,7 @@ class TestResponseDirCompat:
 
     @patch("libCRS.libCRS.local.http_requests")
     def test_pov_exit_code_is_string_integer(self, mock_requests, crs_utils, tmp_path):
-        mock_requests.post.return_value = _mock_response(
+        mock_requests.post.return_value = _mock_runner_response(
             json_data={"exit_code": 77, "stderr": ""}
         )
         response_dir = tmp_path / "resp"
@@ -740,3 +761,57 @@ class TestDiffAgainstBase:
         (new / "a.txt").write_text("same\n")
 
         assert LocalCRSUtils._diff_against_base(base, new) == b""
+
+
+# ---------------------------------------------------------------------------
+# API Contract & Schema Drift Prevention Tests
+# ---------------------------------------------------------------------------
+
+
+class TestSidecarAPIContracts:
+    """Ensure that mock payloads and client requests conform strictly to sidecar Pydantic models."""
+
+    def test_builder_mock_rejects_schema_drift(self):
+        """Builder mock helper raises ValidationError when payload contains invalid types."""
+        invalid_payload = {
+            "id": "j1",
+            "status": "done",
+            "result": {
+                "exit_code": "non-int",  # invalid int
+                "stdout": "",
+                "stderr": "",
+                "rebuild_id": "string-id",  # invalid int
+            },
+        }
+        with pytest.raises(ValidationError):
+            _mock_builder_response(invalid_payload)
+
+    def test_builder_mock_rejects_extra_fields(self):
+        """Builder mock helper rejects undocumented extra fields."""
+        extra_field_payload = {
+            "id": "j1",
+            "status": "done",
+            "unsupported_field": "error",
+        }
+        with pytest.raises(ValidationError):
+            _mock_builder_response(extra_field_payload)
+
+    def test_runner_mock_rejects_schema_drift(self):
+        """Runner mock helper raises ValidationError when payload misses required fields or has wrong types."""
+        # Missing required 'stderr' and 'exit_code'
+        with pytest.raises(ValidationError):
+            _mock_runner_response({"stdout": "only stdout"})
+
+        # Invalid type for exit_code
+        with pytest.raises(ValidationError):
+            _mock_runner_response({"exit_code": "not-an-int", "stderr": ""})
+
+    def test_runner_mock_rejects_extra_fields(self):
+        """Runner mock helper rejects undocumented extra fields."""
+        extra_field_payload = {
+            "exit_code": 0,
+            "stderr": "",
+            "extra_runner_key": True,
+        }
+        with pytest.raises(ValidationError):
+            _mock_runner_response(extra_field_payload)

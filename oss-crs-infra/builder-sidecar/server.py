@@ -61,6 +61,7 @@ class JobResponse(BaseModel):
     id: str
     status: str  # "queued" | "running" | "done" | "error"
     result: BuildResult | None = None
+    error: str | None = None
 
 
 job_results: dict[str, dict] = {}

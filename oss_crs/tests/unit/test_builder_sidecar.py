@@ -6,8 +6,6 @@ Sidecar code lives outside the oss_crs package tree; sys.path insertion
 is required before any imports from the sidecar.
 """
 
-# ruff: noqa: E402
-
 import sys
 from pathlib import Path
 
@@ -25,7 +23,6 @@ from unittest.mock import MagicMock, patch
 import docker
 import docker.errors
 import pytest
-
 from docker_ops import (
     get_build_image,
     get_test_image,
@@ -51,8 +48,8 @@ TEST_CRS_NAME = "test-crs"
 
 def _make_test_client():
     """Return a TestClient for the server app with a clean job_results dict."""
-    from fastapi.testclient import TestClient
     import server
+    from fastapi.testclient import TestClient
 
     # Reset global state between tests so job_results don't bleed across tests
     server.job_results.clear()
@@ -491,8 +488,8 @@ class TestBuildCacheRebuildId:
 
         Returns (job_id, test_client). ``job_results`` is cleared first.
         """
-        from fastapi.testclient import TestClient
         import server
+        from fastapi.testclient import TestClient
 
         server.job_results.clear()
         job_id = server._make_job_id(self._PATCH, TEST_BUILDER_NAME)
@@ -505,7 +502,7 @@ class TestBuildCacheRebuildId:
         (rdir / "exit_code").write_text("0\n")
         (rdir / "build" / "harness").write_bytes(b"cached harness")
 
-        server.job_results[job_id] = {
+        cached_job = {
             "id": job_id,
             "status": "done",
             "result": {
@@ -515,6 +512,8 @@ class TestBuildCacheRebuildId:
                 "rebuild_id": cached_rid,
             },
         }
+        server.JobResponse.model_validate(cached_job)
+        server.job_results[job_id] = cached_job
         return job_id, TestClient(server.app)
 
     def _post(self, client, rebuild_id: "int | None" = None):
@@ -600,24 +599,31 @@ class TestStatusEndpoint:
                 "rebuild_id": 1,
             },
         }
+        server.JobResponse.model_validate(fake_result)
         server.job_results["abc123"] = fake_result
 
         response = client.get("/status/abc123")
         assert response.status_code == 200
         body = response.json()
-        assert body["status"] == "done"
+        validated = server.JobResponse.model_validate(body)
+        assert validated.status == "done"
+        assert validated.result is not None
+        assert validated.result.exit_code == 0
 
     def test_returns_queued_status(self):
         """When job is queued, /status returns queued status."""
         import server
 
         client = _make_test_client()
-        server.job_results["queuedjob"] = {"id": "queuedjob", "status": "queued"}
+        queued_payload = {"id": "queuedjob", "status": "queued"}
+        server.JobResponse.model_validate(queued_payload)
+        server.job_results["queuedjob"] = queued_payload
 
         response = client.get("/status/queuedjob")
         assert response.status_code == 200
         body = response.json()
-        assert body["status"] == "queued"
+        validated = server.JobResponse.model_validate(body)
+        assert validated.status == "queued"
 
 
 # ===========================================================================
@@ -843,8 +849,9 @@ class TestHandleTestProjectImage:
 
     def test_handle_test_raises_when_project_base_image_missing(self):
         """_handle_test() raises ValueError when PROJECT_BASE_IMAGE is not in os.environ."""
-        import server
         import os as _os
+
+        import server
 
         mock_client = self._make_mock_client()
         env_without_project_base = {
@@ -986,3 +993,68 @@ class TestErrorFormat:
         response = client.get("/status/totally-unknown-id")
         assert response.status_code == 404
         assert "error" in response.json()
+
+
+# ===========================================================================
+# TestBuilderAPIContracts
+# ===========================================================================
+
+
+class TestBuilderAPIContracts:
+    """Validate that builder sidecar endpoints and payloads strictly satisfy API schemas."""
+
+    def test_build_submit_conforms_to_job_response(self):
+        """POST /build returns a payload conforming to server.JobResponse."""
+        import server
+
+        from oss_crs.src.sidecar_contracts import JobResponse
+
+        client = _make_test_client()
+        files = {"patch": ("fix.patch", b"diff", "text/plain")}
+        data = {"crs_name": "test-crs", "builder_name": "test-builder"}
+
+        with patch.object(server._executor, "submit"):
+            response = client.post("/build", files=files, data=data)
+
+        assert response.status_code == 200
+        body = response.json()
+        validated = JobResponse.model_validate(body)
+        assert validated.status == "queued"
+        assert validated.id
+
+    def test_test_submit_conforms_to_job_response(self):
+        """POST /test returns a payload conforming to server.JobResponse."""
+        import server
+
+        from oss_crs.src.sidecar_contracts import JobResponse
+
+        client = _make_test_client()
+        files = {"patch": ("test.patch", b"diff", "text/plain")}
+        data = {"crs_name": "test-crs"}
+
+        with patch.object(server._executor, "submit"):
+            response = client.post("/test", files=files, data=data)
+
+        assert response.status_code == 200
+        body = response.json()
+        validated = JobResponse.model_validate(body)
+        assert validated.status == "queued"
+        assert validated.id
+
+    def test_schema_drift_fails_validation(self):
+        """Verifies that arbitrary dictionary payloads with invalid types fail validation."""
+        import server
+        from pydantic import ValidationError
+
+        invalid_payload = {
+            "id": "job1",
+            "status": "done",
+            "result": {
+                "exit_code": "not-an-int",
+                "stdout": "",
+                "stderr": "",
+                "rebuild_id": "string-not-int",
+            },
+        }
+        with pytest.raises(ValidationError):
+            server.JobResponse.model_validate(invalid_payload)
