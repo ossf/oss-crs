@@ -5,6 +5,7 @@ import hashlib
 import os
 import posixpath
 import re
+import shlex
 import stat
 import subprocess
 import uuid
@@ -43,6 +44,53 @@ CUSTOM_SCRIPTS = ["oss_crs_handler.sh", "oss_crs_builder_server.py"]
 
 SHARED_LOCK_DIR_MODE = 0o1777
 SHARED_LOCK_FILE_MODE = 0o666
+
+# Variables defined by OSS-Fuzz base images (base-clang, base-builder-go) that
+# project Dockerfiles use without declaring them.
+BASE_IMAGE_ENV = {"SRC": "/src", "WORK": "/work", "OUT": "/out", "GOPATH": "/root/go"}
+
+# OSS-Fuzz build scratch and output dirs. A final WORKDIR inside one of these
+# is not where the target source lives (e.g. alembic ends with `WORKDIR $WORK/`).
+NON_SOURCE_DIRS = ("/work", "/out")
+
+# `git clone` options that take a separate value argument.
+_GIT_CLONE_VALUE_OPTS = frozenset(
+    {
+        "-b",
+        "--branch",
+        "-c",
+        "--config",
+        "--depth",
+        "-j",
+        "--jobs",
+        "-o",
+        "--origin",
+        "--reference",
+        "--reference-if-able",
+        "--separate-git-dir",
+        "--shallow-exclude",
+        "--shallow-since",
+        "--template",
+        "-u",
+        "--upload-pack",
+    }
+)
+
+
+def _is_non_source_dir(path: str) -> bool:
+    return any(path == d or path.startswith(d + "/") for d in NON_SOURCE_DIRS)
+
+
+def _normalize_repo_url(url: str) -> str:
+    """Reduce a git URL to ``host/path`` so equivalent spellings compare equal."""
+    url = url.strip().lower()
+    url = re.sub(r"^[a-z+]+://", "", url)
+    url = re.sub(r"^[^@/]+@", "", url)  # user@ (also git@host:path)
+    url = url.replace(":", "/", 1) if re.match(r"^[^/]+:[^/0-9]", url) else url
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[: -len(".git")]
+    return url.removeprefix("www.")
 
 
 def _ensure_third_party_oss_fuzz() -> bool:
@@ -542,7 +590,16 @@ class Target:
                 "--exclude=.git/ORIG_HEAD "
                 "--from=repo_path . /OSS_CRS_REPO_OVERRIDE\n"
             ).encode()
-            added_dockerfile += b"RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./\n"
+            # Normally the source dir is the final WORKDIR. When the resolver
+            # found main_repo's clone dir instead (e.g. WORKDIR $WORK), sync
+            # into that dir. Never --delete into the bare /src fallback, which
+            # also holds build.sh and other project files.
+            source_dir = self._resolve_effective_workdir()
+            if source_dir in (self._parse_dockerfile_workdir()[0], "/src"):
+                source_dir = "."
+            added_dockerfile += (
+                f"RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ {source_dir}/\n"
+            ).encode()
             added_dockerfile += b"RUN rm -rf /OSS_CRS_REPO_OVERRIDE\n"
             added_dockerfile += ("COPY . /OSS_CRS_PROJ_PATH\n").encode()
             tmp_dockerfile.write_bytes(added_dockerfile)
@@ -651,27 +708,52 @@ class Target:
 
         return ret
 
-    def _resolve_effective_workdir(self) -> str:
-        """Resolve effective final WORKDIR from target Dockerfile.
+    def _dockerfile_logical_lines(self) -> list[str]:
+        """Return Dockerfile instructions with comments stripped and continuations joined."""
+        lines: list[str] = []
+        pending = ""
+        for raw in (
+            (self.proj_path / "Dockerfile").read_text(encoding="utf-8").splitlines()
+        ):
+            stripped = raw.strip()
+            # Docker drops whole-line comments, even inside a continuation.
+            if stripped.startswith("#"):
+                continue
+            line = self._strip_inline_comment(raw).rstrip()
+            if line.endswith("\\"):
+                pending += line[:-1] + " "
+                continue
+            line = (pending + line).strip()
+            pending = ""
+            if line:
+                lines.append(line)
+        if pending.strip():
+            lines.append(pending.strip())
+        return lines
+
+    def _parse_dockerfile_workdir(self) -> tuple[str, Optional[str]]:
+        """Parse the target Dockerfile for its final WORKDIR and main_repo clone dir.
 
         WORKDIR instructions are applied cumulatively. Relative WORKDIR values
         are resolved against the current effective WORKDIR.
+
+        Returns ``(workdir, main_repo_dir)``. ``main_repo_dir`` is where a
+        ``git clone`` of the project's ``main_repo`` lands, if one is found.
         """
         dockerfile = self.proj_path / "Dockerfile"
         if not dockerfile.exists():
-            return "/src"
+            return "/src", None
 
         src_root = "/src"
         current = src_root
         workdir_seen = False
-        env_vars: dict[str, str] = {"SRC": src_root}
+        env_vars: dict[str, str] = dict(BASE_IMAGE_ENV)
+        main_repo = getattr(self, "main_repo", None)
+        main_repo_key = _normalize_repo_url(main_repo) if main_repo else None
+        main_repo_dir: Optional[str] = None
 
         try:
-            for raw in dockerfile.read_text(encoding="utf-8").splitlines():
-                line = self._strip_inline_comment(raw).strip()
-                if not line or line.startswith("#"):
-                    continue
-
+            for line in self._dockerfile_logical_lines():
                 env_match = re.match(r"(?i)^ENV\s+(.+)$", line)
                 if env_match:
                     payload = env_match.group(1).strip()
@@ -701,6 +783,16 @@ class Target:
                         )
                     continue
 
+                run_match = re.match(r"(?i)^RUN\s+(.+)$", line)
+                if run_match:
+                    if main_repo_key:
+                        for url, dest in self._git_clone_dests(
+                            run_match.group(1), current, env_vars
+                        ):
+                            if _normalize_repo_url(url) == main_repo_key:
+                                main_repo_dir = dest
+                    continue
+
                 match = re.match(r"(?i)^WORKDIR\s+(.+)$", line)
                 if not match:
                     continue
@@ -717,9 +809,87 @@ class Target:
                 else:
                     current = posixpath.normpath(posixpath.join(current, wd))
 
-            return current if workdir_seen else src_root
+            return (current if workdir_seen else src_root), main_repo_dir
         except Exception:
-            return src_root
+            return src_root, None
+
+    def _git_clone_dests(
+        self, command: str, cwd: str, env_vars: dict[str, str]
+    ) -> list[tuple[str, str]]:
+        """Return ``(url, absolute_dest)`` for each ``git clone`` in a shell-form RUN.
+
+        Tracks ``cd`` within the command so relative destinations resolve
+        against the directory the clone actually runs in.
+        """
+        command = re.sub(r"^(?:--\S+\s+)+", "", command.strip())  # RUN --mount=...
+        if command.startswith("["):
+            return []  # exec form; never a clone with a shell-relative dest
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            return []
+
+        clones: list[tuple[str, str]] = []
+        segment: list[str] = []
+        for token in [*tokens, ";"]:
+            if token and set(token) <= set("&|;()"):
+                if segment[:1] == ["cd"] and len(segment) > 1:
+                    target = self._expand_docker_vars(segment[1], env_vars)
+                    cwd = posixpath.normpath(posixpath.join(cwd, target))
+                elif segment[:2] == ["git", "clone"]:
+                    clone = self._parse_git_clone(segment[2:], cwd, env_vars)
+                    if clone:
+                        clones.append(clone)
+                segment = []
+                continue
+            segment.append(token)
+        return clones
+
+    def _parse_git_clone(
+        self, args: list[str], cwd: str, env_vars: dict[str, str]
+    ) -> Optional[tuple[str, str]]:
+        positional: list[str] = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                skip_next = False
+            elif arg in _GIT_CLONE_VALUE_OPTS:
+                skip_next = True
+            elif not arg.startswith("-"):
+                positional.append(self._expand_docker_vars(arg, env_vars))
+        if not positional:
+            return None
+        url = positional[0]
+        if len(positional) > 1:
+            dest = positional[1]
+        else:
+            dest = url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+            dest = dest.removesuffix(".git")
+        return url, posixpath.normpath(posixpath.join(cwd, dest))
+
+    def _resolve_effective_workdir(self) -> str:
+        """Resolve the in-container target source directory.
+
+        Normally this is the final WORKDIR of the target Dockerfile, which is
+        where OSS-Fuzz's helper mounts user-provided source. When that WORKDIR
+        is a build scratch/output dir (``$WORK``, ``$OUT``) or still contains an
+        unknown variable, fall back to where the Dockerfile clones the
+        project's ``main_repo``, else to ``/src``.
+        """
+        workdir, main_repo_dir = self._parse_dockerfile_workdir()
+        if not (_is_non_source_dir(workdir) or "$" in workdir):
+            return workdir
+        if main_repo_dir and not _is_non_source_dir(main_repo_dir):
+            return main_repo_dir
+        if not getattr(self, "_workdir_fallback_warned", False):
+            self._workdir_fallback_warned = True
+            log_warning(
+                f"Dockerfile WORKDIR {workdir} of {self.proj_path} is not a source "
+                "directory and no clone of main_repo was found; assuming /src."
+            )
+        return "/src"
 
     def _resolve_effective_workdir_with_inspect_fallback(self, image_tag: str) -> str:
         """Resolve effective WORKDIR with docker image inspect fallback for ambiguous /src default.
@@ -732,6 +902,10 @@ class Target:
         parsed = self._resolve_effective_workdir()
         if parsed != "/src":
             return parsed
+        if _is_non_source_dir(self._parse_dockerfile_workdir()[0]):
+            # /src was chosen because the Dockerfile's WORKDIR is a scratch dir;
+            # the image's WorkingDir is that same scratch dir, so don't use it.
+            return "/src"
 
         # /src is ambiguous (could be default or explicitly set); verify via docker inspect
         result = subprocess.run(
@@ -746,8 +920,9 @@ class Target:
             capture_output=True,
             text=True,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+        inspected = result.stdout.strip() if result.returncode == 0 else ""
+        if inspected and not _is_non_source_dir(inspected):
+            return inspected
 
         return "/src"
 
