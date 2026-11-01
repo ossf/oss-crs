@@ -1940,6 +1940,11 @@ class CRSCompose:
                 assert project_name is not None
                 assert actual_run_id is not None
                 assert docker_compose_path is not None
+                progress.full_logs_hint = str(
+                    self.work_dir.get_run_logs_dir(
+                        target, actual_run_id, sanitizer, create=False
+                    )
+                )
                 progress.add_cleanup_task(
                     "Capture Docker Compose Logs",
                     lambda p: self.__capture_compose_logs(
