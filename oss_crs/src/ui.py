@@ -27,12 +27,23 @@ FRAMEWORK_HELPER_SERVICE_PREFIX = "oss-crs-"
 MAX_ERROR_OUTPUT_LINES = 100
 
 
-def _tail_output(lines: list[str], max_lines: int = MAX_ERROR_OUTPUT_LINES) -> str:
-    """Join the last ``max_lines`` lines, noting how many earlier ones were dropped."""
+def _tail_output(
+    lines: list[str],
+    max_lines: int = MAX_ERROR_OUTPUT_LINES,
+    log_hint: Optional[str] = None,
+) -> str:
+    """Join the last ``max_lines`` lines, noting how many earlier ones were dropped.
+
+    When ``log_hint`` is given it is shown with the omission note so users know
+    where the full output can be inspected.
+    """
     if len(lines) <= max_lines:
         return "\n".join(lines)
     omitted = len(lines) - max_lines
-    return f"... ({omitted} earlier lines omitted)\n" + "\n".join(lines[-max_lines:])
+    note = f"{omitted} earlier lines omitted"
+    if log_hint:
+        note += f"; full logs: {log_hint}"
+    return f"... ({note})\n" + "\n".join(lines[-max_lines:])
 
 
 @dataclass
@@ -100,6 +111,8 @@ class MultiTaskProgress:
         self.deadline: Optional[float] = deadline
         self.early_exit_config = early_exit_config
         self._early_exit_triggered = threading.Event()
+        # Where the full output is persisted, shown when error output is tailed.
+        self.full_logs_hint: Optional[str] = None
         self.statuses: dict[str, TaskStatus] = {
             name: TaskStatus.PENDING for name in self.task_names
         }
@@ -725,7 +738,7 @@ class MultiTaskProgress:
                 process.wait()
             except KeyboardInterrupt:
                 _graceful_terminate(process)
-                error = _tail_output(output_lines)
+                error = _tail_output(output_lines, log_hint=self.full_logs_hint)
                 error += "\n\n📝 Process interrupted by user"
                 return TaskResult(
                     success=False,
@@ -739,7 +752,7 @@ class MultiTaskProgress:
 
             if timed_out.is_set():
                 error_msg = f"■ Timed out.\nContainers were gracefully stopped.\n{' '.join(cmd)}\n\n"
-                error_msg += _tail_output(output_lines)
+                error_msg += _tail_output(output_lines, log_hint=self.full_logs_hint)
                 if task_name:
                     self.set_error_info(task_name, error_msg)
                 return TaskResult(
@@ -764,7 +777,7 @@ class MultiTaskProgress:
             else:
                 # Set error info with last output lines
                 error_msg = f"Command failed with exit code {process.returncode}:\n{' '.join(cmd)}\n\n"
-                error_msg += _tail_output(output_lines)
+                error_msg += _tail_output(output_lines, log_hint=self.full_logs_hint)
                 if task_name:
                     self.set_error_info(task_name, error_msg)
                 return TaskResult(success=False, error=error_msg)
@@ -949,7 +962,10 @@ class MultiTaskProgress:
             )
             if not check_result.success:
                 check_result.error = (
-                    _tail_output((result.output or "").splitlines())
+                    _tail_output(
+                        (result.output or "").splitlines(),
+                        log_hint=self.full_logs_hint,
+                    )
                     + "\n\n"
                     + (check_result.error or "")
                 )
