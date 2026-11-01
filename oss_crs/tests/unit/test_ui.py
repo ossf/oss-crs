@@ -777,6 +777,44 @@ def test_tail_output_keeps_last_lines_and_notes_omitted_count() -> None:
     assert _tail_output(lines, max_lines=3) == "... (7 earlier lines omitted)\n7\n8\n9"
 
 
+def test_tail_output_points_to_full_logs_when_truncated() -> None:
+    lines = [str(i) for i in range(10)]
+
+    assert _tail_output(lines, max_lines=3, log_hint="/w/logs") == (
+        "... (7 earlier lines omitted; full logs: /w/logs)\n7\n8\n9"
+    )
+
+
+def test_tail_output_omits_log_hint_when_not_truncated() -> None:
+    assert _tail_output(["a", "b"], max_lines=3, log_hint="/w/logs") == "a\nb"
+
+
+def test_run_command_with_streaming_output_shows_full_logs_path(
+    monkeypatch,
+) -> None:
+    progress = MultiTaskProgress(
+        tasks=[],
+        title="test",
+        console=Console(file=io.StringIO(), force_interactive=False, width=120),
+    )
+    progress.full_logs_hint = "/work/runs/abc/logs"
+    total = MAX_ERROR_OUTPUT_LINES + 1
+
+    monkeypatch.setattr(
+        "oss_crs.src.ui.subprocess.Popen",
+        lambda *args, **kwargs: _FakeStreamingProcess(
+            _numbered_lines(total), returncode=1
+        ),
+    )
+
+    result = progress.run_command_with_streaming_output(["fake", "cmd"])
+
+    assert result.error is not None
+    assert (
+        "... (1 earlier lines omitted; full logs: /work/runs/abc/logs)" in result.error
+    )
+
+
 def test_run_command_with_streaming_output_truncates_failure_output(
     monkeypatch,
 ) -> None:
