@@ -7,5 +7,5 @@
 # will ever fire against them. Add both once someone confirms a bump is safe:
 # NIX_BUILDER_IMAGE feeds libCRS/deps.Dockerfile as a build-arg, and ALPINE_IMAGE
 # is commented only "3.x latest", so its real version needs pinning down first.
-FROM ghcr.io/berriai/litellm-database@sha256:5a9ff0fd7177372f2ccd8949cb121f67e281f4d13d026af51f9c096c0626f50a  # v1.104.2
-FROM postgres@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722  # 18.6
+FROM ghcr.io/berriai/litellm-database@sha256:db36453d25e76c9eb689d7d51b8e5fa48843243d7a86ed1284cf574ce0107b3f  # v1.106.4
+FROM postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6  # 18.6
