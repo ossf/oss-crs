@@ -57,7 +57,7 @@ def _make_build_config(dockerfile: str) -> SimpleNamespace:
     )
 
 
-def _render(monkeypatch, tmp_path: Path, dockerfile: str) -> dict:
+def _render(monkeypatch, tmp_path: Path, dockerfile: str, **kwargs) -> dict:
     _patch_env(monkeypatch)
     (tmp_path / "proj").mkdir()
     (tmp_path / "repo").mkdir()
@@ -69,6 +69,7 @@ def _render(monkeypatch, tmp_path: Path, dockerfile: str) -> dict:
         build_out_dir=tmp_path / "out",
         build_id="build-1",
         sanitizer="address",
+        **kwargs,
     )
     return yaml.safe_load(rendered)
 
@@ -111,3 +112,13 @@ def test_infra_prefix_does_not_leak_colon_into_path(monkeypatch, tmp_path, docke
 
     assert "oss-crs-infra:" not in rendered_dockerfile
     assert rendered_dockerfile.endswith("/Dockerfile")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [({}, True), ({"privileged": True}, True), ({"privileged": False}, False)],
+)
+def test_builder_privileged_by_default(monkeypatch, tmp_path, kwargs, expected):
+    parsed = _render(monkeypatch, tmp_path, "oss-crs/builder.Dockerfile", **kwargs)
+    [(_name, svc)] = list(parsed["services"].items())
+    assert svc.get("privileged", False) is expected

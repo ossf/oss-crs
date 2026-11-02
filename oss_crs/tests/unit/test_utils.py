@@ -22,6 +22,11 @@ def test_rm_with_docker_preserves_default_alpine_command(
         "run",
         lambda command, **_kwargs: commands.append(command),
     )
+    # Force the container fallback: direct removal is tried first and only
+    # falls back to docker for paths it cannot delete.
+    monkeypatch.setattr(
+        utils, "_remove_tree_direct", lambda _p: (_ for _ in ()).throw(OSError("busy"))
+    )
 
     utils.rm_with_docker(tmp_path / "out")
 
@@ -40,6 +45,35 @@ def test_rm_with_docker_preserves_default_alpine_command(
     ]
 
 
+def test_rm_with_docker_removes_directly_without_container(
+    tmp_path: Path, monkeypatch
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        utils.subprocess,
+        "run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+    target = tmp_path / "out"
+    target.mkdir()
+
+    utils.rm_with_docker(target)
+
+    assert commands == []
+    assert not target.exists()
+
+
+def test_remove_tree_direct_handles_read_only_dirs(tmp_path: Path) -> None:
+    target = tmp_path / "out"
+    (target / "sub").mkdir(parents=True)
+    (target / "sub" / "file").write_text("x")
+    (target / "sub").chmod(0o500)
+
+    utils._remove_tree_direct(target)
+
+    assert not target.exists()
+
+
 def test_rm_with_docker_overrides_target_image_entrypoint(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -48,6 +82,9 @@ def test_rm_with_docker_overrides_target_image_entrypoint(
         utils.subprocess,
         "run",
         lambda command, **_kwargs: commands.append(command),
+    )
+    monkeypatch.setattr(
+        utils, "_remove_tree_direct", lambda _p: (_ for _ in ()).throw(OSError("busy"))
     )
 
     utils.rm_with_docker(tmp_path / "out", image_tag="project:tag")

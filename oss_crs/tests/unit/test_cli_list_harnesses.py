@@ -146,11 +146,47 @@ def test_compile_uses_oss_fuzz_environment_and_compile_command(
     assert command[-2:] == ["sample:tag", "compile"]
 
 
+def test_compile_drops_privileged_when_unprivileged(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = _make_project(tmp_path)
+    target = module.Target(tmp_path / "work", project, None)
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert (
+        module._compile_project(
+            target, "sample:tag", tmp_path / "out", privileged=False
+        )
+        is True
+    )
+    assert "--privileged" not in calls[0]
+
+
+def test_cli_list_harnesses_unprivileged_flag(tmp_path: Path, monkeypatch) -> None:
+    received = []
+    monkeypatch.setattr(
+        cli_module, "handle_list_harnesses", lambda a: received.append(a) or True
+    )
+    base = ["oss-crs", "list-harnesses", "--fuzz-proj-path", str(tmp_path)]
+    monkeypatch.setattr(cli_module.sys, "argv", base)
+    assert cli_module.cli() is True
+    monkeypatch.setattr(cli_module.sys, "argv", [*base, "--unprivileged"])
+    assert cli_module.cli() is True
+    assert [a.unprivileged for a in received] == [False, True]
+
+
 def test_cached_build_is_reused_until_project_inputs_change(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     project = _make_project(tmp_path)
     args = SimpleNamespace(
+        unprivileged=False,
         target_proj_path=project,
         work_dir=tmp_path / ".oss-crs-workdir",
     )
@@ -172,7 +208,7 @@ def test_cached_build_is_reused_until_project_inputs_change(
         builds.append(force_rebuild)
         return "sample:tag"
 
-    def fake_compile(_target, _image, out_dir):
+    def fake_compile(_target, _image, out_dir, privileged=True):
         compiles.append(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         _write_native_harness(out_dir / "sample_fuzzer")
@@ -217,6 +253,7 @@ def test_repository_head_change_invalidates_cached_build(
 ) -> None:
     project = _make_project(tmp_path)
     args = SimpleNamespace(
+        unprivileged=False,
         target_proj_path=project,
         work_dir=tmp_path / ".oss-crs-workdir",
     )
@@ -240,7 +277,7 @@ def test_repository_head_change_invalidates_cached_build(
         build_count += 1
         return "sample:tag"
 
-    def fake_compile(_target, _image, out_dir):
+    def fake_compile(_target, _image, out_dir, privileged=True):
         out_dir.mkdir(parents=True, exist_ok=True)
         return True
 
@@ -258,7 +295,9 @@ def test_cache_access_uses_project_specific_file_lock(
 ) -> None:
     project = _make_project(tmp_path)
     work_dir = tmp_path / ".oss-crs-workdir"
-    args = SimpleNamespace(target_proj_path=project, work_dir=work_dir)
+    args = SimpleNamespace(
+        target_proj_path=project, work_dir=work_dir, unprivileged=False
+    )
     events: list[tuple[str, Path]] = []
 
     @contextmanager
@@ -271,7 +310,9 @@ def test_cache_access_uses_project_specific_file_lock(
     monkeypatch.setattr(
         module,
         "_handle_list_harnesses_locked",
-        lambda _target, _cache_dir: events.append(("handle", _cache_dir)) or True,
+        lambda _target, _cache_dir, privileged=True: (
+            events.append(("handle", _cache_dir)) or True
+        ),
     )
 
     cache_dir = module._cache_dir(work_dir, project)
@@ -299,6 +340,7 @@ def test_build_script_may_be_supplied_by_target_repository(
         "language: c++\nmain_repo: https://example.com/source.git\n"
     )
     args = SimpleNamespace(
+        unprivileged=False,
         target_proj_path=project,
         work_dir=tmp_path / ".oss-crs-workdir",
     )
@@ -319,7 +361,7 @@ def test_build_script_may_be_supplied_by_target_repository(
         lambda _target, **_kwargs: "sample:tag",
     )
 
-    def fake_compile(_target, _image, out_dir):
+    def fake_compile(_target, _image, out_dir, privileged=True):
         out_dir.mkdir(parents=True, exist_ok=True)
         _write_native_harness(out_dir / "source_fuzzer")
         return True

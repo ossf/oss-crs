@@ -22,6 +22,7 @@ from .env_policy import (
 from .llm import LLM
 from .crs import CRS
 from .config.crs import CRSType
+from .docker_bin import docker_cmd
 from .ui import MultiTaskProgress, TaskResult, EarlyExitConfig
 from .target import Target, file_lock
 from .templates import renderer
@@ -623,7 +624,10 @@ class CRSCompose:
         Called after _create_incremental_snapshots (success or failure) and on
         build failure to clean up temporary builder image copies.
         """
-        client = docker.from_env()
+        try:
+            client = docker.from_env()
+        except docker.errors.DockerException:
+            client = None
         for crs in self.crs_list:
             if (
                 not crs.config.target_build_phase
@@ -636,10 +640,16 @@ class CRSCompose:
                     build_config.name,
                     build_id,
                 )
-                try:
-                    client.images.remove(image_name, force=True)
-                except docker.errors.ImageNotFound:
-                    pass
+                if client is not None:
+                    try:
+                        client.images.remove(image_name, force=True)
+                    except docker.errors.ImageNotFound:
+                        pass
+                else:
+                    subprocess.run(
+                        docker_cmd("image", "rm", "-f", image_name),
+                        capture_output=True,
+                    )
 
     def _check_snapshots_exist(self, build_id: str) -> "str | None":
         """Check that all required snapshot images exist for incremental run.
@@ -833,7 +843,7 @@ class CRSCompose:
         """
 
         result = subprocess.run(
-            ["docker", "pull", ALPINE_IMAGE],
+            docker_cmd("pull", ALPINE_IMAGE),
             capture_output=True,
             text=True,
         )
@@ -845,7 +855,7 @@ class CRSCompose:
                 ),
             )
         tag_result = subprocess.run(
-            ["docker", "tag", ALPINE_IMAGE, OSS_CRS_ALPINE_TAG],
+            docker_cmd("tag", ALPINE_IMAGE, OSS_CRS_ALPINE_TAG),
             capture_output=True,
             text=True,
         )
@@ -872,7 +882,7 @@ class CRSCompose:
         """
         for image, local_tag in OSS_CRS_INTERNAL_LLM_IMAGES.items():
             result = subprocess.run(
-                ["docker", "pull", image],
+                docker_cmd("pull", image),
                 capture_output=True,
                 text=True,
             )
@@ -884,7 +894,7 @@ class CRSCompose:
                     ),
                 )
             tag_result = subprocess.run(
-                ["docker", "tag", image, local_tag],
+                docker_cmd("tag", image, local_tag),
                 capture_output=True,
                 text=True,
             )
@@ -919,7 +929,7 @@ class CRSCompose:
         for subdir, tag in images.items():
             context = infra_root / subdir
             result = subprocess.run(
-                ["docker", "build", "-t", tag, str(context)],
+                docker_cmd("build", "-t", tag, str(context)),
                 capture_output=True,
                 text=True,
             )
@@ -1022,6 +1032,7 @@ class CRSCompose:
         diff: Optional[Path] = None,
         incremental_build: bool = False,
         coverage: bool = False,
+        privileged: bool = True,
     ) -> bool:
         resolved_options = self._resolve_target_build_options(
             target,
@@ -1112,6 +1123,7 @@ class CRSCompose:
                         else bug_candidate_dir,
                         input_hash=input_hash,
                         target_source_path=resolved_source_path,
+                        privileged=privileged,
                     ),
                 )
             )
@@ -1173,6 +1185,7 @@ class CRSCompose:
         early_exit: bool = False,
         incremental_build: bool = False,
         web_ui: bool = False,
+        privileged: bool = True,
     ) -> int:
         source_only = self.is_source_only_run(target)
         if source_only:
@@ -1269,6 +1282,7 @@ class CRSCompose:
                 bug_candidate_dir=bug_candidate_input.directory,
                 diff=diff,
                 coverage=web_ui,
+                privileged=privileged,
             ):
                 return 1
         elif web_ui:
@@ -1306,6 +1320,7 @@ class CRSCompose:
             incremental_build=incremental_build,
             web_ui=web_ui,
             source_only=source_only,
+            privileged=privileged,
         )
         return result
 
@@ -1834,6 +1849,7 @@ class CRSCompose:
         incremental_build: bool = False,
         web_ui: bool = False,
         source_only: bool = False,
+        privileged: bool = True,
     ) -> int:
         if self.crs_compose_env.run_env == RunEnv.LOCAL:
             return self.__run_local(
@@ -1849,6 +1865,7 @@ class CRSCompose:
                 incremental_build=incremental_build,
                 web_ui=web_ui,
                 source_only=source_only,
+                privileged=privileged,
             )
         else:
             print(f"TODO: Support run env {self.crs_compose_env.run_env}")
@@ -1883,6 +1900,7 @@ class CRSCompose:
         incremental_build: bool = False,
         web_ui: bool = False,
         source_only: bool = False,
+        privileged: bool = True,
     ) -> int:
         # Create cgroups if cgroup_parent mode is enabled
         worker_cgroup_path: Optional[Path] = None
@@ -1972,6 +1990,7 @@ class CRSCompose:
                             incremental_build=incremental_build,
                             web_ui=web_ui,
                             source_only=source_only,
+                            privileged=privileged,
                         ),
                     ),
                     (
@@ -2037,14 +2056,13 @@ class CRSCompose:
         services_dir.mkdir(parents=True, exist_ok=True)
         crs_logs_root.mkdir(parents=True, exist_ok=True)
 
-        cmd_base = [
-            "docker",
+        cmd_base = docker_cmd(
             "compose",
             "-p",
             project_name,
             "-f",
             str(docker_compose_path),
-        ]
+        )
 
         try:
 
@@ -2363,6 +2381,7 @@ class CRSCompose:
         incremental_build: bool = False,
         web_ui: bool = False,
         source_only: bool = False,
+        privileged: bool = True,
     ) -> TaskResult:
         docker_compose_path = tmp_docker_compose.docker_compose
         assert docker_compose_path is not None
@@ -2414,6 +2433,7 @@ class CRSCompose:
                 sidecar_env=sidecar_env,
                 web_ui=web_ui,
                 source_only=source_only,
+                privileged=privileged,
             )
             for warning in warnings:
                 progress.add_note(warning)

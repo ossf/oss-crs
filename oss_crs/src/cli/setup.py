@@ -16,6 +16,13 @@ import yaml
 from rich.panel import Panel
 
 from ..utils import get_console, configure_logging, confirm, green, red, yellow
+from ..docker_bin import (
+    compose_v2_provider,
+    describe_daemon,
+    have_subuid_range,
+    is_podman_cli,
+    is_rootless_runtime,
+)
 from ..cgroup import (
     check_docker_cgroup_driver,
     check_cgroup_delegation,
@@ -300,6 +307,65 @@ class SetupRunner:
         """Check if a specific requirement needs fixing."""
         return self.results.get(key, CheckResult(ok=True)).needs_fix
 
+    def run_rootless_checks(self) -> None:
+        """Informational rootless-readiness report (never changes the system)."""
+        self.console.print(
+            "\n[bold]Rootless container readiness[/bold] (informational — no changes made)"
+        )
+        kind, detail = describe_daemon()
+        if kind == "rootless-docker":
+            self.print_status("Container daemon", True, f"rootless Docker at {detail}")
+        elif kind == "podman" and detail.startswith("daemonless"):
+            self.print_status(
+                "Container daemon",
+                False,
+                f"podman {detail}, no API socket for the builder/lifecycle sidecars",
+            )
+            self.console.print(
+                "  [dim]Run: systemctl --user start podman.socket && export "
+                "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock[/dim]"
+            )
+        elif kind == "podman":
+            self.print_status("Container daemon", True, f"podman socket at {detail}")
+        elif kind == "rootful-docker":
+            self.print_status("Container daemon", True, f"rootful Docker at {detail}")
+        elif kind == "custom":
+            self.print_status("Container daemon", True, f"custom DOCKER_HOST {detail}")
+        else:
+            self.print_status("Container daemon", False, detail)
+            self.console.print(
+                "  [dim]Install Docker or point DOCKER_HOST at a daemon socket "
+                "(rootless example: unix://$XDG_RUNTIME_DIR/docker.sock).[/dim]"
+            )
+        if is_podman_cli():
+            provider = compose_v2_provider()
+            if provider:
+                self.print_status("Compose", True, f"Docker Compose v2 at {provider}")
+            else:
+                self.print_status(
+                    "Compose", False, "Podman needs Docker Compose v2, none found"
+                )
+                self.console.print(
+                    "  [dim]Install the docker-compose v2 binary on PATH or in "
+                    "~/.docker/cli-plugins/ (see docs/setup.md).[/dim]"
+                )
+        if not is_rootless_runtime():
+            return
+        if have_subuid_range():
+            self.print_status(
+                "Subordinate ids", True, "range present — native multi-UID builds"
+            )
+        else:
+            self.print_status(
+                "Subordinate ids",
+                False,
+                "no /etc/subuid + /etc/subgid range — rootless Podman/Docker need one for multi-UID images",
+            )
+            self.console.print(
+                "  [dim]Ask an admin to run: sudo usermod --add-subuids 100000-165535 "
+                "--add-subgids 100000-165535 <user>[/dim]"
+            )
+
     def run(self, check_only: bool = False) -> bool:
         """Run the setup process."""
         self.console.print(
@@ -319,7 +385,11 @@ class SetupRunner:
             self.console.print("")
 
         # --- Phase 2: Cgroup setup ---
-        return self._run_cgroup_setup(check_only)
+        cgroup_ok = self._run_cgroup_setup(check_only)
+
+        # --- Phase 3 (informational): rootless readiness ---
+        self.run_rootless_checks()
+        return cgroup_ok
 
     def _run_cgroup_setup(self, check_only: bool = False) -> bool:
         """Run cgroup checks and interactive fixes."""

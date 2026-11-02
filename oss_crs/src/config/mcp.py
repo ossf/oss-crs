@@ -14,6 +14,8 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel, field_validator
 
+from ..docker_bin import docker_cmd
+
 
 def _is_dockerfile_path(image: str) -> bool:
     """Distinguish explicit filesystem paths from Docker image references."""
@@ -310,7 +312,7 @@ def ensure_mcp_server_image(
         else mcp_source_dir_for_image(server.image, infra_root)
     )
     if source_dir is not None:
-        command = ["docker", "build"]
+        command = docker_cmd("build")
         if dockerfile is not None:
             command.extend(["-f", str(dockerfile)])
         command.extend(["-t", server.resolved_image, str(source_dir)])
@@ -327,7 +329,7 @@ def ensure_mcp_server_image(
             )
         return None
     inspect = subprocess.run(
-        ["docker", "image", "inspect", server.image],
+        docker_cmd("image", "inspect", server.image),
         capture_output=True,
     )
     if inspect.returncode == 0:
@@ -338,7 +340,7 @@ def ensure_mcp_server_image(
             f"is not present locally and pulls are disabled (--no-pull)"
         )
     pull = subprocess.run(
-        ["docker", "pull", server.image],
+        docker_cmd("pull", server.image),
         capture_output=True,
         text=True,
     )
