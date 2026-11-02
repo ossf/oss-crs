@@ -509,7 +509,7 @@ uv run oss-crs run \
   --compose-file ./my-crs-compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
-  --forward-artifacts 1700000002ab,previous-run-name
+  --forward-artifacts 1700000002ab3kq9,previous-run-name
 ```
 
 ### Debugging Tips
@@ -842,7 +842,7 @@ uv run oss-crs run \
   --compose-file ./bug-fixing-compose.yaml \
   --fuzz-proj-path ~/oss-fuzz/projects/libxml2 \
   --target-harness xml \
-  --forward-artifacts 1700000002ab
+  --forward-artifacts 1700000002ab3kq9
 ```
 
 The argument is a comma-separated list of run IDs. OSS-CRS searches sibling

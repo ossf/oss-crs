@@ -247,3 +247,20 @@ class TestNormalizeRunId:
         assert result.startswith("escape-")
         result2 = normalize_run_id(r"test\\run")
         assert result2.startswith("test-run-")
+
+
+class TestGenerateRunId:
+    def test_shape_is_epoch_plus_six_alphanumerics(self, monkeypatch) -> None:
+        monkeypatch.setattr(utils.time, "time", lambda: 1739819274.9)
+
+        run_id = utils.generate_run_id()
+
+        assert re.fullmatch(r"1739819274[a-z0-9]{6}", run_id), run_id
+
+    def test_suffix_varies_between_calls(self) -> None:
+        ids = {utils.generate_run_id() for _ in range(50)}
+
+        # Any repeat in 50 draws from 36**6 suffixes is a 1-in-1.8-million
+        # event; the old 2-character suffix repeated within 50 draws ~60% of
+        # the time, so this fails loudly on a regression.
+        assert len(ids) == 50
