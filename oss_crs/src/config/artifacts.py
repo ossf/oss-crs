@@ -209,6 +209,7 @@ class ArtifactsOutput(BaseModel):
     run_id: str
     sanitizer: Optional[str] = None
     meta: Optional[RunMeta] = None
+    run_info: Optional[str] = None  # run-info.json path, when the run has one
     exchange_dir: Optional[ExchangeDir] = None
     run_logs: Optional[RunLogs] = None
     crs: dict[str, CRSArtifacts] = Field(default_factory=dict)

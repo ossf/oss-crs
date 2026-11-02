@@ -91,6 +91,7 @@ uv run oss-crs run \
 Run artifacts are stored at:
 ```
 {work_dir}/{sanitizer}/runs/{run-id}/BUILD_ID                              # records which build was used
+{work_dir}/{sanitizer}/runs/{run-id}/run-info.json                         # provenance, written at run start
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/povs/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/seeds/
 {work_dir}/{sanitizer}/runs/{run-id}/crs/{crs-name}/{target}/SUBMIT_DIR/{harness}/bug-candidates/
@@ -100,6 +101,25 @@ Run artifacts are stored at:
 {work_dir}/{sanitizer}/runs/{run-id}/EXCHANGE_DIR/{target}/{harness}/      # shared across all CRSs
 {work_dir}/{sanitizer}/runs/{run-id}/logs/{target}/{harness}/              # compose/service logs
 ```
+
+Here `{work_dir}` is `<--work-dir>/crs_compose/<compose-hash>`, where the hash is derived from the
+compose file's CRS set, so sibling hash directories hold the runs of other compositions.
+
+To make runs findable without knowing the hash, `oss-crs run` also links every run directory from a
+human-navigable index at the root `--work-dir`:
+
+```
+<--work-dir>/index/by-target/{target}/{YYYYMMDD-HHMMSS}_{run-id}   -> ../../../crs_compose/<hash>/{sanitizer}/runs/{run-id}
+<--work-dir>/index/by-crs/{crs-name}/{YYYYMMDD-HHMMSS}_{run-id}    -> (same run directory)
+```
+
+Links are relative symlinks named by start time so `ls` lists runs chronologically; `{target}` is
+the project directory basename for both `--fuzz-proj-path` and `--target-source-path` runs.
+`run-info.json` records the compose file and hash, CRS names, target (name, paths, key), harness,
+sanitizer, build id, and start time. The end-of-run summary prints the run directory and its
+`by-target` link, and `oss-crs artifacts` reports the `run_info` path. A run aborted before its
+containers start can leave a link to a directory holding only `BUILD_ID` and `run-info.json`.
+`oss-crs clean --artifacts` prunes index links whose run directory it removes.
 
 ### Cleanup Semantics
 

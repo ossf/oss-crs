@@ -925,3 +925,68 @@ class TestGetBakeImageTags:
             result = crs.get_bake_image_tags()
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Index link pruning
+# ---------------------------------------------------------------------------
+
+
+class TestIndexLinkPruning:
+    """`clean --artifacts` prunes <work_dir>/index links whose run dir it removes."""
+
+    @staticmethod
+    def _make_run(
+        work_dir: WorkDir, run_id: str, target_name: str
+    ) -> tuple[Path, Path]:
+        from oss_crs.src.run_index import link_run
+
+        run_dir = work_dir.get_run_dir(run_id, "address")
+        run_dir.mkdir(parents=True)
+        (run_dir / "BUILD_ID").write_text("b")
+        links = link_run(
+            work_dir.get_run_index_dir(),
+            run_dir,
+            target_name=target_name,
+            crs_names=[],
+            link_name=f"20260101-000000_{run_id}",
+            sanitizer="address",
+            compose_hash=work_dir.path.name,
+        )
+        return run_dir, links[0]
+
+    def test_build_clean_plan_includes_prunable_index_links(self, tmp_path: Path):
+        from oss_crs.src.cli.clean import build_clean_plan
+
+        work_dir = WorkDir(tmp_path / "crs_compose" / "0123456789ab")
+        run_dir, link = self._make_run(work_dir, "r1", "proj")
+        compose = MagicMock()
+        compose.work_dir = work_dir
+
+        with patch("oss_crs.src.cli.clean.discover_run_images", return_value=[]):
+            plan = build_clean_plan(compose, "run", None, include_artifacts=True)
+            plan_no_artifacts = build_clean_plan(
+                compose, "run", None, include_artifacts=False
+            )
+
+        assert plan.artifact_dirs == [run_dir]
+        assert plan.index_links == [link]
+        assert plan.is_empty is False
+        assert plan_no_artifacts.index_links == []
+
+    def test_execute_clean_plan_unlinks_only_dangling_links(self, tmp_path: Path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        work_dir = WorkDir(tmp_path / "crs_compose" / "0123456789ab")
+        run_a, link_a = self._make_run(work_dir, "a", "proj-a")
+        _run_b, link_b = self._make_run(work_dir, "b", "proj-b")
+        plan = CleanPlan(artifact_dirs=[run_a], index_links=[link_a, link_b])
+
+        with patch("oss_crs.src.cli.clean.docker"):
+            ok = execute_clean_plan(plan)
+
+        assert ok is True
+        assert not run_a.exists()
+        assert not link_a.is_symlink()
+        assert not link_a.parent.exists()  # emptied by-target/proj-a removed
+        assert link_b.is_symlink() and link_b.exists()  # run b untouched

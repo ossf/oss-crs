@@ -28,3 +28,21 @@ def test_run_artifact_dirs_use_no_harness_scope(tmp_path: Path) -> None:
     assert log_dir.name == WorkDir.NO_HARNESS_SCOPE
     assert exchange_dir.name == WorkDir.NO_HARNESS_SCOPE
     assert run_logs_dir.name == WorkDir.NO_HARNESS_SCOPE
+
+
+def test_get_run_index_dir_is_sibling_of_crs_compose(tmp_path: Path) -> None:
+    work_dir = WorkDir(tmp_path / "crs_compose" / "0123456789ab")
+
+    assert work_dir.get_run_index_dir() == tmp_path / "index"
+
+
+def test_write_run_info_for_run_creates_run_dir_and_sorted_json(
+    tmp_path: Path,
+) -> None:
+    work_dir = WorkDir(tmp_path / "crs_compose" / "0123456789ab")
+
+    work_dir.write_run_info_for_run("run-1", "address", {"z": 1, "a": {"y": 2}})
+
+    info_file = work_dir.get_run_info_file("run-1", "address")
+    assert info_file == work_dir.get_run_dir("run-1", "address") / "run-info.json"
+    assert info_file.read_text() == '{\n  "a": {\n    "y": 2\n  },\n  "z": 1\n}\n'
