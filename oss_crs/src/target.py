@@ -558,6 +558,7 @@ class Target:
                 f"repo_path={self.repo_path}",
                 "-t",
                 image_tag,
+                "--load",  # Subsequent Docker commands require the image in the daemon.
                 "-f",
                 str(tmp_dockerfile),
                 str(self.proj_path),
@@ -602,6 +603,7 @@ class Target:
                 "build",
                 "-t",
                 image_tag,
+                "--load",  # Subsequent Docker commands require the image in the daemon.
                 "-f",
                 str(tmp_dockerfile),
                 str(self.proj_path),

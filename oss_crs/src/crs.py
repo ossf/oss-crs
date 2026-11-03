@@ -355,6 +355,10 @@ class CRS:
                 )
                 return TaskResult(success=False, error=error_msg)
             cmd.append("--push")
+        else:
+            # Local Bake outputs must be visible to Docker/Compose even when
+            # the active Buildx builder uses the docker-container driver.
+            cmd.append("--load")
 
         info_text = (
             f"HCL: {hcl_path}\n"

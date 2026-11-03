@@ -83,3 +83,28 @@ def test_repo_override_can_force_uncached_build(tmp_path: Path) -> None:
         "--platform",
         "linux/arm64",
     ]
+
+
+def test_target_build_commands_include_load(tmp_path: Path) -> None:
+    """Both target build paths must export their image to the Docker daemon."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Dockerfile").write_text("FROM base\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    target = Target.__new__(Target)
+    target.proj_path = proj
+    target.repo_path = repo
+    target.work_dir = tmp_path / "work"
+    target.work_dir.mkdir()
+
+    for build_fn in (
+        target._Target__build_docker_image_with_repo,
+        target._Target__build_docker_image_plain,
+    ):
+        progress = _CaptureProgress()
+        result = build_fn("demo:tag", progress)
+        assert result.success is True
+        assert "--load" in progress.cmd
+        assert progress.cmd[-1] == str(proj)
