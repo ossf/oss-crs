@@ -463,6 +463,11 @@ up to 128 characters long.
 
 ### Run the Three Phases
 
+Local single-platform builds export their images into Docker's local image
+store, including when using the Buildx `docker-container` driver. Publishing
+instead pushes images to a registry. Custom Bake output configurations may
+require separate handling.
+
 ```bash
 # 1. Prepare — build CRS Docker images
 uv run oss-crs prepare \

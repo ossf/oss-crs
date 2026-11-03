@@ -262,6 +262,7 @@ def test_prepare_skips_pull_when_publishing(tmp_path):
     # Should have used bake with --push
     assert len(progress.calls) == 1
     assert "--push" in progress.calls[0]["cmd"]
+    assert "--load" not in progress.calls[0]["cmd"]
 
 
 def test_prepare_falls_back_when_no_registry_tags(tmp_path):
@@ -318,6 +319,8 @@ def test_prepare_no_pull_skips_pull_and_builds(tmp_path):
     # Should have gone straight to bake
     assert len(progress.calls) == 1
     assert "bake" in progress.calls[0]["cmd"]
+    assert "--load" in progress.calls[0]["cmd"]
+    assert "--push" not in progress.calls[0]["cmd"]
 
 
 # ---------------------------------------------------------------------------
