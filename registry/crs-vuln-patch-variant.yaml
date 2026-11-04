@@ -1,0 +1,7 @@
+name: crs-vuln-patch-variant
+description: "PoV-driven variant-harness generation: new libFuzzer harnesses for the same root cause, submitted as report bundles, PoVs and SARIF bug-candidates"
+type:
+  - bug-finding
+source:
+  url: https://github.com/kureha-yamaguchi/crs-vuln-patch-variant.git
+  ref: release/0.2.0
