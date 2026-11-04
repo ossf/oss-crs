@@ -212,6 +212,8 @@ def build_run_service_env(
         "OSS_CRS_SUBMIT_DIR": "/OSS_CRS_SUBMIT_DIR",
         "OSS_CRS_SHARED_DIR": "/OSS_CRS_SHARED_DIR",
         "OSS_CRS_LOG_DIR": "/OSS_CRS_LOG_DIR",
+        "OSS_CRS_LEDGER_DIR": "/OSS_CRS_LEDGER_DIR",
+        "OSS_CRS_LEDGER_HISTORY_DIR": "/OSS_CRS_LEDGER_HISTORY_DIR",
         "OSS_CRS_TARGET_SOURCE": "/OSS_CRS_TARGET_SOURCE",
     }
     if source_only:

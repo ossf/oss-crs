@@ -77,6 +77,8 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `OSS_CRS_SUBMIT_DIR` | Shared filesystem path for submitted artifacts (seeds, PoVs, etc.) |
 | `OSS_CRS_SHARED_DIR` | Shared filesystem path for inter-container file sharing within a CRS |
 | `OSS_CRS_LOG_DIR` | Writable filesystem path for persisting CRS agent/internal logs to the host |
+| `OSS_CRS_LEDGER_DIR` | Writable per-run cross-run knowledge base ("ledger"), delimited only by CRS name (run containers) |
+| `OSS_CRS_LEDGER_HISTORY_DIR` | Read-only directory of all ledgers this CRS has written, one per run-id, plus a `latest` symlink (run containers) |
 | `OSS_CRS_FETCH_DIR` | Read-only filesystem path for fetching inter-CRS data and bootup data (set on run containers, and on build-target builder containers when directed inputs are provided) |
 | `OSS_CRS_REBUILD_OUT_DIR` | Shared filesystem path for rebuild artifacts (written by builder sidecar, read by CRS modules) |
 | `BUILDER_MODULE` | Builder sidecar service name for DNS resolution (framework-injected, defaults to `builder-sidecar`) |

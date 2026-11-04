@@ -19,9 +19,22 @@ logic for the CRS Compose work directory structure:
                     ├── SUBMIT_DIR/<harness>/
                     ├── SHARED_DIR/<harness>/
                     └── LOG_DIR/<harness>/
+
+Cross-run CRS ledgers live outside the compose-hash directory so that they are
+shared by every compose file, project, and harness run against the same
+``--work-dir``; they are delimited only by CRS name:
+
+    <root_work_dir>/
+    ├── crs_compose/<compose_hash>/   (the WorkDir above)
+    └── ledgers/
+        └── <crs_name>/
+            └── runs/
+                ├── <run_id>/        (one ledger per run)
+                └── latest -> <run_id>
 """
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -363,6 +376,70 @@ class WorkDir:
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
+
+    # -------------------------------------------------------------------------
+    # Cross-run ledger helpers (delimited only by CRS name)
+    # -------------------------------------------------------------------------
+
+    LEDGER_LATEST_LINK = "latest"
+
+    def get_ledgers_root(self) -> Path:
+        """Get the root directory holding every CRS's cross-run ledgers.
+
+        Ledgers sit next to ``crs_compose/`` under the user's ``--work-dir`` so
+        they are shared across compose files, projects, and harnesses.
+        """
+        if self.path.parent.name == "crs_compose":
+            return self.path.parent.parent / "ledgers"
+        return self.path / "ledgers"
+
+    def get_crs_ledger_history_dir(self, crs_name: str, create: bool = True) -> Path:
+        """Get the directory containing all ledgers written by a CRS.
+
+        Structure: <root_work_dir>/ledgers/<crs_name>/runs/
+        """
+        path = self.get_ledgers_root() / crs_name / "runs"
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def get_crs_ledger_dir(
+        self, crs_name: str, run_id: str, create: bool = True
+    ) -> Path:
+        """Get the writable ledger for one CRS run.
+
+        Structure: <root_work_dir>/ledgers/<crs_name>/runs/<run_id>/
+        """
+        if run_id == self.LEDGER_LATEST_LINK:
+            raise ValueError(
+                f"run id '{run_id}' is reserved for the latest ledger symlink"
+            )
+        path = self.get_crs_ledger_history_dir(crs_name, create=create) / run_id
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def update_crs_ledger_latest(self, crs_name: str, run_id: str) -> bool:
+        """Point ``runs/latest`` at the ledger of ``run_id``.
+
+        The link is relative so it also resolves inside containers that mount
+        the history directory. Returns False if symlinks are unsupported.
+        """
+        history_dir = self.get_crs_ledger_history_dir(crs_name)
+        self.get_crs_ledger_dir(crs_name, run_id)
+        link = history_dir / self.LEDGER_LATEST_LINK
+        tmp_link = history_dir / f".{self.LEDGER_LATEST_LINK}.{os.getpid()}.tmp"
+        try:
+            if tmp_link.is_symlink() or tmp_link.exists():
+                tmp_link.unlink()
+            tmp_link.symlink_to(run_id, target_is_directory=True)
+            # Atomic swap so parallel runs never observe a missing link.
+            os.replace(tmp_link, link)
+        except OSError:
+            if tmp_link.is_symlink():
+                tmp_link.unlink()
+            return False
+        return True
 
     # -------------------------------------------------------------------------
     # Shared/target directory helpers (not CRS-specific)
