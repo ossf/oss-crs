@@ -42,6 +42,7 @@ The `source` field in compose is only needed to **override** the registry (e.g.,
 |---|---|---|
 | **crs-libfuzzer** | bug-finding | A lightweight CRS that runs libFuzzer on the target. Good starting point and baseline for evaluation. |
 | **atlantis-multilang-wo-concolic** | bug-finding | A multi-language LLM-powered CRS that generates and refines fuzz harnesses without concolic execution. |
+| **crs-vuln-patch-variant** | bug-finding | A PoV-driven variant-analysis CRS: generates new libFuzzer harnesses that reach the same root cause as a given crashing PoV through other entry points, and submits them as report bundles, PoVs and SARIF bug-candidates. |
 | **crs-claude-code** | bug-fixing | An LLM-powered CRS that uses Claude Code to generate patches for vulnerabilities. Language-agnostic via a builder sidecar. |
 | **crs-codex** | bug-fixing | An LLM-powered CRS that uses Codex CLI to analyze crashes, edit code, and validate patches through a builder sidecar. |
 | **crs-copilot-cli** | bug-fixing | An LLM-powered CRS that uses GitHub Copilot CLI to generate and validate patches through a builder sidecar. |
