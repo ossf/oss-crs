@@ -19,6 +19,11 @@ from .setup import add_setup_command, handle_setup
 from .export import handle_export
 from .import_cmd import handle_import
 from .list_harnesses import add_list_harnesses_command, handle_list_harnesses
+from .local import (
+    add_local_command,
+    handle_local_start,
+    handle_local_stop,
+)
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -889,6 +894,7 @@ def cli() -> bool | int:
     add_setup_command(subparsers)
     add_web_ui_command(subparsers)
     add_list_harnesses_command(subparsers, DEFAULT_WORK_DIR)
+    add_local_command(subparsers, DEFAULT_WORK_DIR)
 
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
@@ -904,6 +910,13 @@ def cli() -> bool | int:
         return handle_setup(args)
     if args.command == "web-ui":
         return handle_web_ui(args)
+    if args.command == "local":
+        for key, value in vars(args).items():
+            if isinstance(value, Path):
+                setattr(args, key, value.expanduser().resolve())
+        if args.local_action == "start":
+            return handle_local_start(args)
+        return handle_local_stop(args)
 
     # Resolve all Path arguments to absolute paths so that relative paths
     # (e.g., --fuzz-proj-path ../ghostscript) work regardless of cwd.
