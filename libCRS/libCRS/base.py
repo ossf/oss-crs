@@ -228,6 +228,7 @@ class CRSUtils(ABC):
         response_dir: Path,
         rebuild_id: "str | None" = None,
         builder: "str | None" = None,
+        reproduce_script: "Path | None" = None,
     ) -> int:
         """Run a POV binary against a specific rebuild's output.
 
@@ -238,6 +239,8 @@ class CRSUtils(ABC):
             response_dir: Directory to receive results:
                 - retcode, stdout.log, stderr.log
             builder: Runner sidecar module name. Defaults to RUNNER_MODULE env var or "runner-sidecar".
+            reproduce_script: Optional POSIX shell script that receives the testcase path as its
+                first argument. When omitted, the OSS-Fuzz reproduce script is used.
 
         Returns:
             POV exit code (0 = no crash = patch fixed the bug).
