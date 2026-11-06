@@ -6,6 +6,9 @@ stricter subset of Keep a Changelog).
 
 ## [Unreleased]
 
+### Added
+- `oss-crs local start|stop` to run a CRS command from a host checkout with host-visible session directories for submitted artifacts, shared data, logs, and fetched inputs.
+
 ### Changed
 
 - Auditing CRS type: does not require a target harness and produces bug-candidates

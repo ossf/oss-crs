@@ -11,6 +11,7 @@ For a quick introduction and setup instructions, see the [project README](../REA
 | Topic | Description |
 |---|---|
 | [Quick Start](../README.md#quick-start) | Install prerequisites and run your first CRS in minutes |
+| [Local CRS](local-crs.md) | Run a CRS command from a host checkout |
 | [Setup Command](setup.md) | Configure system for enhanced resource management (cgroup-parent support) |
 | [CRS Development Guide](crs-development-guide.md) | Build or integrate your own CRS into the OSS-CRS framework |
 | [CRS Registry](registry.md) | Browse available CRSs ready to use out of the box |
