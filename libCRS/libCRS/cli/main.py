@@ -603,6 +603,12 @@ def main():
         default=None,
         help="Runner sidecar module name (defaults to BUILDER_MODULE env var)",
     )
+    run_pov_parser.add_argument(
+        "--reproduce-script",
+        type=Path,
+        default=None,
+        help="Optional POSIX shell script to reproduce the PoV; receives testcase path as $1",
+    )
 
     def _run_pov(args):
         exit_code = crs_utils.run_pov(
@@ -611,6 +617,7 @@ def main():
             args.response_dir,
             args.rebuild_id,
             args.builder,
+            args.reproduce_script,
         )
         sys.exit(exit_code)
 

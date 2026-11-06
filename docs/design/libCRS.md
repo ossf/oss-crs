@@ -506,10 +506,11 @@ $ libCRS build-project --response-dir /tmp/build-result \
 
 #### `run-pov` ✅
 
-Run a PoV (proof-of-vulnerability) binary against a specific rebuild's output. Sends the PoV to the runner sidecar's `/run-pov` endpoint.
+Run a PoV (proof-of-vulnerability) input against a specific build's output. By default, this uses the OSS-Fuzz `reproduce` command. An optional script can provide target-specific execution while returning the same result format.
 
 ```bash
 $ libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
+$ libCRS run-pov <pov_path> <response_dir> --harness <name> --reproduce-script ./reproduce.sh
 ```
 
 | Argument | Description |
@@ -517,7 +518,8 @@ $ libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
 | `pov_path` | Path to the PoV binary file |
 | `response_dir` | Directory to receive PoV results |
 | `--harness` | **(Required)** Harness binary name in `/out/` |
-| `--rebuild-id` | **(Required)** Rebuild ID from a prior `apply-patch-build` call |
+| `--rebuild-id` | Rebuild ID from a prior `apply-patch-build` call; omit to use the base build |
+| `--reproduce-script` | Optional POSIX shell script uploaded to the runner sidecar; receives testcase path as `$1` |
 
 The response directory contains:
 - `retcode` — Exit code (0 = no crash / fix works, non-zero = still crashes)
@@ -527,6 +529,14 @@ The response directory contains:
 ```bash
 $ libCRS run-pov /tmp/crash-input /tmp/pov-result \
     --harness fuzz_target --rebuild-id 2
+```
+
+The optional script runs with its working directory set to the selected build's `OUT` directory. `OUT` points to that directory, `TESTCASE` points to a temporary copy of the PoV, `HARNESS` contains the selected harness, and `OSS_CRS_REBUILD_ID` is set when a rebuild ID is provided. The testcase path is also passed as the script's first argument. Its stdout, stderr, and exit status populate the same response files as the default reproducer. Scripts are limited to 1 MiB and subject to the runner's PoV timeout. Since it runs as shell code inside the runner sidecar, only pass scripts from trusted sources. The established OSS-Fuzz reproducer remains the default.
+
+```sh
+#!/bin/sh
+set -eu
+exec "$OUT/$HARNESS" -runs=1 "$1"
 ```
 
 #### `apply-patch-test` ✅

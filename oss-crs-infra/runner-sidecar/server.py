@@ -134,8 +134,9 @@ def _reproduce_pov(
     crs_name: str,
     rebuild_id: "str | None",
     pov_timeout: int,
+    reproduce_script: bytes | None = None,
 ) -> dict:
-    """Run the OSS-Fuzz reproduce script for one POV and return a result dict.
+    """Run the default OSS-Fuzz reproducer or a supplied script for one PoV.
 
     The dict always carries ``exit_code``; a real run also carries
     ``stdout``/``stderr``. The missing-harness case returns exit 127 plus
@@ -161,6 +162,12 @@ def _reproduce_pov(
         tmp.write(pov_content)
         tmp_pov_path = tmp.name
 
+    reproduce_script_path = None
+    if reproduce_script is not None:
+        with tempfile.NamedTemporaryFile(suffix=".sh", delete=False) as tmp:
+            tmp.write(reproduce_script)
+            reproduce_script_path = tmp.name
+
     # When running against the base build (no rebuild_id), harness_dir is on
     # a read-only mount.  The OSS-Fuzz reproduce/run_fuzzer script creates
     # output directories under $OUT, so we need a writable overlay.  Copy
@@ -185,11 +192,20 @@ def _reproduce_pov(
         env = os.environ.copy()
         env["OUT"] = out_for_env
         env["TESTCASE"] = tmp_pov_path
+        env["HARNESS"] = harness_name
+        if rebuild_id is not None:
+            env["OSS_CRS_REBUILD_ID"] = rebuild_id
+        else:
+            env.pop("OSS_CRS_REBUILD_ID", None)
         env.setdefault("FUZZER_ARGS", "-rss_limit_mb=2560 -timeout=25")
 
         try:
             result = subprocess.run(
-                ["/usr/local/bin/reproduce", harness_name],
+                (
+                    ["/bin/sh", reproduce_script_path, tmp_pov_path]
+                    if reproduce_script_path is not None
+                    else ["/usr/local/bin/reproduce", harness_name]
+                ),
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -210,6 +226,8 @@ def _reproduce_pov(
             }
     finally:
         os.unlink(tmp_pov_path)
+        if reproduce_script_path is not None:
+            os.unlink(reproduce_script_path)
         if writable_out is not None:
             import shutil
 
@@ -219,24 +237,27 @@ def _reproduce_pov(
 @app.post("/run-pov")
 async def run_pov(
     pov: UploadFile = File(...),
+    reproduce_script: UploadFile | None = File(None),
     harness_name: str = Form(...),
     crs_name: str = Form(...),
     rebuild_id: str = Form(None),
 ):
-    """Execute POV reproduction via OSS-Fuzz reproduce script.
+    """Execute default OSS-Fuzz or optional custom-script PoV reproduction.
 
     The POV binary is uploaded as a file (not a path) so the runner-sidecar
     doesn't need access to the patcher's filesystem.
 
     Args (form/file fields):
         pov: The POV binary to reproduce.
+        reproduce_script: Optional POSIX shell script receiving the testcase path as its first
+            argument. It runs in the runner sidecar with the selected build mounted at OUT.
         harness_name: Name of the fuzzer harness binary (e.g., "my_fuzzer").
         rebuild_id: Rebuild identifier (locates artifacts under /out/{crs}/{rebuild_id}/).
                     When None, runs against the original unpatched base build.
         crs_name: CRS identifier.
 
     Returns:
-        JSON with exit_code (0=no crash, non-zero=crash) and stderr from reproduce.
+        JSON with exit_code (0=no crash, non-zero=crash), stdout, and stderr.
     """
     pov_timeout = int(os.environ.get("POV_TIMEOUT", "30"))
     _validate_path_component(harness_name, "harness_name")
@@ -244,6 +265,15 @@ async def run_pov(
     _validate_rebuild_id(rebuild_id)
 
     pov_content = await pov.read()
+    reproduce_script_content = None
+    if reproduce_script is not None:
+        reproduce_script_content = await reproduce_script.read(1024 * 1024 + 1)
+        if len(reproduce_script_content) > 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="Reproduction script exceeds 1 MiB"
+            )
+        if not reproduce_script_content.strip():
+            raise HTTPException(status_code=400, detail="Reproduction script is empty")
 
     job_id = uuid.uuid4().hex[:12]
     ts_start = time.time()
@@ -253,7 +283,14 @@ async def run_pov(
         result["rebuild_id"] = rebuild_id
     try:
         result.update(
-            _reproduce_pov(pov_content, harness_name, crs_name, rebuild_id, pov_timeout)
+            _reproduce_pov(
+                pov_content,
+                harness_name,
+                crs_name,
+                rebuild_id,
+                pov_timeout,
+                reproduce_script_content,
+            )
         )
     except Exception as e:
         result["error"] = str(e)
