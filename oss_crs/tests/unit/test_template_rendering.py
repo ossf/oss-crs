@@ -415,6 +415,12 @@ class _MockWorkDir:
     def get_log_dir(self, crs_name, target, run_id, sanitizer) -> str:
         return f"/work/log/{crs_name}"
 
+    def get_crs_ledger_dir(self, crs_name, run_id) -> str:
+        return f"/work/ledgers/{crs_name}/runs/{run_id}"
+
+    def get_crs_ledger_history_dir(self, crs_name) -> str:
+        return f"/work/ledgers/{crs_name}/runs"
+
     def get_target_source_dir(self, target, build_id, sanitizer, create=True) -> str:
         name = target.name if hasattr(target, "name") else "test"
         return f"/work/target-source/{name}"

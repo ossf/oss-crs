@@ -2516,8 +2516,18 @@ class CRSCompose:
             shutil.copy2(diff_path, diff_subdir / "ref.diff")
             return TaskResult(success=True)
 
+        def prepare_ledgers(progress: MultiTaskProgress) -> TaskResult:
+            for crs in self.crs_list:
+                self.work_dir.get_crs_ledger_dir(crs.name, run_id)
+                if not self.work_dir.update_crs_ledger_latest(crs.name, run_id):
+                    progress.add_note(
+                        f"Could not update 'latest' ledger symlink for {crs.name}"
+                    )
+            return TaskResult(success=True)
+
         progress.add_task("Clean up exchange directory", cleanup_exchange_dir)
         progress.add_task("Clean up shared directories", cleanup_shared_dirs)
+        progress.add_task("Prepare CRS ledgers", prepare_ledgers)
 
         if web_ui:
             webui_log_dir = self.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"

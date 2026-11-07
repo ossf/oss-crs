@@ -56,6 +56,8 @@ services:
       - {{ work_dir.get_submit_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SUBMIT_DIR:rw
       - {{ work_dir.get_shared_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_SHARED_DIR:rw
       - {{ work_dir.get_log_dir(crs.name, target, run_id, sanitizer) }}:/OSS_CRS_LOG_DIR:rw
+      - {{ work_dir.get_crs_ledger_dir(crs.name, run_id) }}:/OSS_CRS_LEDGER_DIR:rw
+      - {{ work_dir.get_crs_ledger_history_dir(crs.name) }}:/OSS_CRS_LEDGER_HISTORY_DIR:ro
 {%- if not crs.config.is_triage and not crs.config.is_seed_filter %}
 {%- for dtype, src_dir in fetch_dir_mounts.items() %}
       - {{ src_dir }}/{{ dtype }}:/OSS_CRS_FETCH_DIR/{{ dtype }}:ro
