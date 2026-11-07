@@ -8,6 +8,7 @@ Each CRS in the registry is defined by a YAML file at `registry/<crs-name>.yaml`
 
 ```yaml
 name: <crs-name>
+description: <short human-readable summary>
 type:
   - bug-finding              # bug-fixing, bug-finding-triage, seed-filter, etc.
 source:
@@ -18,9 +19,24 @@ source:
 | Field | Description |
 |---|---|
 | `name` | Unique identifier for the CRS |
+| `description` | Optional short description shown when browsing registered CRSs |
 | `type` | List of CRS capabilities — `bug-finding`, `bug-fixing`, `auditing`, `bug-finding-triage`, `seed-filter`, `bug-fixing-ensemble`, or a combination |
 | `source.url` | Git repository URL containing the CRS implementation |
 | `source.ref` | Git branch or tag to use |
+
+## Listing Registered CRSs
+
+List registered CRSs, their types, and descriptions with:
+
+```bash
+oss-crs registry list
+```
+
+Use JSON output for scripts and other tools:
+
+```bash
+oss-crs registry list --format json
+```
 
 ### Registry as Source of Truth
 
