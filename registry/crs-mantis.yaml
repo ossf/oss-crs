@@ -1,0 +1,7 @@
+name: crs-mantis
+description: "Google Mantis Auditing Agent (Threat-Model, Research, Review, Report)"
+type:
+  - auditing
+source:
+  url: https://github.com/Team-Atlanta/crs-mantis.git
+  ref: main
