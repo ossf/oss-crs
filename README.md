@@ -178,12 +178,13 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 
 ## Documentation
 
+For the complete multi-chapter documentation handbook, browse the **[OSS-CRS Documentation Wiki](docs/README.md)**.
+
 - [CRS Development Guide](docs/crs-development-guide.md): How to build or integrate your own CRS
-- [Architecture](docs/design/architecture.md): System design and component overview
-- [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
-- [CRS Configuration](docs/config/crs.md): CRS config reference
-- [CRS-Compose Configuration](docs/config/crs-compose.md): Compose file reference
-- [LLM Configuration](docs/config/llm.md): LLM provider setup
+- [Architecture & Design](docs/design/architecture.md): System architecture, component diagrams, and isolation model
+- [Campaign Lifecycle](docs/design/lifecycle.md): Phase-by-phase execution guide (`prepare`, `build-target`, `run`, `clean`)
+- [Target Project Setup](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
+- [Configuration Reference](docs/config/crs-compose.md): `crs-compose.yaml`, `crs.yaml`, and LLM configs
 - [Changelog](CHANGELOG.md): Breaking changes, deprecations, and migration notes
 - [Plan](PLAN.md): Upcoming features and planned improvements
 
