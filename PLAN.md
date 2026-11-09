@@ -60,8 +60,8 @@ These items are the highest-priority incomplete features, critical for making en
 
 | Item | Status | Notes |
 |---|---|---|
-| `supported_target` validation | TODO in code | Properly check CRS-declared supported languages, sanitizers, and architectures against the actual target |
-| Warn vs. error policy | TODO in code | Decide whether a compatibility mismatch should warn or abort |
+| `supported_target` validation | ✅ Implemented | Validates target language, sanitizer, architecture, and engine against CRS supported_target |
+| Warn vs. error policy | ✅ Implemented | Gracefully skips incompatible targets during build-target while allowing other CRSs to run |
 
 ### Validation Improvements
 
