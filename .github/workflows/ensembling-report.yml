@@ -1,0 +1,191 @@
+name: Ensembling Effectiveness Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_crs:
+        description: "Name of the candidate CRS being evaluated"
+        required: false
+        default: "crs-libfuzzer"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "registry/**"
+      - "example/**"
+      - "scripts/ensembling_report.py"
+      - ".github/workflows/ensembling-report.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect Changed CRS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      candidate_crs: ${{ steps.detect.outputs.candidate_crs }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CRS: ${{ github.event.inputs.candidate_crs }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            CANDIDATE="$INPUT_CRS"
+            if [ -z "$CANDIDATE" ]; then
+              CANDIDATE="crs-libfuzzer"
+            fi
+            # Validate candidate against strict regex to prevent command / template injection
+            if ! echo "$CANDIDATE" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+              echo "Error: Invalid candidate CRS name format" >&2
+              exit 1
+            fi
+            echo "candidate_crs=$CANDIDATE" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Detect any modified or added registry definitions
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- registry/ || true)
+          if [ -n "$CHANGED_FILES" ]; then
+            FIRST_FILE=$(echo "$CHANGED_FILES" | head -n1)
+            CRS_NAME=$(basename "$FIRST_FILE" .yaml)
+            if ! echo "$CRS_NAME" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+              CRS_NAME="crs-libfuzzer"
+            fi
+            echo "candidate_crs=$CRS_NAME" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "candidate_crs=crs-libfuzzer" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  evaluate-ensemble:
+    name: Evaluate Ensembling Effectiveness
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --dev
+
+      - name: Setup Benchmark Fixture
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      - name: Generate Evaluation Compose
+        run: |
+          mkdir -p /tmp/eval-config
+          cat > /tmp/eval-config/compose-eval.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-libfuzzer:
+            cpuset: "1-3"
+            memory: "8G"
+          EOF
+
+      - name: Run Baseline Benchmark Suite
+        run: |
+          mkdir -p /tmp/eval-workdir
+          uv run oss-crs prepare \
+            --compose-file /tmp/eval-config/compose-eval.yaml \
+            --work-dir /tmp/eval-workdir
+
+          uv run oss-crs build-target \
+            --compose-file /tmp/eval-config/compose-eval.yaml \
+            --fuzz-proj-path ./oss_crs/tests/integration/fixtures/mock-c-project \
+            --repo-path ./oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness harness \
+            --work-dir /tmp/eval-workdir
+
+          # Run campaign with short bounded timeout for CI
+          timeout 120 uv run oss-crs run \
+            --compose-file /tmp/eval-config/compose-eval.yaml \
+            --fuzz-proj-path ./oss_crs/tests/integration/fixtures/mock-c-project \
+            --repo-path ./oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness harness \
+            --work-dir /tmp/eval-workdir || true
+
+      - name: Generate Effectiveness Report
+        env:
+          CANDIDATE_CRS: ${{ needs.detect-changes.outputs.candidate_crs }}
+        run: |
+          mkdir -p /tmp/reports
+          uv run python scripts/ensembling_report.py \
+            --work-dir /tmp/eval-workdir \
+            --candidate-crs "$CANDIDATE_CRS" \
+            --benchmark-name "mock-c-benchmark" \
+            --output-markdown /tmp/reports/report.md \
+            --output-json /tmp/reports/metrics.json
+
+      - name: Upload Report Artifacts
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb99ba811e # v4.5.0
+        with:
+          name: ensembling-effectiveness-report
+          path: /tmp/reports/
+
+      - name: Comment Report to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = '/tmp/reports/report.md';
+            if (!fs.existsSync(reportPath)) {
+              console.log('No report file found to comment.');
+              return;
+            }
+            const reportBody = fs.readFileSync(reportPath, 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes('CRS Ensembling Effectiveness Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: reportBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: reportBody,
+              });
+            }
