@@ -451,18 +451,17 @@ class CRSCompose:
                         pass
                     return False
 
-                exit_code = result["StatusCode"]
-                if exit_code == 0:
-                    container.commit(repository="oss-crs-snapshot", tag=tag)
-                    committed_tags.append(full_tag)
-                    # Also tag with the content hash for future dedup
-                    try:
-                        img = client.images.get(full_tag)
-                        img.tag("oss-crs-snapshot", tag=f"content-{content_key}")
-                    except docker.errors.ImageNotFound:
-                        pass
-                    return True
-                return False
+                # Commit snapshot regardless of non-zero exit code, matching non-incremental
+                # build validation where success depends on output artifact checks (#182).
+                container.commit(repository="oss-crs-snapshot", tag=tag)
+                committed_tags.append(full_tag)
+                # Also tag with the content hash for future dedup
+                try:
+                    img = client.images.get(full_tag)
+                    img.tag("oss-crs-snapshot", tag=f"content-{content_key}")
+                except docker.errors.ImageNotFound:
+                    pass
+                return True
             finally:
                 if container is not None:
                     try:
