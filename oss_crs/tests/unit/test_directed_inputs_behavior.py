@@ -10,7 +10,9 @@ from oss_crs.src.workdir import WorkDir
 def _make_run_compose(tmp_path: Path) -> CRSCompose:
     compose = CRSCompose.__new__(CRSCompose)
     compose.crs_list = []
-    compose.work_dir = WorkDir(tmp_path / "work")
+    # Canonical layout so run() derives <work>/index and the compose hash.
+    compose.work_dir = WorkDir(tmp_path / "work" / "crs_compose" / "0123456789ab")
+    compose.compose_file = None
     return compose
 
 
