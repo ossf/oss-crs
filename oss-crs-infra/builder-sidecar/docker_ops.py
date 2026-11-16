@@ -178,7 +178,13 @@ def stage_cached_rebuild(
         shutil.rmtree(staging)
 
     def _hardlink(src: str, dst: str, *, follow_symlinks: bool = True) -> None:
-        os.link(src, dst, follow_symlinks=follow_symlinks)
+        try:
+            try:
+                os.link(src, dst, follow_symlinks=follow_symlinks)
+            except NotImplementedError:
+                os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
 
     shutil.copytree(src_dir, staging, copy_function=_hardlink)
 
