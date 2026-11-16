@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Container images used by the infrastructure sidecar stack.
-LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:db36453d25e76c9eb689d7d51b8e5fa48843243d7a86ed1284cf574ce0107b3f"  # v1.106.4
-POSTGRES_IMAGE = "postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6"  # 18.6
+LITELLM_IMAGE = "ghcr.io/berriai/litellm-database@sha256:932c54440654f8f8466a85887612d95dcfb04ae2fc01257844332f4bf3b96986"  # v1.109.1
+POSTGRES_IMAGE = "postgres@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc"  # 18.7
 
 # Stable local tags for the internal LiteLLM stack images. ``prepare`` pulls
 # each by its immutable digest and applies the local tag; the run template
@@ -15,7 +15,7 @@ OSS_CRS_POSTGRES_TAG = "oss-crs-postgres:latest"
 # ``prepare`` pulls this pinned digest once (unconditionally, since cleanup
 # runs regardless of LLM mode) and tags it with ``OSS_CRS_ALPINE_TAG`` so
 # offline teardown/clean resolve it locally instead of pulling per invocation.
-ALPINE_IMAGE = "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"  # 3.x latest
+ALPINE_IMAGE = "alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"  # 3.24.4
 OSS_CRS_ALPINE_TAG = "oss-crs-alpine:latest"
 
 # Pinned-digest images pulled (not built) for the internal LiteLLM stack, each
@@ -91,7 +91,7 @@ DEFAULT_BASE_RUNNER_TAG = "latest"
 # prepare. Passed as the NIX_BUILDER_IMAGE build-arg to libCRS/deps.Dockerfile,
 # where Nix runs inside an ephemeral Docker container; the host's own /nix is
 # never touched or required.
-NIX_BUILDER_IMAGE = "nixos/nix@sha256:e623d73af9cac82d1b50784c83e0cf2a4b83bfd2cfe8d5b67809a2fc94e043ac"  # v2.28.3
+NIX_BUILDER_IMAGE = "nixos/nix@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed"  # 2.35.6
 
 # The constant Docker image name for the Nix-built libCRS+rsync dependencies
 # image. CRS builder Dockerfiles reference this via COPY --from=oss-crs-deps.
