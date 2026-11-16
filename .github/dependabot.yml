@@ -15,8 +15,9 @@ updates:
       all:
         patterns: ["*"]
 
-  # Docker — pinned image digests (tracks oss-crs-infra/dependabot-pins.Dockerfile)
-  # The actual refs live in oss_crs/src/constants.py; sync manually on update.
+  # Docker — pinned image digests (tracks oss-crs-infra/dependabot-pins.Dockerfile:
+  # litellm-database, postgres, alpine, nixos/nix). The actual refs live in
+  # oss_crs/src/constants.py; sync manually on update (.claude/skills/sync-dependabot-pins).
   # TODO: Explore Renovate for native regex-based tracking in Python files.
   - package-ecosystem: "docker"
     directory: "/oss-crs-infra"
@@ -56,6 +57,35 @@ updates:
   # Python (pip) — litellm-key-gen container dependencies
   - package-ecosystem: "pip"
     directory: "/oss-crs-infra/litellm-key-gen"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+
+  # Python (pip) — webui container dependencies (pinned ==, no Dependabot
+  # coverage before; fastapi/uvicorn had drifted 25 releases behind the sidecars)
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/webui"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+
+  # Python (pip) — webui-publisher container dependencies
+  - package-ecosystem: "pip"
+    directory: "/oss-crs-infra/webui-publisher"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+
+  # Python (uv) — libCRS dev lockfile. Containers get libCRS via Nix
+  # (libCRS/flake.nix), so this only covers the local test environment.
+  - package-ecosystem: "pip"
+    directory: "/libCRS"
     schedule:
       interval: "weekly"
     groups:
