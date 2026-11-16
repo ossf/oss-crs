@@ -158,9 +158,7 @@ jobs:
     name: Smoke test (C patching)
     permissions:
       contents: read
-    if: |
-      github.actor != 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     needs: [verify]
     timeout-minutes: 20
@@ -171,15 +169,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
+
+      - name: Check secrets availability
+        id: secrets
+        run: |
+          if [ -n "${{ secrets.TS_AUTHKEY }}" ] && [ -n "${{ secrets.EXTERNAL_LITELLM_API_KEY }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets detected: running full external agent smoke test with Tailscale and LiteLLM."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Secrets missing (fork PR): running hermetic patch smoke test fallback."
+          fi
+
+      - name: Connect to Tailscale
+        if: steps.secrets.outputs.available == 'true'
+        uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
+
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
 
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      # --- External Agent Flow (runs when CI secrets are available) ---
       - name: Create CI compose (bugfixing - opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           mkdir -p /tmp/ci-config
           cat > /tmp/ci-config/compose-opencode.yaml << 'EOF'
@@ -203,6 +227,7 @@ jobs:
           EOF
 
       - name: Create CI litellm config (opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           cp example/crs-opencode/litellm-config.yaml /tmp/ci-config/litellm-opencode.yaml
           uv run python -c "
@@ -215,22 +240,15 @@ jobs:
           )
           "
 
-      - name: Setup mock-c repo as git
-        run: |
-          cd oss_crs/tests/integration/fixtures/mock-c-repo
-          git init
-          git config user.email "ci@test.com"
-          git config user.name "CI"
-          git add .
-          git commit -m "initial"
-
       - name: Prepare CRSs
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs prepare \
             --compose-file /tmp/ci-config/compose-opencode.yaml \
             --work-dir /tmp/oss-crs-work
 
       - name: Build mock-c target for bugfixing
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs build-target \
             --compose-file /tmp/ci-config/compose-opencode.yaml \
@@ -240,6 +258,7 @@ jobs:
             --build-id smoke-c-patch
 
       - name: Verify fixed POV fixture
+        if: steps.secrets.outputs.available == 'true'
         run: |
           pov_dir=oss_crs/tests/integration/fixtures/mock-c-povs
           pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
@@ -250,6 +269,7 @@ jobs:
           fi
 
       - name: Bugfixing (crs-opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs run \
             --compose-file /tmp/ci-config/compose-opencode.yaml \
@@ -264,6 +284,7 @@ jobs:
             --early-exit
 
       - name: Verify patches found
+        if: steps.secrets.outputs.available == 'true'
         run: |
           artifacts=$(uv run oss-crs artifacts \
             --compose-file /tmp/ci-config/compose-opencode.yaml \
@@ -282,6 +303,58 @@ jobs:
             echo "ERROR: No patches found"
             exit 1
           fi
+
+      # --- Hermetic Fallback Flow (runs on fork PRs or when secrets are missing) ---
+      - name: Create CI compose (patching - hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-builder-sidecar-lite.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          builder-sidecar-lite:
+            source:
+              local_path: oss_crs/tests/integration/fixtures/builder-sidecar-lite
+            cpuset: "1-3"
+            memory: "10G"
+          EOF
+
+      - name: Prepare CRSs (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-builder-sidecar-lite.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target for patching (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-builder-sidecar-lite.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c-patch \
+            --incremental-build
+
+      - name: Bugfixing and patch verification (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-builder-sidecar-lite.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 600 \
+            --build-id smoke-c-patch \
+            --run-id bugfixing-c \
+            --diff oss_crs/tests/integration/fixtures/mock-c-patches/patch_0.diff \
+            --pov-dir oss_crs/tests/integration/fixtures/mock-c-povs \
+            --incremental-build
 
       - name: Create smoke-c-patch workdir tarball
         if: failure()
@@ -305,9 +378,7 @@ jobs:
     name: Smoke test (C agentic bug-finding)
     permissions:
       contents: read
-    if: |
-      github.actor != 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     needs: [verify]
     timeout-minutes: 20
@@ -318,15 +389,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
+
+      - name: Check secrets availability
+        id: secrets
+        run: |
+          if [ -n "${{ secrets.TS_AUTHKEY }}" ] && [ -n "${{ secrets.EXTERNAL_LITELLM_API_KEY }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets detected: running full external agent smoke test with Tailscale and LiteLLM."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Secrets missing (fork PR): running hermetic bug-finding smoke test fallback."
+          fi
+
+      - name: Connect to Tailscale
+        if: steps.secrets.outputs.available == 'true'
+        uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
+
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
       - run: uv sync --frozen --dev
 
+      - name: Setup mock-c repo as git
+        run: |
+          cd oss_crs/tests/integration/fixtures/mock-c-repo
+          git init
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git add .
+          git commit -m "initial"
+
+      # --- External Agent Flow (runs when CI secrets are available) ---
       - name: Create CI compose (bugfinding - opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           mkdir -p /tmp/ci-config
           cat > /tmp/ci-config/compose-bugfinding-opencode.yaml << 'EOF'
@@ -350,6 +447,7 @@ jobs:
           EOF
 
       - name: Create CI litellm config (bugfinding opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           cp example/crs-bug-finding-opencode/litellm-config.yaml /tmp/ci-config/litellm-bugfinding-opencode.yaml
           uv run python -c "
@@ -362,22 +460,15 @@ jobs:
           )
           "
 
-      - name: Setup mock-c repo as git
-        run: |
-          cd oss_crs/tests/integration/fixtures/mock-c-repo
-          git init
-          git config user.email "ci@test.com"
-          git config user.name "CI"
-          git add .
-          git commit -m "initial"
-
       - name: Prepare CRSs
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs prepare \
             --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
             --work-dir /tmp/oss-crs-work
 
       - name: Build mock-c target
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs build-target \
             --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
@@ -387,6 +478,7 @@ jobs:
             --build-id smoke-c-bugfinding-opencode
 
       - name: Bugfinding (crs-bug-finding-opencode)
+        if: steps.secrets.outputs.available == 'true'
         run: |
           uv run oss-crs run \
             --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
@@ -400,9 +492,78 @@ jobs:
             --early-exit
 
       - name: Verify POVs found
+        if: steps.secrets.outputs.available == 'true'
         run: |
           artifacts=$(uv run oss-crs artifacts \
             --compose-file /tmp/ci-config/compose-bugfinding-opencode.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --build-id smoke-c-bugfinding-opencode \
+            --run-id bugfinding-c-opencode)
+          echo "$artifacts" | jq .
+          pov_dir=$(echo "$artifacts" | jq -r '.crs | to_entries[0].value.pov')
+          echo "POV directory: $pov_dir"
+          if [ ! -d "$pov_dir" ] || [ -z "$(ls -A "$pov_dir")" ]; then
+            echo "ERROR: No POVs found"
+            exit 1
+          fi
+          pov_count=$(find "$pov_dir" -maxdepth 1 -type f | wc -l)
+          echo "Found $pov_count POV file(s)"
+
+      # --- Hermetic Fallback Flow (runs on fork PRs or when secrets are missing) ---
+      - name: Create CI compose (bugfinding - hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          mkdir -p /tmp/ci-config
+          cat > /tmp/ci-config/compose-libfuzzer.yaml << 'EOF'
+          run_env: local
+          docker_registry: local
+          oss_crs_infra:
+            cpuset: "0"
+            memory: "4G"
+          crs-libfuzzer:
+            cpuset: "1-3"
+            memory: "10G"
+          EOF
+
+      - name: Prepare CRSs (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs prepare \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work
+
+      - name: Build mock-c target (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs build-target \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --build-id smoke-c-bugfinding-opencode
+
+      - name: Bugfinding (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          uv run oss-crs run \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
+            --work-dir /tmp/oss-crs-work \
+            --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
+            --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
+            --target-harness fuzz_parse_buffer \
+            --timeout 600 \
+            --build-id smoke-c-bugfinding-opencode \
+            --run-id bugfinding-c-opencode \
+            --early-exit
+
+      - name: Verify POVs found (hermetic fallback)
+        if: steps.secrets.outputs.available == 'false'
+        run: |
+          artifacts=$(uv run oss-crs artifacts \
+            --compose-file /tmp/ci-config/compose-libfuzzer.yaml \
             --work-dir /tmp/oss-crs-work \
             --fuzz-proj-path oss_crs/tests/integration/fixtures/mock-c-project \
             --target-source-path oss_crs/tests/integration/fixtures/mock-c-repo \
