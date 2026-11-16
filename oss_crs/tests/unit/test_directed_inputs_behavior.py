@@ -1,5 +1,14 @@
 # SPDX-License-Identifier: MIT
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+# Polyfill fcntl on platforms (such as Windows) where it is missing
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 import oss_crs.src.crs_compose as crs_compose_module
 from oss_crs.src.crs_compose import ArtifactInput, CRSCompose, ForwardArtifactSource
@@ -255,8 +264,8 @@ def test_parallel_runs_with_same_build_id_and_different_harnesses_are_isolated(
     )
 
     assert exchange_a != exchange_b
-    assert str(exchange_a).endswith("/harness-a")
-    assert str(exchange_b).endswith("/harness-b")
+    assert str(exchange_a).replace("\\", "/").endswith("/harness-a")
+    assert str(exchange_b).replace("\\", "/").endswith("/harness-b")
 
 
 def test_build_fetch_dir_is_shared_for_same_build_id_regardless_of_harness(
@@ -622,3 +631,68 @@ def test_forward_artifacts_prefers_processed_povs_and_forwards_patches(
     assert (dst / "povs" / "triaged").read_text() == "triaged"
     assert (dst / "patches" / "fix.diff").read_text() == "patch"
     assert records[0]["copied"] == {"povs": 1, "patches": 1}
+
+
+# ---------------------------------------------------------------------------
+# Staged artifact input limits tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_artifact_input_limits_file_within_limit(tmp_path: Path) -> None:
+    f = tmp_path / "test.pov"
+    f.write_text("small")
+    inputs = {"pov": ArtifactInput(file=f)}
+
+    err = CRSCompose._validate_artifact_input_limits(inputs, max_file_size=100)
+    assert err is None
+
+
+def test_validate_artifact_input_limits_file_exceeds_limit(tmp_path: Path) -> None:
+    f = tmp_path / "large.pov"
+    f.write_text("A" * 200)
+    inputs = {"pov": ArtifactInput(file=f)}
+
+    err = CRSCompose._validate_artifact_input_limits(inputs, max_file_size=100)
+    assert err is not None
+    assert "exceeds maximum allowed size (100 bytes)" in err
+
+
+def test_validate_artifact_input_limits_dir_file_size_exceeded(tmp_path: Path) -> None:
+    d = tmp_path / "seeds"
+    d.mkdir()
+    (d / "s1.bin").write_text("A" * 50)
+    (d / "s2.bin").write_text("B" * 150)
+    inputs = {"seed": ArtifactInput(directory=d)}
+
+    err = CRSCompose._validate_artifact_input_limits(inputs, max_file_size=100)
+    assert err is not None
+    assert "exceeds maximum allowed size (100 bytes)" in err
+
+
+def test_validate_artifact_input_limits_dir_file_count_exceeded(
+    tmp_path: Path,
+) -> None:
+    d = tmp_path / "seeds"
+    d.mkdir()
+    for i in range(5):
+        (d / f"seed_{i}.bin").write_text(f"seed_{i}")
+    inputs = {"seed": ArtifactInput(directory=d)}
+
+    err = CRSCompose._validate_artifact_input_limits(inputs, max_file_count=3)
+    assert err is not None
+    assert "contains more than 3 files" in err
+
+
+def test_validate_artifact_input_limits_reads_env_vars(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OSS_CRS_MAX_INPUT_FILE_SIZE", "50")
+    monkeypatch.setenv("OSS_CRS_MAX_INPUT_FILE_COUNT", "2")
+
+    f = tmp_path / "test.diff"
+    f.write_text("X" * 100)
+    inputs = {"patch": ArtifactInput(file=f)}
+
+    err = CRSCompose._validate_artifact_input_limits(inputs)
+    assert err is not None
+    assert "exceeds maximum allowed size (50 bytes)" in err
