@@ -1,0 +1,35 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#              Example for scrutineer (auditing, OAuth)                      #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (scrutineer) ------------------------------------------------------
+# Source-only: run with --target-source-path and no --fuzz-proj-path.
+# Set SCRUTINEER_AUDIT_TIMEOUT below the run's --timeout so results are
+# submitted before the container is stopped.
+scrutineer:
+  cpuset: "2-5"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    SCRUTINEER_MODEL: claude-opus-4-6
+    SCRUTINEER_AUDIT_TIMEOUT: 50m
+    # Calls Anthropic directly, bypassing LiteLLM; llm_budget does not apply.
+    # LiteLLM still requires ANTHROPIC_API_KEY to be set, to any value.
+    CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN}"
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/scrutineer/litellm-config.yaml

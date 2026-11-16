@@ -1,0 +1,7 @@
+name: scrutineer
+description: "Scrutineer Source Auditing Agent"
+type:
+  - auditing
+source:
+  url: https://github.com/alpha-omega-security/scrutineer.git
+  ref: main

@@ -53,7 +53,7 @@ The `source` field in compose is only needed to **override** the registry (e.g.,
 | **crs-clusterfuzz-triage** | bug-finding-triage | A ClusterFuzz-based triage CRS that validates bug-finding results. |
 | **crs-roboduck-triage** | bug-finding-triage | An LLM-powered triage CRS that validates and classifies bug-finding results. |
 | **crs-atlantis-ensemble** | seed-filter | A seed-filter CRS that prioritizes and filters seeds/inputs for downstream CRS. |
-| **crs-mantis** | auditing | An LLM-powered auditing CRS based on Google Mantis (threat-model, research, review, report) that audits target source code directly and submits SARIF bug candidates without requiring a fuzz harness. |
+| **scrutineer** | auditing | An LLM-powered auditing CRS that runs Scrutineer's triage and audit pipeline over the target source and submits findings as SARIF bug candidates. Source-only; no harness needed. |
 
 ### Planned
 
