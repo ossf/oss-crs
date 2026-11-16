@@ -1160,3 +1160,120 @@ class TestUploadAndQueueLimits:
             )
             assert resp.status_code == 200
             assert resp.json()["status"] == "queued"
+
+
+# ===========================================================================
+# TestJobRetentionAndOutputCapping
+# ===========================================================================
+
+
+class TestJobRetentionAndOutputCapping:
+    """Tests for completed job retention pruning and output truncation in builder-sidecar."""
+
+    def test_prune_completed_jobs_preserves_active(self):
+        """Pruning removes oldest completed jobs while preserving queued and running jobs."""
+        import server
+
+        _make_test_client()  # clear state
+        server.job_results["active_running"] = {
+            "id": "active_running",
+            "status": "running",
+        }
+        server.job_results["active_queued"] = {
+            "id": "active_queued",
+            "status": "queued",
+        }
+        server.job_results["done_old"] = {
+            "id": "done_old",
+            "status": "done",
+            "completed_ts": 100.0,
+        }
+        server.job_results["done_recent"] = {
+            "id": "done_recent",
+            "status": "done",
+            "completed_ts": 200.0,
+        }
+
+        # Cap max completed jobs to 1
+        with server._jobs_lock:
+            server._prune_completed_jobs_locked(1)
+
+        # 'done_old' should be pruned, 'done_recent' and active jobs remain
+        assert "done_old" not in server.job_results
+        assert "done_recent" in server.job_results
+        assert "active_running" in server.job_results
+        assert "active_queued" in server.job_results
+
+    def test_run_job_prunes_on_completion(self):
+        """Completing a job automatically triggers history pruning."""
+        import server
+
+        _make_test_client()
+        server.job_results["done1"] = {
+            "id": "done1",
+            "status": "done",
+            "completed_ts": 10.0,
+        }
+        server.job_results["done2"] = {
+            "id": "done2",
+            "status": "done",
+            "completed_ts": 20.0,
+        }
+        server.job_results["job_new"] = {
+            "id": "job_new",
+            "status": "queued",
+        }
+
+        with patch.dict(os.environ, {"MAX_JOB_HISTORY": "2"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": "ok", "stderr": ""},
+            ):
+                server._run_job("build", "job_new", crs_name="test-crs")
+
+        # History limit 2: oldest completed 'done1' should be evicted, leaving 'done2' and 'job_new'
+        assert "done1" not in server.job_results
+        assert "done2" in server.job_results
+        assert "job_new" in server.job_results
+        assert server.job_results["job_new"]["status"] == "done"
+
+    def test_output_capping_truncates_large_output(self):
+        """Large stdout/stderr are truncated with an explicit truncation marker."""
+        import server
+
+        _make_test_client()
+        huge_stdout = "X" * 1000
+        server.job_results["job_big"] = {"id": "job_big", "status": "queued"}
+
+        with patch.dict(os.environ, {"MAX_OUTPUT_BYTES": "100"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": huge_stdout, "stderr": ""},
+            ):
+                server._run_job("build", "job_big", crs_name="test-crs")
+
+        res = server.job_results["job_big"]["result"]
+        assert len(res["stdout"]) <= 100 + len(server._TRUNCATION_MARKER)
+        assert server._TRUNCATION_MARKER in res["stdout"]
+
+    def test_output_capping_leaves_small_output_intact(self):
+        """Stdout within limits is unchanged."""
+        import server
+
+        _make_test_client()
+        normal_stdout = "All tests passed cleanly."
+        server.job_results["job_small"] = {"id": "job_small", "status": "queued"}
+
+        with patch.dict(os.environ, {"MAX_OUTPUT_BYTES": "1024"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": normal_stdout, "stderr": ""},
+            ):
+                server._run_job("build", "job_small", crs_name="test-crs")
+
+        res = server.job_results["job_small"]["result"]
+        assert res["stdout"] == normal_stdout
+        assert server._TRUNCATION_MARKER not in res["stdout"]

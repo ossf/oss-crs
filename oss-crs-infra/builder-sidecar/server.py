@@ -23,6 +23,8 @@ Environment variables:
     MAX_UPLOAD_SIZE         - Max per-file upload size in bytes (default: 10485760 / 10MB)
     MAX_TOTAL_UPLOAD_SIZE   - Max total request upload size in bytes (default: 20971520 / 20MB)
     MAX_QUEUED_JOBS         - Max active + queued jobs before returning 429/503 (default: "64")
+    MAX_JOB_HISTORY         - Max completed jobs retained in memory (default: "100")
+    MAX_OUTPUT_BYTES        - Max bytes of stdout/stderr captured in memory per job (default: 524288 / 512KB)
 """
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -56,7 +58,10 @@ _SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 DEFAULT_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 DEFAULT_MAX_TOTAL_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB total request
 DEFAULT_MAX_QUEUED_JOBS = 64
+DEFAULT_MAX_JOB_HISTORY = 100
+DEFAULT_MAX_OUTPUT_BYTES = 512 * 1024  # 512 KB
 _CHUNK_SIZE = 64 * 1024  # 64 KB reading chunks
+_TRUNCATION_MARKER = "\n... [output truncated due to memory retention policy] ...\n"
 
 
 def _get_max_upload_size() -> int:
@@ -80,6 +85,63 @@ def _get_max_queued_jobs() -> int:
         return int(os.environ.get("MAX_QUEUED_JOBS", str(DEFAULT_MAX_QUEUED_JOBS)))
     except ValueError:
         return DEFAULT_MAX_QUEUED_JOBS
+
+
+def _get_max_job_history() -> int:
+    try:
+        return int(os.environ.get("MAX_JOB_HISTORY", str(DEFAULT_MAX_JOB_HISTORY)))
+    except ValueError:
+        return DEFAULT_MAX_JOB_HISTORY
+
+
+def _get_max_output_bytes() -> int:
+    try:
+        return int(os.environ.get("MAX_OUTPUT_BYTES", str(DEFAULT_MAX_OUTPUT_BYTES)))
+    except ValueError:
+        return DEFAULT_MAX_OUTPUT_BYTES
+
+
+def _truncate_output(text: str, max_bytes: int) -> str:
+    """Cap output string to max_bytes with an explicit truncation marker.
+
+    Retains the first half and tail portion with a clear truncation note.
+    """
+    if max_bytes <= 0:
+        return text
+    encoded = text.encode("utf-8", errors="replace")
+    if len(encoded) <= max_bytes:
+        return text
+    marker_bytes = _TRUNCATION_MARKER.encode("utf-8")
+    if max_bytes <= len(marker_bytes):
+        return marker_bytes[:max_bytes].decode("utf-8", errors="replace")
+    half = (max_bytes - len(marker_bytes)) // 2
+    head = encoded[:half].decode("utf-8", errors="replace")
+    tail = encoded[-(max_bytes - len(marker_bytes) - half) :].decode(
+        "utf-8", errors="replace"
+    )
+    return head + _TRUNCATION_MARKER + tail
+
+
+def _prune_completed_jobs_locked(max_history: int) -> None:
+    """Prune completed (status=='done' or 'error') jobs beyond max_history.
+
+    Must be called while holding _jobs_lock.
+    Never evicts queued or running jobs.
+    Uses completion_ts (or insertion order fallback) to prune oldest completed first.
+    """
+    if max_history <= 0:
+        return
+    completed_keys = [
+        k for k, v in job_results.items() if v.get("status") in ("done", "error")
+    ]
+    if len(completed_keys) <= max_history:
+        return
+
+    # Sort completed jobs by completed_ts (oldest first)
+    completed_keys.sort(key=lambda k: job_results[k].get("completed_ts", 0))
+    to_remove = completed_keys[: len(completed_keys) - max_history]
+    for k in to_remove:
+        job_results.pop(k, None)
 
 
 async def _read_bounded_upload(
@@ -573,10 +635,27 @@ def _run_job(action: str, job_id: str, **kwargs):
                     "id": job_id,
                     "status": "done",
                     "error": f"Unknown action: {action}",
+                    "completed_ts": time.time(),
                 }
+                _prune_completed_jobs_locked(_get_max_job_history())
             return
+
+        # Cap in-memory stdout/stderr to avoid runaway memory growth
+        max_output = _get_max_output_bytes()
+        if isinstance(result, dict):
+            if "stdout" in result and isinstance(result["stdout"], str):
+                result["stdout"] = _truncate_output(result["stdout"], max_output)
+            if "stderr" in result and isinstance(result["stderr"], str):
+                result["stderr"] = _truncate_output(result["stderr"], max_output)
+
         with _jobs_lock:
-            job_results[job_id] = {"id": job_id, "status": "done", "result": result}
+            job_results[job_id] = {
+                "id": job_id,
+                "status": "done",
+                "result": result,
+                "completed_ts": time.time(),
+            }
+            _prune_completed_jobs_locked(_get_max_job_history())
     except Exception as e:
         result = {"error": str(e)}
         with _jobs_lock:
@@ -585,7 +664,9 @@ def _run_job(action: str, job_id: str, **kwargs):
                 "status": "done",
                 "result": None,
                 "error": str(e),
+                "completed_ts": time.time(),
             }
+            _prune_completed_jobs_locked(_get_max_job_history())
     finally:
         event = _ACTION_TO_EVENT.get(action)
         if event is not None:
