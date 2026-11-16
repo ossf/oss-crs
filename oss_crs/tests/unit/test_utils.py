@@ -264,3 +264,36 @@ class TestGenerateRunId:
         # event; the old 2-character suffix repeated within 50 draws ~60% of
         # the time, so this fails loudly on a regression.
         assert len(ids) == 50
+
+
+class TestRedactSecrets:
+    def test_redact_secrets_replaces_known_secrets(self) -> None:
+        from oss_crs.src.utils import redact_secrets
+
+        secrets = ["sk-live-secret-key-12345", "postgres-super-secret"]
+        text = "Connecting with sk-live-secret-key-12345 to db with password postgres-super-secret"
+        redacted = redact_secrets(text, secrets)
+        assert redacted == "Connecting with [REDACTED] to db with password [REDACTED]"
+
+    def test_redact_secrets_noop_when_empty_or_none(self) -> None:
+        from oss_crs.src.utils import redact_secrets
+
+        assert redact_secrets("", ["secret"]) == ""
+        assert redact_secrets("normal text", None) == "normal text"
+        assert redact_secrets("normal text", []) == "normal text"
+
+    def test_redact_secrets_ignores_short_strings(self) -> None:
+        from oss_crs.src.utils import redact_secrets
+
+        # Short strings (< 4 chars) should not be redacted to prevent over-redaction
+        text = "A cat sat on a mat"
+        redacted = redact_secrets(text, ["a", "on"])
+        assert redacted == text
+
+    def test_redact_secrets_longest_first(self) -> None:
+        from oss_crs.src.utils import redact_secrets
+
+        secrets = ["secret", "secret_extended"]
+        text = "This contains secret_extended in output"
+        redacted = redact_secrets(text, secrets)
+        assert redacted == "This contains [REDACTED] in output"
