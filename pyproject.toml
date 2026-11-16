@@ -36,9 +36,7 @@ include = ["oss_crs*", "scripts"]
 
 [dependency-groups]
 dev = [
-    # ruff 0.16 enables 413 rules by default (was 59); hold until the repo picks
-    # an explicit lint.select or fixes the ~480 new findings.
-    "ruff>=0.14.5,<0.16",
+    "ruff>=0.14.5,<0.18",
     "pyright>=1.1.407",
     "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
@@ -60,3 +58,9 @@ markers = [
     "smoke: marks tests as smoke tests",
     "cgroup_parent_required: marks tests that require cgroup-parent support",
 ]
+
+[tool.ruff.lint]
+# ruff 0.16 grew the default rule set from 59 to 413 rules, which reports ~480
+# findings on this tree. Keep the pre-0.16 defaults explicit so ruff upgrades
+# stay lint-neutral; widen this list deliberately, not via a version bump.
+select = ["E4", "E7", "E9", "F"]
