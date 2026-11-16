@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- `oss-crs clean`: artifact directories queued for deletion in the clean plan are now verified to reside inside the configured work directory before deletion, preventing accidental removal of paths outside the expected scope if the plan is constructed with an unexpected directory reference.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
