@@ -20,6 +20,9 @@ Environment variables:
     PROJECT_BASE_IMAGE      - OSS-Fuzz project image for test.sh execution
     INCREMENTAL_BUILD       - "true" to use snapshot images, "false" for fresh
     MAX_PARALLEL_JOBS       - Thread pool size (default: "4")
+    MAX_UPLOAD_SIZE         - Max per-file upload size in bytes (default: 10485760 / 10MB)
+    MAX_TOTAL_UPLOAD_SIZE   - Max total request upload size in bytes (default: 20971520 / 20MB)
+    MAX_QUEUED_JOBS         - Max active + queued jobs before returning 429/503 (default: "64")
 """
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -30,6 +33,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -49,6 +53,67 @@ app = FastAPI(
 
 _SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
+DEFAULT_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
+DEFAULT_MAX_TOTAL_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB total request
+DEFAULT_MAX_QUEUED_JOBS = 64
+_CHUNK_SIZE = 64 * 1024  # 64 KB reading chunks
+
+
+def _get_max_upload_size() -> int:
+    try:
+        return int(os.environ.get("MAX_UPLOAD_SIZE", str(DEFAULT_MAX_UPLOAD_SIZE)))
+    except ValueError:
+        return DEFAULT_MAX_UPLOAD_SIZE
+
+
+def _get_max_total_upload_size() -> int:
+    try:
+        return int(
+            os.environ.get("MAX_TOTAL_UPLOAD_SIZE", str(DEFAULT_MAX_TOTAL_UPLOAD_SIZE))
+        )
+    except ValueError:
+        return DEFAULT_MAX_TOTAL_UPLOAD_SIZE
+
+
+def _get_max_queued_jobs() -> int:
+    try:
+        return int(os.environ.get("MAX_QUEUED_JOBS", str(DEFAULT_MAX_QUEUED_JOBS)))
+    except ValueError:
+        return DEFAULT_MAX_QUEUED_JOBS
+
+
+async def _read_bounded_upload(
+    file: UploadFile | None, max_file_size: int, current_total: int, max_total_size: int
+) -> tuple[bytes, int]:
+    """Read an UploadFile in bounded chunks to avoid memory exhaustion.
+
+    Enforces both per-file limit and total request limit. Raises HTTPException(413)
+    if any limit is exceeded.
+    """
+    if file is None:
+        return b"", current_total
+
+    chunks = []
+    file_bytes_read = 0
+    while True:
+        chunk = await file.read(_CHUNK_SIZE)
+        if not chunk:
+            break
+        file_bytes_read += len(chunk)
+        if file_bytes_read > max_file_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload file exceeds maximum allowed size of {max_file_size} bytes",
+            )
+        if current_total + file_bytes_read > max_total_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Total request upload exceeds maximum allowed size of {max_total_size} bytes",
+            )
+        chunks.append(chunk)
+
+    return b"".join(chunks), current_total + file_bytes_read
+
 
 class BuildResult(BaseModel):
     exit_code: int
@@ -64,6 +129,7 @@ class JobResponse(BaseModel):
 
 
 job_results: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 _executor = ThreadPoolExecutor(
     max_workers=int(os.environ.get("MAX_PARALLEL_JOBS", "4"))
 )
@@ -223,8 +289,14 @@ async def submit_build(
     At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
     """
     _validate_path_component(crs_name, "crs_name")
-    patch_content = await patch.read() if patch else b""
-    fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
+    max_file_size = _get_max_upload_size()
+    max_total_size = _get_max_total_upload_size()
+    patch_content, total_bytes = await _read_bounded_upload(
+        patch, max_file_size, 0, max_total_size
+    )
+    fuzz_proj_patch_content, _ = await _read_bounded_upload(
+        fuzz_proj_patch, max_file_size, total_bytes, max_total_size
+    )
     if not patch_content and not fuzz_proj_patch_content:
         return JSONResponse(
             status_code=422,
@@ -235,21 +307,40 @@ async def submit_build(
 
     job_id = _make_job_id(patch_content, builder_name, fuzz_proj_patch_content)
 
-    if job_id in job_results:
-        existing = job_results[job_id]
-        if existing["status"] in ("queued", "running"):
-            return JobResponse(id=job_id, status=existing["status"])
-        if existing["status"] == "done":
-            result = existing.get("result")
-            if result is not None and result.get("exit_code") == 0:
-                return _cached_response_for_rebuild_id(existing, crs_name, rebuild_id)
+    with _jobs_lock:
+        if job_id in job_results:
+            existing = job_results[job_id]
+            if existing["status"] in ("queued", "running"):
+                return JobResponse(id=job_id, status=existing["status"])
+            if existing["status"] == "done":
+                result = existing.get("result")
+                if result is not None and result.get("exit_code") == 0:
+                    return _cached_response_for_rebuild_id(
+                        existing, crs_name, rebuild_id
+                    )
 
-    # Resolve rebuild_id if not provided
-    if rebuild_id is None:
-        rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
-        rebuild_id = next_rebuild_id(rebuild_out_dir, crs_name)
+        # Check queue / active jobs capacity before admitting new work
+        max_queued = _get_max_queued_jobs()
+        active_and_queued = sum(
+            1 for j in job_results.values() if j.get("status") in ("queued", "running")
+        )
+        if active_and_queued >= max_queued:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "Builder queue is full",
+                    "detail": f"Active and queued jobs ({active_and_queued}) reached limit of {max_queued}",
+                },
+                headers={"Retry-After": "5"},
+            )
 
-    job_results[job_id] = {"id": job_id, "status": "queued"}
+        # Resolve rebuild_id if not provided
+        if rebuild_id is None:
+            rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
+            rebuild_id = next_rebuild_id(rebuild_out_dir, crs_name)
+
+        job_results[job_id] = {"id": job_id, "status": "queued"}
+
     _executor.submit(
         _run_job,
         "build",
@@ -267,7 +358,8 @@ async def submit_build(
 
 @app.get("/status/{job_id}")
 def get_job_status(job_id: str):
-    result = job_results.get(job_id)
+    with _jobs_lock:
+        result = job_results.get(job_id)
     if result is None:
         return JSONResponse(
             status_code=404, content={"error": "Job not found", "id": job_id}
@@ -277,7 +369,9 @@ def get_job_status(job_id: str):
 
 @app.get("/builds")
 def list_builds():
-    return {"builds": list(job_results.keys())}
+    with _jobs_lock:
+        builds_list = list(job_results.keys())
+    return {"builds": builds_list}
 
 
 @app.post("/test")
@@ -294,8 +388,14 @@ async def run_test(
     At least one of patch (target-source diff) or fuzz_proj_patch must be supplied.
     """
     _validate_path_component(crs_name, "crs_name")
-    patch_content = await patch.read() if patch else b""
-    fuzz_proj_patch_content = await fuzz_proj_patch.read() if fuzz_proj_patch else b""
+    max_file_size = _get_max_upload_size()
+    max_total_size = _get_max_total_upload_size()
+    patch_content, total_bytes = await _read_bounded_upload(
+        patch, max_file_size, 0, max_total_size
+    )
+    fuzz_proj_patch_content, _ = await _read_bounded_upload(
+        fuzz_proj_patch, max_file_size, total_bytes, max_total_size
+    )
     if not patch_content and not fuzz_proj_patch_content:
         return JSONResponse(
             status_code=422,
@@ -308,20 +408,39 @@ async def run_test(
         patch_content, fuzz_proj_patch_content=fuzz_proj_patch_content
     )
 
-    if job_id in job_results:
-        existing = job_results[job_id]
-        if existing["status"] in ("queued", "running"):
-            return JobResponse(id=job_id, status=existing["status"])
-        if existing["status"] == "done":
-            result = existing.get("result")
-            if result is not None and result.get("exit_code") == 0:
-                return _cached_response_for_rebuild_id(existing, crs_name, rebuild_id)
+    with _jobs_lock:
+        if job_id in job_results:
+            existing = job_results[job_id]
+            if existing["status"] in ("queued", "running"):
+                return JobResponse(id=job_id, status=existing["status"])
+            if existing["status"] == "done":
+                result = existing.get("result")
+                if result is not None and result.get("exit_code") == 0:
+                    return _cached_response_for_rebuild_id(
+                        existing, crs_name, rebuild_id
+                    )
 
-    if rebuild_id is None:
-        rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
-        rebuild_id = next_rebuild_id(rebuild_out_dir, crs_name)
+        # Check queue / active jobs capacity before admitting new work
+        max_queued = _get_max_queued_jobs()
+        active_and_queued = sum(
+            1 for j in job_results.values() if j.get("status") in ("queued", "running")
+        )
+        if active_and_queued >= max_queued:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "Builder queue is full",
+                    "detail": f"Active and queued jobs ({active_and_queued}) reached limit of {max_queued}",
+                },
+                headers={"Retry-After": "5"},
+            )
 
-    job_results[job_id] = {"id": job_id, "status": "queued"}
+        if rebuild_id is None:
+            rebuild_out_dir = Path(os.environ.get("REBUILD_OUT_DIR", "/rebuild_out"))
+            rebuild_id = next_rebuild_id(rebuild_out_dir, crs_name)
+
+        job_results[job_id] = {"id": job_id, "status": "queued"}
+
     _executor.submit(
         _run_job,
         "test",
@@ -434,7 +553,9 @@ def _handle_test(
 
 def _run_job(action: str, job_id: str, **kwargs):
     """Execute a job in the thread pool."""
-    job_results[job_id]["status"] = "running"
+    with _jobs_lock:
+        if job_id in job_results:
+            job_results[job_id]["status"] = "running"
     # Handler args arrive by keyword, so crs_name can't be misindexed.
     crs_name = kwargs.get("crs_name", "unknown")
     ts_start = time.time()
@@ -447,21 +568,24 @@ def _run_job(action: str, job_id: str, **kwargs):
             result = _handle_test(job_id, **kwargs)
         else:
             result = {"error": f"Unknown action: {action}"}
+            with _jobs_lock:
+                job_results[job_id] = {
+                    "id": job_id,
+                    "status": "done",
+                    "error": f"Unknown action: {action}",
+                }
+            return
+        with _jobs_lock:
+            job_results[job_id] = {"id": job_id, "status": "done", "result": result}
+    except Exception as e:
+        result = {"error": str(e)}
+        with _jobs_lock:
             job_results[job_id] = {
                 "id": job_id,
                 "status": "done",
-                "error": f"Unknown action: {action}",
+                "result": None,
+                "error": str(e),
             }
-            return
-        job_results[job_id] = {"id": job_id, "status": "done", "result": result}
-    except Exception as e:
-        result = {"error": str(e)}
-        job_results[job_id] = {
-            "id": job_id,
-            "status": "done",
-            "result": None,
-            "error": str(e),
-        }
     finally:
         event = _ACTION_TO_EVENT.get(action)
         if event is not None:
