@@ -10,8 +10,9 @@ Endpoints:
     POST /run-pov  - Execute POV reproduction (API-02, POV-01, POV-02, POV-03)
 
 Environment variables:
-    OUT_DIR     - Path to build artifacts directory inside container (default: "/out")
-    POV_TIMEOUT - Maximum seconds for reproduce script (default: "30")
+    OUT_DIR         - Path to build artifacts directory inside container (default: "/out")
+    POV_TIMEOUT     - Maximum seconds for reproduce script (default: "30")
+    MAX_UPLOAD_SIZE - Maximum POV upload size in bytes (default: 10485760 / 10MB)
 """
 
 import json
@@ -35,6 +36,34 @@ app = FastAPI(
 )
 
 _SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+
+DEFAULT_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
+_CHUNK_SIZE = 64 * 1024  # 64 KB read buffer
+
+
+def _get_max_upload_size() -> int:
+    try:
+        return int(os.environ.get("MAX_UPLOAD_SIZE", str(DEFAULT_MAX_UPLOAD_SIZE)))
+    except (ValueError, TypeError):
+        return DEFAULT_MAX_UPLOAD_SIZE
+
+
+async def _read_bounded_upload(upload_file: UploadFile, max_size: int) -> bytes:
+    """Read an UploadFile stream in chunks, raising 413 if max_size is exceeded."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload_file.read(_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Uploaded file exceeds maximum allowed size ({max_size} bytes)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class POVResult(BaseModel):
@@ -243,7 +272,8 @@ async def run_pov(
     _validate_path_component(crs_name, "crs_name")
     _validate_rebuild_id(rebuild_id)
 
-    pov_content = await pov.read()
+    max_upload_size = _get_max_upload_size()
+    pov_content = await _read_bounded_upload(pov, max_upload_size)
 
     job_id = uuid.uuid4().hex[:12]
     ts_start = time.time()
