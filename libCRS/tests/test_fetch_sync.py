@@ -2,6 +2,7 @@
 """Unit tests for libCRS fetch, directory sync, and directory registration utilities."""
 
 import shutil
+import sys
 from pathlib import Path
 
 import libCRS.infra_client as infra_mod
@@ -158,7 +159,10 @@ def test_local_crs_utils_register_shared_dir(tmp_path, monkeypatch):
 
     utils.register_shared_dir(local_path, "subfolder/resource")
 
-    assert local_path.is_symlink()
+    assert local_path.is_symlink() or (
+        sys.platform == "win32"
+        and local_path.resolve() == (shared_root / "subfolder" / "resource").resolve()
+    )
     assert local_path.resolve() == (shared_root / "subfolder" / "resource").resolve()
 
     # Re-registering existing path raises FileExistsError
@@ -175,9 +179,35 @@ def test_local_crs_utils_register_log_dir(tmp_path, monkeypatch):
 
     utils.register_log_dir(local_path)
 
-    assert local_path.is_symlink()
+    assert local_path.is_symlink() or (
+        sys.platform == "win32"
+        and local_path.resolve() == (log_root / "fuzzer_logs").resolve()
+    )
     assert local_path.resolve() == (log_root / "fuzzer_logs").resolve()
 
     # Re-registering existing path raises FileExistsError
     with pytest.raises(FileExistsError, match="already exists"):
         utils.register_log_dir(local_path)
+
+
+def test_local_crs_utils_register_dir_symlink_mocked(tmp_path, monkeypatch):
+    """Verify register_shared_dir calls symlink_to with target_is_directory=True."""
+    shared_root = tmp_path / "shared"
+    monkeypatch.setenv("OSS_CRS_SHARED_DIR", str(shared_root))
+
+    symlink_calls = []
+
+    def fake_symlink(self, target, target_is_directory=False):
+        symlink_calls.append((self, target, target_is_directory))
+        self.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(Path, "symlink_to", fake_symlink)
+
+    utils = LocalCRSUtils()
+    local_path = tmp_path / "work" / "mocked_shared"
+    utils.register_shared_dir(local_path, "subfolder/resource")
+
+    assert len(symlink_calls) == 1
+    assert symlink_calls[0][0] == local_path
+    assert symlink_calls[0][1] == shared_root / "subfolder" / "resource"
+    assert symlink_calls[0][2] is True

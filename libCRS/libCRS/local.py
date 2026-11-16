@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -79,6 +80,21 @@ class LocalCRSUtils(CRSUtils):
         helper = self.__init_submit_helper(data_type)
         helper.register_dir(path, batch_time=10, batch_size=100)
 
+    @staticmethod
+    def _link_dir(target_dir: Path, local_dir: Path) -> None:
+        try:
+            local_dir.symlink_to(target_dir, target_is_directory=True)
+        except OSError:
+            if sys.platform == "win32":
+                try:
+                    import _winapi
+
+                    _winapi.CreateJunction(str(target_dir), str(local_dir))
+                    return
+                except OSError:
+                    pass
+            raise
+
     def register_shared_dir(self, local_path: Path, shared_path: str) -> None:
         if local_path.exists():
             raise FileExistsError(f"Local path '{local_path}' already exists")
@@ -87,7 +103,7 @@ class LocalCRSUtils(CRSUtils):
         target_shared_path = shared_root / shared_path
         target_shared_path.mkdir(parents=True, exist_ok=True)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.symlink_to(target_shared_path)
+        self._link_dir(target_shared_path, local_path)
 
     def register_log_dir(self, local_path: Path) -> None:
         if local_path.exists():
@@ -97,7 +113,7 @@ class LocalCRSUtils(CRSUtils):
         log_target = OSS_CRS_LOG_DIR / local_path.name
         log_target.mkdir(parents=True, exist_ok=True)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.symlink_to(log_target)
+        self._link_dir(log_target, local_path)
 
     def __init_fetch_helper(self, data_type: DataType) -> FetchHelper:
         return FetchHelper(data_type, self.infra_client)
