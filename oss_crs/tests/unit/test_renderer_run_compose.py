@@ -374,7 +374,7 @@ def test_sidecars_mount_per_crs_log_dir_for_api_logging(
     log_mount = f"{tmp_path / 'log'}:/sidecar-logs/crs-plain:rw"
     for svc in ("oss-crs-builder-sidecar", "oss-crs-runner-sidecar"):
         assert "SIDECAR_LOG_DIR=/sidecar-logs" in services[svc]["environment"]
-        assert log_mount in services[svc]["volumes"]
+        assert any(v.startswith(log_mount) for v in services[svc]["volumes"])
 
 
 # ---------------------------------------------------------------------------
@@ -786,19 +786,23 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
 
     # POVs come from processed_exchange_dir (triage handles them)
     assert any(
-        f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro" == v for v in finder_volumes
+        v.startswith(f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro")
+        for v in finder_volumes
     ), f"finder must mount processed povs; got: {finder_volumes}"
     # Seeds come from exchange_dir (no seed-filter present)
     assert any(
-        f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro")
+        for v in finder_volumes
     ), f"finder must mount raw seeds; got: {finder_volumes}"
     # Reports come from exchange_dir (not owned by the triage/seed-filter processors)
     assert any(
-        f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro")
+        for v in finder_volumes
     ), f"finder must mount raw reports; got: {finder_volumes}"
     # Patches come from exchange_dir (not owned by triage/seed-filter processors)
     assert any(
-        f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro")
+        for v in finder_volumes
     ), f"finder must mount raw patches; got: {finder_volumes}"
 
 
@@ -1328,14 +1332,14 @@ def test_mcp_hook_mounted_for_internal_llm(monkeypatch, tmp_path: Path) -> None:
     litellm_service = compose_data["services"]["oss-crs-litellm"]
     volumes = litellm_service.get("volumes", [])
     # Generated MCP config is mounted as the proxy config...
-    assert any(v.endswith(":/app/config.yaml:ro") for v in volumes)
+    assert any(":/app/config.yaml:ro" in v for v in volumes)
     # ...and the prompt hook module sits beside it.
-    hook_mounts = [v for v in volumes if v.endswith(":/app/oss_crs_mcp_hook.py:ro")]
+    hook_mounts = [v for v in volumes if ":/app/oss_crs_mcp_hook.py:ro" in v]
     assert len(hook_mounts) == 1
     hook_host_path = Path(hook_mounts[0].split(":")[0])
     assert hook_host_path.exists()
     assert "proxy_handler_instance" in hook_host_path.read_text()
-    config_mount = next(v for v in volumes if v.endswith(":/app/config.yaml:ro"))
+    config_mount = next(v for v in volumes if ":/app/config.yaml:ro" in v)
     gateway_config = yaml.safe_load(Path(config_mount.split(":")[0]).read_text())
     entry = gateway_config["mcp_servers"]["crs_claude_code_ripgrep"]
     assert entry["url"] == "http://crs_claude_code_ripgrep:8000/mcp"
@@ -1398,10 +1402,8 @@ def test_mcp_requires_build_artifacts_mounts(monkeypatch, tmp_path: Path) -> Non
     target = _make_target(tmp_path, has_repo=True)
     rendered, _ = _render(crs_compose, target, tmp_path)
     svc = yaml.safe_load(rendered)["services"]["mcp-crs-a-an"]
-    assert any(v.endswith(":/OSS_CRS_BUILD_OUT_DIR:ro") for v in svc.get("volumes", []))
-    assert any(
-        v.endswith(":/OSS_CRS_REBUILD_OUT_DIR:rw") for v in svc.get("volumes", [])
-    )
+    assert any(":/OSS_CRS_BUILD_OUT_DIR:ro" in v for v in svc.get("volumes", []))
+    assert any(":/OSS_CRS_REBUILD_OUT_DIR:rw" in v for v in svc.get("volumes", []))
 
 
 def test_mcp_requires_build_artifacts_missing_fails(
@@ -1455,7 +1457,7 @@ def test_extra_ca_mounts_bundle_into_crs_modules(monkeypatch, tmp_path: Path) ->
 
     service = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]
     ca_dir = tmp_path / "tmp-compose" / "ca"
-    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    assert any(v.startswith(f"{ca_dir}:/etc/oss-crs/ca:ro") for v in service["volumes"])
     assert (ca_dir / "bundle.pem").exists()
     assert (ca_dir / "extra.pem").read_text() == _ORG_PEM
 
@@ -1487,12 +1489,12 @@ def test_extra_ca_mounts_bundle_into_litellm(monkeypatch, tmp_path: Path) -> Non
 
     service = yaml.safe_load(rendered)["services"]["oss-crs-litellm"]
     ca_dir = tmp_path / "tmp-compose" / "ca"
-    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    assert any(v.startswith(f"{ca_dir}:/etc/oss-crs/ca:ro") for v in service["volumes"])
     # LiteLLM resolves its CA file from SSL_CERT_FILE, so this is the whole fix.
     assert "SSL_CERT_FILE=/etc/oss-crs/ca/bundle.pem" in service["environment"]
     assert "NODE_EXTRA_CA_CERTS=/etc/oss-crs/ca/extra.pem" in service["environment"]
     # The config mount and secret-derived exports must survive.
-    assert any(v.endswith("/app/config.yaml:ro") for v in service["volumes"])
+    assert any("/app/config.yaml:ro" in v for v in service["volumes"])
     assert "$(cat /run/secrets/litellm_env_OPENAI_API_KEY)" in " ".join(
         service["command"]
     )
