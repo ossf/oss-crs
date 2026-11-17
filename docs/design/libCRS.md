@@ -82,6 +82,7 @@ libCRS relies on several environment variables injected by CRS Compose at contai
 | `BUILDER_MODULE` | Builder sidecar service name for DNS resolution (framework-injected, defaults to `builder-sidecar`) |
 | `OSS_CRS_FUZZ_PROJ` | Read-only mount containing the fuzz project directory (set on all CRS containers) |
 | `OSS_CRS_TARGET_SOURCE` | Read-only mount containing the target source directory (set on all CRS containers) |
+| `OSS_CRS_SERVICE_URLS` | Optional JSON map of service names to URLs, used by host-local sessions to reach Docker sidecars on published localhost ports |
 
 ## Architecture
 

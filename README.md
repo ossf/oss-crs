@@ -178,6 +178,7 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 
 ## Documentation
 
+- [Running a CRS from a local checkout](docs/local-crs.md): start and stop a CRS host process with libCRS session directories.
 - [CRS Development Guide](docs/crs-development-guide.md): How to build or integrate your own CRS
 - [Architecture](docs/design/architecture.md): System design and component overview
 - [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility

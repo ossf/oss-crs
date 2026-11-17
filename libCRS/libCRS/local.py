@@ -5,7 +5,9 @@ import socket
 import subprocess
 import tempfile
 import time
+import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests as http_requests
 
@@ -17,8 +19,13 @@ from .submit import SubmitHelper, submit_report
 
 logger = logging.getLogger(__name__)
 
-_FUZZ_PROJ_MOUNT = Path("/OSS_CRS_FUZZ_PROJ")
-_TARGET_SOURCE_MOUNT = Path("/OSS_CRS_TARGET_SOURCE")
+# In container mode these retain their canonical mount paths. The local host
+# runner supplies the same variables as host paths, so libCRS callers can use
+# the unchanged download-source interface in either mode.
+_FUZZ_PROJ_MOUNT = Path(os.environ.get("OSS_CRS_FUZZ_PROJ", "/OSS_CRS_FUZZ_PROJ"))
+_TARGET_SOURCE_MOUNT = Path(
+    os.environ.get("OSS_CRS_TARGET_SOURCE", "/OSS_CRS_TARGET_SOURCE")
+)
 
 
 def _get_build_out_dir() -> Path:
@@ -148,6 +155,15 @@ class LocalCRSUtils(CRSUtils):
         return helper.fetch_once(dst)
 
     def get_service_domain(self, service_name: str) -> str:
+        service_url = self._configured_service_urls().get(service_name)
+        if service_url:
+            parsed = urlsplit(service_url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError(
+                    f"Invalid service URL for '{service_name}': {service_url!r}"
+                )
+            return parsed.netloc
+
         CRS_NAME = get_env("OSS_CRS_NAME")
         ret = f"{service_name}.{CRS_NAME}"
 
@@ -160,8 +176,27 @@ class LocalCRSUtils(CRSUtils):
         return ret
 
     def _get_service_url(self, service_name: str) -> str:
+        service_url = self._configured_service_urls().get(service_name)
+        if service_url:
+            return service_url.rstrip("/")
         domain = self.get_service_domain(service_name)
         return f"http://{domain}:8080"
+
+    @staticmethod
+    def _configured_service_urls() -> dict[str, str]:
+        raw = os.environ.get("OSS_CRS_SERVICE_URLS", "")
+        if not raw:
+            return {}
+        try:
+            service_urls = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("OSS_CRS_SERVICE_URLS must contain a JSON object") from exc
+        if not isinstance(service_urls, dict) or not all(
+            isinstance(name, str) and isinstance(url, str)
+            for name, url in service_urls.items()
+        ):
+            raise ValueError("OSS_CRS_SERVICE_URLS must map service names to URLs")
+        return service_urls
 
     def _get_builder_url(self, builder: str) -> str:
         return self._get_service_url(builder)
