@@ -25,13 +25,14 @@ def test_rm_with_docker_preserves_default_alpine_command(
 
     utils.rm_with_docker(tmp_path / "out")
 
+    resolved_tmp = tmp_path.resolve()
     assert commands == [
         [
             "docker",
             "run",
             "--rm",
             "-v",
-            f"{tmp_path}:/data",
+            f"{resolved_tmp}:/data",
             utils.OSS_CRS_ALPINE_TAG,
             "rm",
             "-rf",
@@ -52,13 +53,14 @@ def test_rm_with_docker_overrides_target_image_entrypoint(
 
     utils.rm_with_docker(tmp_path / "out", image_tag="project:tag")
 
+    resolved_tmp = tmp_path.resolve()
     assert commands == [
         [
             "docker",
             "run",
             "--rm",
             "-v",
-            f"{tmp_path}:/data",
+            f"{resolved_tmp}:/data",
             "--entrypoint",
             "rm",
             "project:tag",
@@ -66,6 +68,20 @@ def test_rm_with_docker_overrides_target_image_entrypoint(
             "/data/out",
         ]
     ]
+
+
+def test_rm_with_docker_refuses_root(monkeypatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        utils.subprocess,
+        "run",
+        lambda command, **_kwargs: calls.append(command),
+    )
+
+    with pytest.raises(ValueError, match="Refusing to remove root directory"):
+        utils.rm_with_docker(Path("/"))
+
+    assert calls == []
 
 
 class _FakeApp:
