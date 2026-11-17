@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Sanitize `run_id`, `phase`, and `crs_name` components when creating cgroup directory paths in `oss_crs.src.cgroup` to guard against path traversal or invalid characters in cgroup hierarchy names.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
