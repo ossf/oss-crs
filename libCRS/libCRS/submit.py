@@ -69,7 +69,14 @@ def submit_report(src: Path, reports_dir: Path) -> Path:
     try:
         with tarfile.open(tmp_path, "w:gz") as tar:
             if src.is_dir():
+                resolved_src = src.resolve()
                 for item in sorted(src.iterdir()):
+                    if item.is_symlink():
+                        continue
+                    try:
+                        item.resolve().relative_to(resolved_src)
+                    except ValueError:
+                        continue
                     tar.add(item, arcname=item.name)
             else:
                 tar.add(src, arcname=src.name)
