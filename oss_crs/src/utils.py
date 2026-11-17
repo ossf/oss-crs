@@ -75,6 +75,51 @@ def log_error(message: str) -> None:
     get_console().print(f"[bold red]Error:[/bold red] {message}")
 
 
+def buildx_local_output_error(cmd: Sequence[str], operation: str) -> Optional[str]:
+    """Return an actionable error when a local Buildx build cannot load images."""
+    if "--load" in cmd or "--push" in cmd:
+        return None
+
+    try:
+        result = subprocess.run(
+            ["docker", "buildx", "inspect"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return (
+            f"Cannot determine the active Buildx builder before {operation}: {exc}. "
+            "Verify that Docker and Buildx are installed and that a builder is selected."
+        )
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f"\n{detail}" if detail else ""
+        return (
+            f"Cannot determine the active Buildx builder before {operation}. "
+            "Verify that Docker is running and a Buildx builder is selected."
+            f"{suffix}"
+        )
+
+    match = re.search(r"^\s*Driver:\s*(\S+)", result.stdout or "", re.MULTILINE)
+    if not match:
+        return (
+            f"Cannot determine the active Buildx builder driver before {operation}. "
+            "Run `docker buildx ls` and select a valid builder."
+        )
+
+    driver = match.group(1)
+    if driver.casefold() == "docker":
+        return None
+
+    return (
+        f"Cannot {operation} with the active Buildx builder using the "
+        f"`{driver}` driver because this command does not export its image to "
+        "Docker's local image store. Use `--load` (single-platform builds) or "
+        "`--push` for publishing. No build was started."
+    )
+
+
 def log_dim(message: str) -> None:
     """Log a dimmed/subtle message."""
     if not _quiet:

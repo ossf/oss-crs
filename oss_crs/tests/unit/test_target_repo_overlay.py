@@ -2,6 +2,7 @@
 """Unit tests for repo override behavior in target Dockerfile generation."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from oss_crs.src.target import Target
 from oss_crs.src.ui import TaskResult
@@ -38,7 +39,13 @@ def test_repo_override_uses_rsync_delete_overlay(tmp_path: Path) -> None:
     target.repo_path = repo
 
     progress = _CaptureProgress()
-    result = target._Target__build_docker_image_with_repo("demo:tag", progress)
+    with patch(
+        "oss_crs.src.utils.subprocess.run",
+        return_value=MagicMock(
+            returncode=0, stdout="Name: default\nDriver: docker\n", stderr=""
+        ),
+    ):
+        result = target._Target__build_docker_image_with_repo("demo:tag", progress)
 
     assert result.success is True
     assert "--from=repo_path . /OSS_CRS_REPO_OVERRIDE" in progress.generated_dockerfile
@@ -73,7 +80,15 @@ def test_repo_override_can_force_uncached_build(tmp_path: Path) -> None:
     target.architecture = "aarch64"
 
     progress = _CaptureProgress()
-    target._Target__build_docker_image_with_repo("demo:tag", progress, no_cache=True)
+    with patch(
+        "oss_crs.src.utils.subprocess.run",
+        return_value=MagicMock(
+            returncode=0, stdout="Name: default\nDriver: docker\n", stderr=""
+        ),
+    ):
+        target._Target__build_docker_image_with_repo(
+            "demo:tag", progress, no_cache=True
+        )
 
     assert progress.cmd[:6] == [
         "docker",
@@ -83,3 +98,31 @@ def test_repo_override_can_force_uncached_build(tmp_path: Path) -> None:
         "--platform",
         "linux/arm64",
     ]
+
+
+def test_target_build_fails_before_build_for_builder_without_local_output(
+    tmp_path: Path,
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Dockerfile").write_text("FROM base\n")
+
+    target = Target.__new__(Target)
+    target.proj_path = proj
+    target.work_dir = tmp_path / "work"
+    target.work_dir.mkdir()
+
+    progress = _CaptureProgress()
+    inspect_result = MagicMock(
+        returncode=0,
+        stdout="Name: container-builder\nDriver: docker-container\n",
+        stderr="",
+    )
+    with patch("oss_crs.src.utils.subprocess.run", return_value=inspect_result):
+        result = target._Target__build_docker_image_plain("demo:tag", progress)
+
+    assert result.success is False
+    assert result.error is not None
+    assert "`docker-container` driver" in result.error
+    assert "No build was started." in result.error
+    assert progress.cmd == []
