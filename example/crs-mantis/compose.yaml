@@ -1,0 +1,39 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#                 Example for crs-mantis (auditing)                          #
+##############################################################################
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "8G"
+
+# --- CRS (crs-mantis) -------------------------------------------------------
+# An auditing-type CRS that uses Google Mantis skills (threat-model, research,
+# review, report) to analyze target source code and submit SARIF bug candidates.
+# Supports source-only runs without requiring a compiled fuzz harness.
+crs-mantis:
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 15
+  additional_env:
+    # Mantis workflow execution configuration
+    MANTIS_SKILLS: "threat-model,research,review,report"
+    MANTIS_MODEL: "gemini/gemini-2.5-pro"
+    # Review / critic model for validating findings and false-positive filtering
+    MANTIS_CRITIC_MODEL: "gemini/gemini-2.5-flash"
+    # Target source scan timeout (in seconds, 0 = no timeout)
+    MANTIS_SCAN_TIMEOUT: "3600"
+    # Severity threshold for reporting bug candidates: low, medium, high, critical
+    MANTIS_MIN_SEVERITY: "medium"
+
+# --- LLM Configuration -----------------------------------------------------
+llm_config:
+  litellm:
+    mode: internal
+    internal:
+      config_path: ./example/crs-mantis/litellm-config.yaml
