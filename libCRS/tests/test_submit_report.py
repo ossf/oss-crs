@@ -53,6 +53,27 @@ def test_directory_tarball_strips_top_level_and_preserves_nesting(tmp_path):
     assert _members(dst) == ["a.txt", "sub", "sub/b.txt"]
 
 
+def test_directory_tarball_ignores_symlinks(tmp_path):
+    src = tmp_path / "run-symlink"
+    src.mkdir()
+    (src / "valid.txt").write_text("valid")
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside secret")
+
+    symlink_file = src / "link.txt"
+    try:
+        symlink_file.symlink_to(outside)
+    except OSError:
+        pytest.skip("Symlinks not supported on this platform without privileges")
+
+    reports = tmp_path / "reports"
+    dst = submit_report(src, reports)
+
+    assert "valid.txt" in _members(dst)
+    assert "link.txt" not in _members(dst)
+
+
 def test_directory_collision_gets_counter_suffix(tmp_path):
     src = tmp_path / "run-1"
     src.mkdir()
