@@ -148,6 +148,30 @@ class CRS:
         self.resource = resource
         self.crs_compose_env = crs_compose_env
 
+    def get_git_revision(self) -> str | None:
+        """Return the current Git commit hash (SHA) of the CRS source repository.
+
+        Returns None if crs_path is not a git repository or git command fails.
+        """
+        git_env = os.environ.copy()
+        git_env["GIT_TERMINAL_PROMPT"] = "0"
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.crs_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=git_env,
+            )
+            if result.returncode == 0:
+                rev = result.stdout.strip()
+                if rev:
+                    return rev
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return None
+
     def get_bake_image_tags(self) -> list[str]:
         """Return all image tags defined in the prepare-phase HCL bake plan.
 
