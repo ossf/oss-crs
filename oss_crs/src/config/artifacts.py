@@ -89,6 +89,7 @@ class MetaCRSStats(BaseModel):
     artifacts: MetaArtifactCounts = Field(default_factory=MetaArtifactCounts)
     llm: MetaLLMStats = Field(default_factory=MetaLLMStats)
     sidecar: MetaSidecarStats = Field(default_factory=MetaSidecarStats)
+    git_commit: Optional[str] = None
 
 
 class MetaTotals(BaseModel):
