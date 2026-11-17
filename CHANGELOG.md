@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Ignore symlinks and out-of-tree files when staging `--bug-candidate-dir` into `FETCH_DIR` in `CRSCompose._prepare_build_fetch_dir`.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
