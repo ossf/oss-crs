@@ -6,6 +6,12 @@ libCRS is a Python CLI library installed in every CRS container. It provides a u
 
 By abstracting these operations behind a single CLI, libCRS allows CRS developers to write infrastructure-agnostic code: the same `libCRS` commands work regardless of whether the CRS runs locally via Docker Compose or (in the future) on a cloud deployment.
 
+### 📚 Modular Documentation Guides
+For focused deep-dives into specific subsystems, see:
+- **[Artifact Exchange & Directory Sync](libCRS-artifacts.md)**: Submission, fetching, filesystem watching, hashing, and batching.
+- **[Builder Sidecar Interface](libCRS-builder-sidecar.md)**: Rebuilding binaries, patch testing, and POV execution.
+- **[Python SDK Reference](libCRS-sdk.md)**: Native Python bindings (`libcrs`), strategy pattern, and code examples.
+
 ## Installation
 
 libCRS is installed inside CRS container images during the Docker build phase. The provided `install.sh` script handles the full setup:

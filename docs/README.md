@@ -1,75 +1,101 @@
-# OSS-CRS Documentation
+# OSS-CRS Documentation Wiki
 
-Welcome to the OSS-CRS documentation. This guide covers everything from getting started to building your own Cyber Reasoning System.
+Welcome to the comprehensive documentation book for the **Open Source Cyber Reasoning System (OSS-CRS)** framework.
 
-For a quick introduction and setup instructions, see the [project README](../README.md).
+OSS-CRS is an open, modular orchestration framework for building, evaluating, and running autonomous LLM-powered bug-finding and bug-fixing systems (Cyber Reasoning Systems) against OSS-Fuzz targets.
 
 ---
 
-## Getting Started
+## 📖 Book Chapters
 
-| Topic | Description |
-|---|---|
-| [Quick Start](../README.md#quick-start) | Install prerequisites and run your first CRS in minutes |
-| [Setup Command](setup.md) | Configure system for enhanced resource management (cgroup-parent support) |
-| [CRS Development Guide](crs-development-guide.md) | Build or integrate your own CRS into the OSS-CRS framework |
-| [CRS Registry](registry.md) | Browse available CRSs ready to use out of the box |
+| Chapter | Title | Focus |
+|---|---|---|
+| **[Chapter 1](#chapter-1-getting-started)** | **Getting Started** | Setup, prerequisites, quick-start guide, and the CRS registry |
+| **[Chapter 2](#chapter-2-architecture--system-design)** | **Architecture & System Design** | Multi-tier orchestrator, isolation model, lifecycle, and parallel execution |
+| **[Chapter 3](#chapter-3-configuration-reference)** | **Configuration Reference** | Complete schema guides for compose, CRS definitions, LLMs, and MCP tools |
+| **[Chapter 4](#chapter-4-crs-development--libcrs)** | **CRS Development & libCRS** | Building custom CRSs, inter-container IPC, builder sidecars, and Python SDK |
+| **[Chapter 5](#chapter-5-shared-infrastructure--services)** | **Shared Infrastructure & Services** | LiteLLM proxy, PostgreSQL, budget tracking, and the WebUI dashboard |
+| **[Chapter 6](#chapter-6-operations-workflows--tooling)** | **Operations, Workflows & Tooling** | Incremental builds, artifact forwarding, snapshotting, and cleanup wizards |
+| **[Chapter 7](#chapter-7-enterprise-integrations--cicd)** | **Enterprise Integrations & CI/CD** | GitLab CI pipelines, air-gapped export/import, and multi-host deployment |
 
-## Configuration Reference
+---
 
-| Config File | Description |
-|---|---|
-| [CRS Compose (`crs-compose.yaml`)](config/crs-compose.md) | Orchestration config — define CRS entries, resources, and ensemble campaigns |
-| [CRS (`crs.yaml`)](config/crs.md) | Per-CRS config — prepare, build, and run phases for a single CRS |
-| [Target Project (`project.yaml`)](config/target-project.md) | Target project setup — OSS-Fuzz format and `project.yaml` schema |
-| [LLM (`litellm_config.yaml`)](config/llm.md) | LiteLLM config file format for internal mode (provider routing, API keys, custom endpoints) |
-| [MCP servers](config/mcp.md) | Per-CRS tool servers, transports, mounts, and image preparation |
+## Chapter 1: Getting Started
 
-## Architecture & Design
+Learn how to configure your host machine and orchestrate your first Cyber Reasoning System campaign in minutes.
 
-| Document | Description |
-|---|---|
-| [Architecture Overview](design/architecture.md) | System design, component diagram, and lifecycle walkthrough |
-| [Parallel Builds and Runs](design/parallel.md) | Build/run isolation with `--build-id` and `--run-id` |
-| [libCRS](design/libCRS.md) | CRS communication library — submit/fetch seeds, PoVs, and patches |
-| [LLM Providers](llm-providers.md) | LiteLLM proxy setup for local and remote models |
+- **[Quick Start Guide](../README.md#quick-start)**: Step-by-step tutorial running `crs-libfuzzer` and multi-language LLM agents on `libxml2`.
+- **[System Setup & Cgroup Guide](setup.md)**: Configuring host cgroup v2 delegation and Docker cgroupfs drivers for kernel-enforced sandboxing via `oss-crs setup`.
+- **[CRS Registry](registry.md)**: Catalog of pre-integrated, ready-to-use bug-finding and bug-fixing CRSs (libFuzzer, Atlantis Multilang, Claude Code).
 
-## Key Concepts
+---
 
-### CRS Lifecycle
+## Chapter 2: Architecture & System Design
 
-Every CRS campaign follows three phases managed by `oss-crs`:
+Deep-dive into the architectural principles and subsystems powering OSS-CRS.
 
-1. **Prepare** — Pull CRS source repositories and build Docker images (`oss-crs prepare`)
-2. **Export (optional)** — Bundle prepared Docker images and CRS source for transfer to another host (`oss-crs export`). Specify the CRS with --compose-file.
-3. **Import (on another host)** — Load the exported Docker images and restore CRS source (`oss-crs import --in prepared.tar`).
-4. **Build Target** — Compile the target project and run each CRS's target build pipeline (`oss-crs build-target`). Pass `--incremental-build` to create Docker snapshots for faster rebuilds. Pass `--coverage` to additionally build a coverage-instrumented binary for the [Web Dashboard](#web-dashboard).
-5. **Run** — Launch all CRSs and shared infrastructure via Docker Compose (`oss-crs run`). Pass `--incremental-build` to use snapshot images for ephemeral rebuild containers. Pass `--web-ui` to monitor the run live in the [Web Dashboard](#web-dashboard). Pass `--forward-artifacts <run-id>[,<run-id>...]` to seed a run with artifacts from previous runs, or pass bare `--forward-artifacts` in an interactive terminal to choose from prior artifact-producing runs for the same target project.
-6. **Clean** — Remove Docker images and workdir artifacts from previous phases (`oss-crs clean`). Target a specific phase with `clean prepare`, `clean build-target`, or `clean run`, or clean everything at once. Add `--artifacts` to also remove workdir build/run directories.
+- **[System Architecture Overview](design/architecture.md)**: High-level architectural diagram, orchestration layers, component hierarchy, and data flow.
+- **[Isolation & Resource Sandboxing](design/isolation-model.md)**: Linux cgroup v2 hierarchy, CPU pinning (`cpuset`), hard memory ceilings (`memory.max`), swap suppression (`swap.max = 0`), and private Docker networks.
+- **[Campaign Lifecycle Walkthrough](design/lifecycle.md)**: Deterministic execution phases: `prepare` ➔ `export`/`import` ➔ `build-target` ➔ `run` ➔ `clean`.
+- **[Parallel Builds and Runs](design/parallel.md)**: Multi-tenancy, parallel build isolation via `--build-id`, runtime isolation via `--run-id`, sanitizer matrices, and workdir partitioning.
+- **[Shared Infrastructure Architecture](design/infrastructure.md)**: Centralized support services (`oss-crs-infra`), dynamic secret injection, and inter-CRS exchange mechanisms.
 
-### CRS Isolation
+---
 
-Each CRS runs in its own containerized environment with strict resource boundaries:
+## Chapter 3: Configuration Reference
 
-- **CPU** — Pinned to specific cores via `cpuset`
-- **Memory** — Hard memory cap via `mem_limit`
-- **LLM Budget** — Per-CRS dollar-denominated limits enforced by LiteLLM
-- **Network** — Private Docker network per CRS; shared network for infrastructure access
+Declarative YAML specifications that configure targets, orchestration policies, and agent behaviors.
 
-Run `oss-crs setup` to enable [cgroup-parent mode](setup.md) for flexible resource sharing within each CRS.
+- **[CRS Compose Specification (`crs-compose.yaml`)](config/crs-compose.md)**: Orchestration manifest defining CRS participants, resource limits, Docker registry, and global LLM policies.
+- **[CRS Package Specification (`crs.yaml`)](config/crs.md)**: Individual CRS manifest declaring bake files, target build steps, run-phase modules, and required inputs.
+- **[Target Project Specification (`project.yaml`)](config/target-project.md)**: OSS-Fuzz target configuration format, compilation flags, sanitizers, and fuzz harnesses.
+- **[LLM Configuration (`litellm_config.yaml`)](config/llm.md)**: Provider routing, fallback models, custom base URLs, and API key environment variables.
+- **[MCP Tool Servers Specification](config/mcp.md)**: Model Context Protocol (MCP) tool integration, transports, mounts, and tool exposure.
 
-### Ensemble Campaigns
+---
 
-Multiple CRSs can be composed in a single `crs-compose.yaml` to run simultaneously. Each CRS operates independently with its own resource allocation, and results are aggregated automatically.
+## Chapter 4: CRS Development & libCRS
 
-### Web Dashboard
+A comprehensive developer guide for writing your own autonomous bug-finding and patching systems.
 
-An optional WebUI dashboard visualizes live run status — per-CRS and exchange artifact counts (POVs, seeds, bug-candidates, reports, patches, diffs), LLM cost, and a coverage panel.
+- **[CRS Development Guide](crs-development-guide.md)**: End-to-end handbook for building, packaging, and testing a custom CRS.
+- **[libCRS Communication Library Overview](design/libCRS.md)**: Master reference for the containerized agent SDK and CLI tool.
+- **[libCRS Artifact Exchange & Directory Sync](design/libCRS-artifacts.md)**: Real-time artifact exchange: submitting, fetching, and filesystem event watching for `pov`, `seed`, `bug-candidate`, `report`, and `patch`.
+- **[libCRS Builder Sidecar Interface](design/libCRS-builder-sidecar.md)**: Patch application, ephemeral rebuild containers, PoV verification execution, and REST endpoints.
+- **[libCRS Python SDK Reference](design/libCRS-sdk.md)**: Native Python bindings (`libcrs`), `LocalCRSUtils`, strategy pattern, and code examples.
 
-- **Start the service** — `oss-crs web-ui start` (add `--port <N>` to override the default port `9090`). Use `oss-crs web-ui status` to check it and `oss-crs web-ui stop` to tear it down.
-- **Monitor a run** — pass `--web-ui` to `oss-crs run`. This starts the service if it isn't already running and publishes final artifact and cost totals after teardown so the finished run reflects the true results.
-- **Coverage panel** — build the target with `oss-crs build-target --coverage` (or rely on `--web-ui`, which builds it on demand) to populate the coverage panel. The coverage build is best-effort: targets that can't be instrumented simply omit the panel without affecting fuzzing or failing the build.
+---
 
-## Contributing
+## Chapter 5: Shared Infrastructure & Services
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines on contributing to OSS-CRS.
+Centralized services that coordinate campaigns, manage external API budgets, and stream observability data.
+
+- **[LLM Providers & Budget Proxy](llm-providers.md)**: LiteLLM proxy configuration, rate limiting resilience, and PostgreSQL state tracking.
+- **[Spend & Token Tracking](design/infrastructure.md#spend-and-token-reporting)**: Real-time tracking of prompt tokens, completion tokens, and dollar expenditures.
+- **[WebUI Dashboard](design/infrastructure.md#3-webui-dashboard--event-streaming)**: Real-time campaign visualization, live artifact streaming, and source-level Clang coverage viewer.
+
+---
+
+## Chapter 6: Operations, Workflows & Tooling
+
+Operational procedures for running efficient, large-scale fuzzing and benchmarking campaigns.
+
+- **Incremental Builds & Docker Snapshots**: Using `--incremental-build` during `build-target` and `run` to cache intermediate build trees and accelerate patch verification.
+- **Cross-Run Artifact Forwarding**: Seeding new campaigns with findings from previous runs via `--forward-artifacts`.
+- **Environment & Workspace Pruning**: Reclaiming disk space and Docker storage safely with the interactive `oss-crs clean` wizard.
+
+---
+
+## Chapter 7: Enterprise Integrations & CI/CD
+
+Automating OSS-CRS in enterprise infrastructure and automated software security pipelines.
+
+- **[GitLab CI/CD Integration](integrations/gitlab.md)**: Complete guide to embedding autonomous CRS fuzzing and patch verification into GitLab CI pipelines.
+- **[Air-Gapped Operation](design/lifecycle.md#2-phase-2-export--import-air-gapped-transfers)**: Offline CRS deployment via `oss-crs export`, `oss-crs import`, and `oss-crs-deps` self-contained Nix closures.
+
+---
+
+## Contributing & Community
+
+- **[Contributing Guidelines](../CONTRIBUTING.md)**: How to file issues, submit pull requests, and contribute new CRSs.
+- **[Meeting Notes & Presentations](meeting/)**: Archive of community sync notes, slides, and architectural roadmaps.

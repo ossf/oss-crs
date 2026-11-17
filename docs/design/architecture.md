@@ -90,11 +90,11 @@ CRS Compose is the top-level orchestrator that manages the entire lifecycle of a
 - Per-CRS entries — Each CRS with its source (git URL + ref, or local path), resource limits (`cpuset`, `memory`), and optional `llm_budget` (in dollars)
 - `llm_config` — Optional LiteLLM integration settings (`internal` or `external` mode)
 
-For the full configuration reference, see [docs/config/crs-compose.md](../config/crs-compose.md).
+For the full configuration reference, see [docs/config/crs-compose.md](../config/crs-compose.md). For an in-depth walkthrough of all execution phases, see [Campaign Lifecycle](lifecycle.md).
 
 ## 2. CRS Isolation Model
 
-Each CRS is a self-contained unit consisting of one or more **modules** (Docker containers). CRSs are completely isolated from each other at the network, filesystem, and resource level.
+Each CRS is a self-contained unit consisting of one or more **modules** (Docker containers). CRSs are completely isolated from each other at the network, filesystem, and resource level. For detailed cgroup v2 specifications and network sandboxing, see [CRS Isolation & Resource Sandboxing](isolation-model.md).
 
 ### CRS Definition (`crs.yaml`)
 
@@ -186,7 +186,7 @@ $ libCRS get-service-domain <service name>
 
 ## 4. oss-crs-infra (Shared Infrastructure)
 
-oss-crs-infra provides centralized services that all CRSs share. It runs in its own resource-constrained containers with dedicated CPU and memory allocations.
+oss-crs-infra provides centralized services that all CRSs share. It runs in its own resource-constrained containers with dedicated CPU and memory allocations. For complete details on sidecars, secret rotation, and PostgreSQL storage, see [Shared Infrastructure Architecture](infrastructure.md).
 
 ### ✅ LLM Budget Management (Implemented)
 
