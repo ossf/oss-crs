@@ -204,7 +204,8 @@ def _is_native_executable(path: Path, prefix: bytes) -> bool:
 def _is_harness(path: Path, language: str) -> bool:
     name = path.name
     if (
-        not path.is_file()
+        path.is_symlink()
+        or not path.is_file()
         or name in IGNORED_NAMES
         or name.startswith(("afl-", "jazzer_", "."))
         or path.suffix.lower() in IGNORED_SUFFIXES
