@@ -115,8 +115,9 @@ def buildx_local_output_error(cmd: Sequence[str], operation: str) -> Optional[st
     return (
         f"Cannot {operation} with the active Buildx builder using the "
         f"`{driver}` driver because this command does not export its image to "
-        "Docker's local image store. Use `--load` (single-platform builds) or "
-        "`--push` for publishing. No build was started."
+        "Docker's local image store. Use the `docker` driver or configure a "
+        "single-platform build with `--load`; publishing uses `--push`. "
+        "No build was started."
     )
 
 

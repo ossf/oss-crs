@@ -30,7 +30,9 @@ def test_non_docker_driver_rejects_implicit_local_output():
 
     assert error is not None
     assert "`docker-container` driver" in error
-    assert "Use `--load` (single-platform builds) or `--push`" in error
+    assert "Use the `docker` driver" in error
+    assert "single-platform build with `--load`" in error
+    assert "publishing uses `--push`" in error
     assert "No build was started." in error
 
 
