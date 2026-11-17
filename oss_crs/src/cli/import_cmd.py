@@ -25,6 +25,13 @@ def _load_images(staging: Path) -> bool:
         print("No images in bundle; skipping 'docker load'.")
         return True
 
+    if shutil.which("zstd") is None:
+        print(
+            "Error: 'zstd' command not found. Please install zstd to import Docker images.",
+            file=sys.stderr,
+        )
+        return False
+
     print("Loading images with 'zstd -d | docker load'...")
     decompress = subprocess.Popen(
         ["zstd", "-d", "-c", str(images_tar_zst)],

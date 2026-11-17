@@ -9,6 +9,7 @@ optional because a CRS may not produce any prepare-phase images.
 
 import json
 import platform
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -25,6 +26,13 @@ def _stream_images(image_tags: list[str], dest: Path) -> bool:
     temporary ``images.tar`` file, reducing peak disk usage by roughly
     half.
     """
+    if shutil.which("zstd") is None:
+        print(
+            "Error: 'zstd' command not found. Please install zstd to export Docker images.",
+            file=sys.stderr,
+        )
+        return False
+
     print(f"Saving {len(image_tags)} image(s) with 'docker save | zstd'...")
     save = subprocess.Popen(
         ["docker", "save", *image_tags],
