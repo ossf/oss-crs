@@ -9,7 +9,10 @@ import stat
 import subprocess
 import uuid
 import git
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore
 from contextlib import contextmanager
 from rich.console import Console
 
@@ -98,17 +101,20 @@ def file_lock(lock_path: Path, *, shared_permissions: bool = False):
                 lock_file = os.fdopen(fd, "r")
             else:
                 try:
-                    os.fchmod(fd, SHARED_LOCK_FILE_MODE)
-                except PermissionError:
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(fd, SHARED_LOCK_FILE_MODE)
+                except (AttributeError, OSError, PermissionError):
                     pass
                 lock_file = os.fdopen(fd, "r+")
         else:
             lock_file = open(lock_path, "w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         yield
     finally:
         if lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             lock_file.close()
 
 

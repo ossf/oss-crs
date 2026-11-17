@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 import ssl
 import stat
+import sys
 from pathlib import Path
 
 import certifi
@@ -82,6 +83,7 @@ class TestResolveExtraCACerts:
         """A checked-in compose can defer to the environment via ${VAR}."""
         monkeypatch.setenv("CORP_CA_DIR", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         assert resolve_extra_ca_certs(compose_value="${CORP_CA_DIR}/corp.pem") == (
             tmp_path / "corp.pem"
         )
@@ -138,9 +140,10 @@ class TestWriteCADir:
         extra = ca_dir / CA_EXTRA_NAME
         bundle = ca_dir / CA_BUNDLE_NAME
         assert extra.read_text() == ORG_PEM
-        for path in (extra, bundle):
-            assert stat.S_IMODE(path.stat().st_mode) == 0o644
-        assert stat.S_IMODE(ca_dir.stat().st_mode) == 0o755
+        if sys.platform != "win32":
+            for path in (extra, bundle):
+                assert stat.S_IMODE(path.stat().st_mode) == 0o644
+            assert stat.S_IMODE(ca_dir.stat().st_mode) == 0o755
 
     def test_creates_missing_parent(self, tmp_path) -> None:
         """The compose tmp dir may not exist yet when rendering."""
