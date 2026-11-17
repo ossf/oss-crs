@@ -112,3 +112,25 @@ def test_read_cost_missing_or_corrupt(publisher: ModuleType, tmp_path: Path) -> 
     assert publisher.read_cost(corrupt) is None
     # Default path (/spend/litellm-spend-report.json) is absent outside containers.
     assert publisher.read_cost() is None
+
+
+def test_count_files_skips_hidden_and_symlinks(
+    publisher: ModuleType, tmp_path: Path
+) -> None:
+    d = tmp_path / "artifacts"
+    d.mkdir()
+    (d / "artifact1.txt").write_text("ok")
+    (d / "artifact2.txt").write_text("ok")
+    (d / ".hidden_temp").write_text("hidden")
+    (d / ".skip").write_text("skip")
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside")
+    symlink_file = d / "link.txt"
+    try:
+        symlink_file.symlink_to(outside)
+    except OSError:
+        pass  # On Windows without symlink privileges, test regular + hidden
+
+    # Only artifact1.txt and artifact2.txt should be counted
+    assert publisher._count_files(d) == 2
