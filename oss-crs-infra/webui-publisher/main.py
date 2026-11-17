@@ -221,13 +221,15 @@ def _collect_corpus() -> list[Path]:
     seeds_dir = EXCHANGE_ROOT / "seeds"
     if seeds_dir.is_dir():
         for entry in os.scandir(seeds_dir):
-            if entry.is_file(follow_symlinks=False):
+            if entry.is_file(follow_symlinks=False) and not entry.name.startswith("."):
                 files.append(Path(entry.path))
     for name in CRS_NAMES:
         crs_seeds = SUBMIT_ROOT / name / "seeds"
         if crs_seeds.is_dir():
             for entry in os.scandir(crs_seeds):
-                if entry.is_file(follow_symlinks=False):
+                if entry.is_file(follow_symlinks=False) and not entry.name.startswith(
+                    "."
+                ):
                     files.append(Path(entry.path))
     return files
 

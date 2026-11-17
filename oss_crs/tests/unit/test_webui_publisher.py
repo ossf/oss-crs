@@ -112,3 +112,39 @@ def test_read_cost_missing_or_corrupt(publisher: ModuleType, tmp_path: Path) -> 
     assert publisher.read_cost(corrupt) is None
     # Default path (/spend/litellm-spend-report.json) is absent outside containers.
     assert publisher.read_cost() is None
+
+
+def test_collect_corpus_skips_hidden_and_symlinks(
+    publisher: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exchange_root = tmp_path / "exchange"
+    submit_root = tmp_path / "submit"
+    monkeypatch.setattr(publisher, "EXCHANGE_ROOT", exchange_root)
+    monkeypatch.setattr(publisher, "SUBMIT_ROOT", submit_root)
+    monkeypatch.setattr(publisher, "CRS_NAMES", ["crs_a"])
+
+    exchange_seeds = exchange_root / "seeds"
+    exchange_seeds.mkdir(parents=True)
+    (exchange_seeds / "seed1.bin").write_bytes(b"seed1")
+    (exchange_seeds / ".hidden_seed").write_bytes(b"hidden")
+
+    submit_seeds = submit_root / "crs_a" / "seeds"
+    submit_seeds.mkdir(parents=True)
+    (submit_seeds / "seed2.bin").write_bytes(b"seed2")
+    (submit_seeds / ".partial_seed").write_bytes(b"partial")
+
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"outside")
+    symlink_file = exchange_seeds / "link.bin"
+    try:
+        symlink_file.symlink_to(outside)
+    except OSError:
+        pass
+
+    collected = publisher._collect_corpus()
+    collected_names = [f.name for f in collected]
+    assert "seed1.bin" in collected_names
+    assert "seed2.bin" in collected_names
+    assert ".hidden_seed" not in collected_names
+    assert ".partial_seed" not in collected_names
+    assert "link.bin" not in collected_names
