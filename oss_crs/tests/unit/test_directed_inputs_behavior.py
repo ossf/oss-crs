@@ -1,5 +1,14 @@
 # SPDX-License-Identifier: MIT
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+# Polyfill fcntl on platforms (such as Windows) where it is missing
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 import oss_crs.src.crs_compose as crs_compose_module
 from oss_crs.src.crs_compose import ArtifactInput, CRSCompose, ForwardArtifactSource
@@ -220,6 +229,45 @@ def test_prepare_build_fetch_dir_accepts_directed_inputs_without_harness(
     assert fetch_dir is not None
     assert (fetch_dir / "diffs" / "ref.diff").read_text() == "patch"
     assert (fetch_dir / "bug-candidates" / "report.sarif").read_text() == "{}"
+
+
+def test_prepare_build_fetch_dir_ignores_symlinks_in_bug_candidate_dir(
+    tmp_path: Path,
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, None)
+
+    bc_dir = tmp_path / "bc_dir"
+    bc_dir.mkdir()
+    valid_file = bc_dir / "valid.json"
+    valid_file.write_text('{"status": "ok"}')
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_secret = outside_dir / "secret.txt"
+    outside_secret.write_text("secret")
+
+    # Create symlink pointing outside bc_dir
+    symlink_file = bc_dir / "symlink_secret.txt"
+    try:
+        symlink_file.symlink_to(outside_secret)
+    except OSError:
+        import pytest
+
+        pytest.skip("Symlinks not supported on this platform without privileges")
+
+    fetch_dir = compose._prepare_build_fetch_dir(
+        target=target,
+        build_id="build-symlink",
+        sanitizer="address",
+        diff=None,
+        bug_candidate=None,
+        bug_candidate_dir=bc_dir,
+    )
+
+    assert fetch_dir is not None
+    assert (fetch_dir / "bug-candidates" / "valid.json").exists()
+    assert not (fetch_dir / "bug-candidates" / "symlink_secret.txt").exists()
 
 
 def test_parallel_runs_with_same_build_id_use_distinct_exchange_dirs(
