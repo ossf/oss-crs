@@ -2210,21 +2210,34 @@ class CRSCompose:
         totals = totals_raw if isinstance(totals_raw, dict) else {}
         crs_raw = raw.get("crs")
         crs = crs_raw if isinstance(crs_raw, dict) else {}
+
+        crs_entries = {
+            name: {
+                "credits_used": entry.get("credits_used", 0.0),
+                "prompt_tokens": entry.get("prompt_tokens", 0),
+                "completion_tokens": entry.get("completion_tokens", 0),
+            }
+            for name, entry in crs.items()
+            if isinstance(name, str) and isinstance(entry, dict)
+        }
+
+        prompt_sum = sum(e["prompt_tokens"] for e in crs_entries.values())
+        completion_sum = sum(e["completion_tokens"] for e in crs_entries.values())
+        credits_sum = sum(e["credits_used"] for e in crs_entries.values())
+
         return {
             "totals": {
-                "credits_used": totals.get("credits_used", 0.0),
-                "prompt_tokens": totals.get("prompt_tokens", 0),
-                "completion_tokens": totals.get("completion_tokens", 0),
+                "credits_used": totals.get("credits_used")
+                if totals.get("credits_used") is not None
+                else credits_sum,
+                "prompt_tokens": totals.get("prompt_tokens")
+                if totals.get("prompt_tokens") is not None
+                else prompt_sum,
+                "completion_tokens": totals.get("completion_tokens")
+                if totals.get("completion_tokens") is not None
+                else completion_sum,
             },
-            "crs": {
-                name: {
-                    "credits_used": entry.get("credits_used", 0.0),
-                    "prompt_tokens": entry.get("prompt_tokens", 0),
-                    "completion_tokens": entry.get("completion_tokens", 0),
-                }
-                for name, entry in crs.items()
-                if isinstance(name, str) and isinstance(entry, dict)
-            },
+            "crs": crs_entries,
         }
 
     def _read_sidecar_counts_for_crs(
