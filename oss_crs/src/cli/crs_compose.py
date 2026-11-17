@@ -19,6 +19,7 @@ from .setup import add_setup_command, handle_setup
 from .export import handle_export
 from .import_cmd import handle_import
 from .list_harnesses import add_list_harnesses_command, handle_list_harnesses
+from .registry import add_registry_command, handle_registry_list
 
 
 DEFAULT_WORK_DIR = (Path(__file__) / "../../../../.oss-crs-workdir").resolve()
@@ -889,6 +890,7 @@ def cli() -> bool | int:
     add_setup_command(subparsers)
     add_web_ui_command(subparsers)
     add_list_harnesses_command(subparsers, DEFAULT_WORK_DIR)
+    add_registry_command(subparsers)
 
     argv = sys.argv[1:]
     _warn_deprecated_cli_aliases(argv)
@@ -913,6 +915,9 @@ def cli() -> bool | int:
 
     if args.command == "list-harnesses":
         return handle_list_harnesses(args)
+
+    if args.command == "registry" and args.registry_action == "list":
+        return handle_registry_list(args)
 
     # Handle gen-compose early - it doesn't need CRSCompose initialization
     if args.command == "gen-compose":
