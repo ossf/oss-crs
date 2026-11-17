@@ -82,8 +82,19 @@ class WorkDir:
         """
         if not dir_path.exists() or not dir_path.is_dir():
             return 0
+        resolved_dir = dir_path.resolve()
         entries = dir_path.rglob("*") if recursive else dir_path.iterdir()
-        return sum(1 for f in entries if f.is_file() and not f.name.startswith("."))
+        count = 0
+        for f in entries:
+            if f.is_symlink() or not f.is_file() or f.name.startswith("."):
+                continue
+            if recursive:
+                try:
+                    f.resolve().relative_to(resolved_dir)
+                except ValueError:
+                    continue
+            count += 1
+        return count
 
     @classmethod
     def _get_harness_scope(cls, target: Target) -> str:
