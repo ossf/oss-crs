@@ -78,7 +78,7 @@ def _count_files(directory: Path) -> int:
     count = 0
     try:
         for entry in os.scandir(directory):
-            if entry.is_file(follow_symlinks=False):
+            if entry.is_file(follow_symlinks=False) and not entry.name.startswith("."):
                 count += 1
     except OSError:
         pass
