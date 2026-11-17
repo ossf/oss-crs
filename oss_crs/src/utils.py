@@ -220,15 +220,19 @@ def build_snapshot_tag(crs_name: str, build_name: str, build_id: str) -> str:
 
 
 def rm_with_docker(path: Path, image_tag: str = OSS_CRS_ALPINE_TAG) -> None:
+    resolved = path.resolve()
+    if resolved == resolved.parent or not resolved.name:
+        raise ValueError(f"Refusing to remove root directory with Docker: {path}")
+
     command = [
         "docker",
         "run",
         "--rm",
         "-v",
-        f"{path.parent}:/data",
+        f"{resolved.parent}:/data",
     ]
     if image_tag == OSS_CRS_ALPINE_TAG:
-        command.extend([image_tag, "rm", "-rf", f"/data/{path.name}"])
+        command.extend([image_tag, "rm", "-rf", f"/data/{resolved.name}"])
     else:
         # OSS-Fuzz target images use ``compile`` as their entrypoint, so
         # explicitly replace it when using one to clean root-owned artifacts.
@@ -238,7 +242,7 @@ def rm_with_docker(path: Path, image_tag: str = OSS_CRS_ALPINE_TAG) -> None:
                 "rm",
                 image_tag,
                 "-rf",
-                f"/data/{path.name}",
+                f"/data/{resolved.name}",
             ]
         )
     try:
