@@ -406,6 +406,7 @@ libCRS get-service-domain <service_name>
 # Builder sidecar (framework-injected, BUILDER_MODULE set automatically)
 libCRS apply-patch-build <patch_path> <response_dir>
 libCRS run-pov <pov_path> <response_dir> --harness <name> --rebuild-id <id>
+libCRS run-pov <pov_path> <response_dir> --harness <name> --reproduce-script ./reproduce.sh
 libCRS apply-patch-test <patch_path> <response_dir>
 
 # Harness generation (directory-based)

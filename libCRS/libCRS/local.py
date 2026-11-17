@@ -524,6 +524,7 @@ class LocalCRSUtils(CRSUtils):
         response_dir: Path,
         rebuild_id: "str | None" = None,
         builder: "str | None" = None,
+        reproduce_script: "Path | None" = None,
     ) -> int:
         """Run a POV binary against a specific rebuild's output via the runner sidecar."""
         builder = self._resolve_runner(builder)
@@ -550,12 +551,26 @@ class LocalCRSUtils(CRSUtils):
                         "application/octet-stream",
                     )
                 }
-                resp = http_requests.post(
-                    f"{runner_url}/run-pov",
-                    data=data,
-                    files=files,
-                    timeout=180,
-                )
+                if reproduce_script is not None:
+                    with open(reproduce_script, "rb") as script_file:
+                        files["reproduce_script"] = (
+                            reproduce_script.name,
+                            script_file,
+                            "text/x-shellscript",
+                        )
+                        resp = http_requests.post(
+                            f"{runner_url}/run-pov",
+                            data=data,
+                            files=files,
+                            timeout=180,
+                        )
+                else:
+                    resp = http_requests.post(
+                        f"{runner_url}/run-pov",
+                        data=data,
+                        files=files,
+                        timeout=180,
+                    )
             resp.raise_for_status()
             result = resp.json()
         except (
