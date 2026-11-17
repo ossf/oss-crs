@@ -7,6 +7,7 @@ for Docker container resource management using cgroup-parent.
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import time
@@ -412,6 +413,12 @@ def check_cgroup_parent_available() -> tuple[bool, str]:
     return True, "ok"
 
 
+def _sanitize_cgroup_name_component(name: str) -> str:
+    """Sanitize a name component to be safe for cgroup directory names."""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", name).strip("-._")
+    return sanitized or "default"
+
+
 def generate_worker_cgroup_name(run_id: str, phase: str) -> str:
     """Generate a unique worker cgroup name.
 
@@ -422,9 +429,11 @@ def generate_worker_cgroup_name(run_id: str, phase: str) -> str:
     Returns:
         Worker cgroup name like "run_id-phase-timestamp-random"
     """
+    clean_run_id = _sanitize_cgroup_name_component(run_id)
+    clean_phase = _sanitize_cgroup_name_component(phase)
     timestamp = int(time.time())
     random_suffix = secrets.token_hex(4)
-    return f"{run_id}-{phase}-{timestamp}-{random_suffix}"
+    return f"{clean_run_id}-{clean_phase}-{timestamp}-{random_suffix}"
 
 
 def create_worker_cgroup(worker_name: str) -> Path:
@@ -474,7 +483,8 @@ def create_crs_cgroup(
     Raises:
         OSError: If cgroup creation fails
     """
-    crs_path = worker_path / crs_name
+    clean_crs_name = _sanitize_cgroup_name_component(crs_name)
+    crs_path = worker_path / clean_crs_name
 
     # Create CRS directory
     crs_path.mkdir(parents=True, exist_ok=True)
