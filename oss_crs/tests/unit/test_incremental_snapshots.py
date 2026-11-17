@@ -193,7 +193,8 @@ class TestCreateIncrementalSnapshots:
             mock_from_env.assert_not_called()
 
     def test_all_or_nothing_cleanup_on_builder_failure(self):
-        """First builder succeeds, second builder fails => first builder snapshot cleaned up."""
+        """First builder succeeds, second builder fails on timeout => first builder snapshot cleaned up."""
+        import requests
         build_id = "myid"
         crs = _make_crs(["builderA", "builderB"])
         obj = _make_crs_compose([crs])
@@ -206,7 +207,7 @@ class TestCreateIncrementalSnapshots:
         container_a.wait.return_value = {"StatusCode": 0}  # builderA succeeds
 
         container_b = MagicMock()
-        container_b.wait.return_value = {"StatusCode": 1}  # builderB fails
+        container_b.wait.side_effect = requests.exceptions.ReadTimeout("timed out")  # builderB fails
 
         client.containers.create.side_effect = [container_a, container_b]
 
@@ -225,6 +226,29 @@ class TestCreateIncrementalSnapshots:
         client.images.remove.assert_called()
         removed_tags = [c.args[0] for c in client.images.remove.call_args_list]
         assert f"oss-crs-snapshot:build-test-crs-builderA-{build_id}" in removed_tags
+
+    def test_snapshot_committed_on_non_zero_exit_code(self):
+        """Build-target container non-zero exit code does NOT fail snapshot creation (#182)."""
+        build_id = "nonzero123"
+        crs = _make_crs(["builderNonZero"])
+        obj = _make_crs_compose([crs])
+
+        client, container = _make_mock_docker_client(exit_code=1)
+        with (
+            patch(f"{_PATCH_PREFIX}.docker.from_env", return_value=client),
+            patch(f"{_PATCH_PREFIX}.build_target_builder_env") as mock_env,
+            patch(f"{_PATCH_PREFIX}.file_lock", side_effect=_noop_lock),
+        ):
+            mock_env.return_value = SimpleNamespace(effective_env={"K": "V"})
+            result = obj._create_incremental_snapshots(
+                "base:latest", build_id, _make_mock_target(), "address"
+            )
+
+        assert result is True
+        # Container commit called even though exit code was 1
+        container.commit.assert_called()
+        tags = [c.kwargs["tag"] for c in container.commit.call_args_list]
+        assert f"build-test-crs-builderNonZero-{build_id}" in tags
 
     def test_test_failure_is_non_fatal(self):
         """All builders succeed, test snapshot fails => builder snapshots kept, result still True."""
