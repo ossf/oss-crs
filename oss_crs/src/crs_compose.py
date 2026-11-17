@@ -2171,7 +2171,7 @@ class CRSCompose:
 
     @staticmethod
     def _safe_service_name(service: str) -> str:
-        safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", service).strip("-")
+        safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", service).strip("-._")
         return safe_name or "unknown-service"
 
     def _service_owner_crs(self, service: str) -> Optional[str]:
