@@ -10,6 +10,7 @@ import glob as _glob
 import json
 import logging
 import os
+import re
 import signal
 import threading
 import time
@@ -37,6 +38,8 @@ HISTORY_SIZE = 720  # ~1 hour at 5s intervals
 # A run with no snapshot for this long is considered "stale" (publisher gone /
 # unreachable). Publishers push every ~5s, so this tolerates a few missed polls.
 STALE_AFTER_SECONDS = 25
+# Enforce safe alphanumeric run_id format to prevent path traversal or malformed files
+RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,7 +92,16 @@ _lock = threading.Lock()
 _runs: dict[str, RunState] = {}
 
 
+def _validate_run_id(run_id: str) -> None:
+    if not run_id or not RUN_ID_REGEX.match(run_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid run_id: must contain only alphanumeric characters, underscores, and hyphens",
+        )
+
+
 def _get_or_create_run(run_id: str) -> RunState:
+    _validate_run_id(run_id)
     if run_id not in _runs:
         _runs[run_id] = RunState(run_id=run_id)
     return _runs[run_id]
@@ -388,6 +400,7 @@ def list_runs():
 
 @app.get("/api/runs/{run_id}/status")
 def run_status(run_id: str):
+    _validate_run_id(run_id)
     with _lock:
         run = _runs.get(run_id)
         if not run:
@@ -403,6 +416,7 @@ def run_status(run_id: str):
 
 @app.get("/api/runs/{run_id}/history")
 def run_history(run_id: str, last: int = 360):
+    _validate_run_id(run_id)
     with _lock:
         run = _runs.get(run_id)
         if not run:
@@ -422,6 +436,7 @@ def dashboard():
 
 @app.get("/run/{run_id}", response_class=HTMLResponse)
 def run_detail(run_id: str):
+    _validate_run_id(run_id)
     with _lock:
         run = _runs.get(run_id)
         if not run:
@@ -490,6 +505,7 @@ def _find_artifact_files(run_id: str, atype: str) -> list[Path]:
 
 @app.get("/api/runs/{run_id}/artifacts")
 def artifact_counts(run_id: str):
+    _validate_run_id(run_id)
     # Live per-type counts read straight from the workdir, so Net Artifacts
     # always matches what's actually downloadable (and catches late artifacts
     # like a report produced right at teardown, which the publisher can miss).
@@ -498,6 +514,7 @@ def artifact_counts(run_id: str):
 
 @app.get("/api/runs/{run_id}/artifacts/{atype}")
 def list_artifacts(run_id: str, atype: str):
+    _validate_run_id(run_id)
     if atype not in ARTIFACT_TYPES:
         raise HTTPException(status_code=404, detail="unknown artifact type")
     files = _find_artifact_files(run_id, atype)
@@ -510,6 +527,7 @@ def list_artifacts(run_id: str, atype: str):
 
 @app.get("/api/runs/{run_id}/artifacts/{atype}/download")
 def download_artifact(run_id: str, atype: str, name: str):
+    _validate_run_id(run_id)
     # Only serve a file whose name exactly matches one we listed — this both
     # resolves the real path and prevents path traversal via `name`.
     for f in _find_artifact_files(run_id, atype):
@@ -522,6 +540,7 @@ def download_artifact(run_id: str, atype: str, name: str):
 
 @app.get("/run/{run_id}/artifacts/{atype}", response_class=HTMLResponse)
 def artifacts_page(run_id: str, atype: str):
+    _validate_run_id(run_id)
     if atype not in ARTIFACT_TYPES:
         return HTMLResponse(status_code=404, content="unknown artifact type")
     template = _templates.get_template("artifacts.html")
