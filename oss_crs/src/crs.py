@@ -470,8 +470,41 @@ class CRS:
         )
 
     def __is_supported_target(self, target: Target) -> bool:
-        _ = target
+        """Return True only when *target* is compatible with this CRS.
+
+        Each dimension of ``self.config.supported_target`` is a set of enum
+        values. ``Target`` stores the same attributes as plain strings
+        (e.g. ``target.language == "c"``), so we compare against the enum values.
+
+        Returns False when any of the following mismatches is detected:
+        * ``target.language`` not in ``supported_target.language``
+        * ``target.sanitizer`` not in ``supported_target.sanitizer``
+        * ``target.architecture`` not in ``supported_target.architecture``
+        * ``target.engine`` not in ``supported_target.fuzzing_engine``
+        """
+        st = self.config.supported_target
+
+        supported_languages = {e.value for e in st.language}
+        if target.language not in supported_languages:
+            return False
+
+        supported_sanitizers = {e.value for e in st.sanitizer}
+        if target.sanitizer not in supported_sanitizers:
+            return False
+
+        supported_architectures = {e.value for e in st.architecture}
+        if target.architecture not in supported_architectures:
+            return False
+
+        supported_engines = {e.value for e in st.fuzzing_engine}
+        if target.engine not in supported_engines:
+            return False
+
         return True
+
+    def is_supported_target(self, target: Target) -> bool:
+        """Public alias for __is_supported_target."""
+        return self.__is_supported_target(target)
 
     def build_target(
         self,
