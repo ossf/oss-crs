@@ -22,9 +22,6 @@ Environment variables:
     MAX_PARALLEL_JOBS       - Thread pool size (default: "4")
 """
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 import copy
 import hashlib
 import json
@@ -34,12 +31,24 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from docker_ops import (
-    next_rebuild_id,
-    run_ephemeral_build,
-    run_ephemeral_test,
-    stage_cached_rebuild,
-)
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+try:
+    from .docker_ops import (
+        next_rebuild_id,
+        run_ephemeral_build,
+        run_ephemeral_test,
+        stage_cached_rebuild,
+    )
+except (ImportError, ValueError):
+    from docker_ops import (
+        next_rebuild_id,
+        run_ephemeral_build,
+        run_ephemeral_test,
+        stage_cached_rebuild,
+    )
 
 
 app = FastAPI(

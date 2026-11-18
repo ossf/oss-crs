@@ -29,7 +29,7 @@ oss-crs = "oss_crs.src.cli.crs_compose:main"
 verify = "scripts.verify:main"
 
 [tool.setuptools.packages.find]
-include = ["oss_crs*", "scripts"]
+include = ["oss_crs*", "oss_crs_infra*", "scripts"]
 
 [tool.setuptools.package-data]
 "oss_crs.src.templates" = ["*.j2", "*.py"]
@@ -52,6 +52,7 @@ dev = [
 include = []
 
 [tool.pytest.ini_options]
+pythonpath = ["libCRS", "."]
 markers = [
     "integration: marks tests as integration tests (require network access, may be slow)",
     "docker: marks tests that require Docker daemon (excluded from unit test runs)",

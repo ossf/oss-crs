@@ -5,10 +5,10 @@ Verifies that mount paths in templates, env values in env_policy, and
 constants in libCRS local.py stay in sync.
 """
 
-from libCRS.libCRS.base import SourceType
-from libCRS.libCRS.local import _FUZZ_PROJ_MOUNT, _TARGET_SOURCE_MOUNT
+from libCRS.base import SourceType
+from libCRS.local import _FUZZ_PROJ_MOUNT, _TARGET_SOURCE_MOUNT
 
-from oss_crs.src.env_policy import build_target_builder_env, build_run_service_env
+from oss_crs.src.env_policy import build_run_service_env, build_target_builder_env
 
 
 def _make_target_env():

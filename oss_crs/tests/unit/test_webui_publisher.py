@@ -5,26 +5,18 @@ The publisher is a standalone sidecar image, so it is loaded from its file
 path rather than imported as a package.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PUB_DIR = REPO_ROOT / "oss-crs-infra" / "webui-publisher"
+from oss_crs_infra.webui_publisher import main as publisher_module
 
 
 @pytest.fixture()
 def publisher() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "webui_publisher_main", PUB_DIR / "main.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    yield module
+    return publisher_module
 
 
 def _write_report(path: Path, payload: object) -> Path:

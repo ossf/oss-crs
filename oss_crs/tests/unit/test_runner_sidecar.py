@@ -2,49 +2,14 @@
 """Unit tests for runner-sidecar server.py.
 
 Uses mocked subprocess and filesystem -- no real base-runner image or reproduce binary required.
-Runner-sidecar code lives outside the oss_crs package tree; sys.path insertion
-is required before any imports from the sidecar.
-
-Note: both builder-sidecar and runner-sidecar have a module named ``server``.
-To prevent sys.modules cache collisions when both test files run in the same
-pytest session, we load runner_server via importlib with an explicit module
-name ``runner_server``, never touching the cached ``server`` entry that may
-belong to builder-sidecar.
 """
 
-import importlib.util
-import sys
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-# ---------------------------------------------------------------------------
-# Module loading: load runner-sidecar server.py under alias "runner_server"
-# so it does not collide with builder-sidecar's "server" in sys.modules.
-#
-# We do NOT modify sys.path here: runner-sidecar/server.py has no local
-# relative imports, so importlib can load it by absolute file path without
-# adding the runner-sidecar directory to sys.path.  Avoiding sys.path
-# mutation prevents order-sensitive collisions when both test files run in
-# the same pytest session.
-# ---------------------------------------------------------------------------
-
-_RUNNER_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "oss-crs-infra"
-    / "runner-sidecar"
-)
-_RUNNER_SERVER_PATH = _RUNNER_DIR / "server.py"
-
-# Load the module under a collision-safe alias.
-_spec = importlib.util.spec_from_file_location("runner_server", _RUNNER_SERVER_PATH)
-runner_server = importlib.util.module_from_spec(_spec)
-sys.modules["runner_server"] = runner_server
-_spec.loader.exec_module(runner_server)
-
+from oss_crs_infra.runner_sidecar import server as runner_server
 
 # ---------------------------------------------------------------------------
 # Helper: create a patched test client for runner-sidecar
@@ -93,8 +58,8 @@ class TestHealthEndpoint:
 class TestRunPOVEndpoint:
     """Tests for POST /run-pov endpoint (API-02)."""
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_successful_pov_returns_exit_code(self, mock_exists, mock_run):
         """Successful reproduce returns exit_code and stderr."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -105,8 +70,8 @@ class TestRunPOVEndpoint:
         assert body["exit_code"] == 0
         assert "stderr" in body
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_crash_returns_nonzero(self, mock_exists, mock_run):
         """Non-zero exit code from reproduce indicates crash (POV-03)."""
         mock_run.return_value = MagicMock(
@@ -120,8 +85,8 @@ class TestRunPOVEndpoint:
         assert body["exit_code"] == 1
         assert "AddressSanitizer" in body["stderr"]
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_timeout_returns_124(self, mock_exists, mock_run):
         """Timeout from subprocess returns exit_code=124."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="reproduce", timeout=30)
@@ -133,7 +98,7 @@ class TestRunPOVEndpoint:
             "timed out" in body["stderr"].lower() or "timeout" in body["stderr"].lower()
         )
 
-    @patch("runner_server.os.path.exists")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists")
     def test_missing_harness_returns_404(self, mock_exists):
         """Harness binary not found returns 404."""
         mock_exists.return_value = False
@@ -156,8 +121,8 @@ class TestRunPOVEndpoint:
             ("rebuild_id", "abc/1"),
         ],
     )
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists")
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists")
     def test_rejects_path_traversal_inputs(self, mock_exists, mock_run, field, value):
         """Path-like form values are rejected before filesystem or subprocess use."""
         client = _make_test_client()
@@ -180,8 +145,8 @@ class TestRunPOVEndpoint:
 class TestRunPOV:
     """Tests for POV reproduce script invocation details (POV-01, POV-02)."""
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_invokes_reproduce_with_harness_name(self, mock_exists, mock_run):
         """reproduce is called with the harness_name as argument (POV-01)."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -192,8 +157,8 @@ class TestRunPOV:
         cmd = call_args[0][0] if call_args[0] else call_args[1].get("args")
         assert cmd == ["/usr/local/bin/reproduce", "my_fuzzer"]
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_uses_out_dir(self, mock_exists, mock_run):
         """OUT env var is set to the configured out directory (POV-02)."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -203,8 +168,8 @@ class TestRunPOV:
         call_kwargs = mock_run.call_args[1]
         assert call_kwargs["env"]["OUT"] == "/custom/out/test-crs/1/build"
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_sets_testcase_env(self, mock_exists, mock_run):
         """TESTCASE env var is set to the temp file path for the uploaded POV."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -216,8 +181,8 @@ class TestRunPOV:
         testcase = call_kwargs["env"]["TESTCASE"]
         assert testcase.endswith(".pov")
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_sets_fuzzer_args_default(self, mock_exists, mock_run):
         """FUZZER_ARGS defaults to OSS-Fuzz standard values."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -244,10 +209,10 @@ class TestRunPOVDefaultRebuildId:
     used by subprocess).
     """
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.listdir", return_value=["my_fuzzer"])
-    @patch("runner_server.os.symlink")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.listdir", return_value=["my_fuzzer"])
+    @patch("oss_crs_infra.runner_sidecar.server.os.symlink")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_default_rebuild_id_uses_writable_out(
         self, mock_exists, mock_symlink, mock_listdir, mock_run
     ):
@@ -280,8 +245,8 @@ class TestRunPOVDefaultRebuildId:
         # OUT should be a temp directory (created by tempfile.mkdtemp)
         assert "run-pov-out-" in out_env
 
-    @patch("runner_server.subprocess.run")
-    @patch("runner_server.os.path.exists", return_value=True)
+    @patch("oss_crs_infra.runner_sidecar.server.subprocess.run")
+    @patch("oss_crs_infra.runner_sidecar.server.os.path.exists", return_value=True)
     def test_explicit_rebuild_id_uses_rebuild_path(self, mock_exists, mock_run):
         """Explicit rebuild_id ⇒ OUT points to the rebuild artifacts dir."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")

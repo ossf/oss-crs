@@ -12,13 +12,7 @@ from pathlib import Path
 
 import pytest
 
-# Sidecar code is outside oss_crs package tree
-_SIDECAR_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "oss-crs-infra"
-    / "builder-sidecar"
-)
-sys.path.insert(0, str(_SIDECAR_DIR))
+from oss_crs_infra.builder_sidecar.docker_ops import get_build_image, run_ephemeral_build
 
 try:
     import docker as docker_lib
@@ -65,7 +59,7 @@ def _ensure_test_image():
 
 def test_ephemeral_build_lifecycle(tmp_path):
     """TST-02: Full build container lifecycle — start, build, snapshot, cleanup."""
-    from docker_ops import run_ephemeral_build
+    from oss_crs_infra.builder_sidecar.docker_ops import run_ephemeral_build
 
     client = docker_lib.from_env()
     base_image = _TEST_IMAGE
@@ -105,7 +99,7 @@ def test_ephemeral_build_lifecycle(tmp_path):
 
 def test_snapshot_creation_and_reuse(tmp_path):
     """TST-03: First build creates snapshot; second build reuses it."""
-    from docker_ops import run_ephemeral_build, get_build_image
+    from oss_crs_infra.builder_sidecar.docker_ops import run_ephemeral_build, get_build_image
 
     client = docker_lib.from_env()
     base_image = _TEST_IMAGE
@@ -160,7 +154,7 @@ def test_snapshot_creation_and_reuse(tmp_path):
 
 def test_snapshot_tag_includes_crs_and_builder_name(tmp_path):
     """TST-03: Snapshot tag format includes crs_name and builder_name segments."""
-    from docker_ops import get_build_image
+    from oss_crs_infra.builder_sidecar.docker_ops import get_build_image
 
     client = docker_lib.from_env()
     builder_name = "my-custom-builder"
@@ -182,7 +176,7 @@ def test_snapshot_tag_includes_crs_and_builder_name(tmp_path):
 
 def test_container_cleanup_on_failure(tmp_path):
     """TST-02: Container is removed even when build fails."""
-    from docker_ops import run_ephemeral_build
+    from oss_crs_infra.builder_sidecar.docker_ops import run_ephemeral_build
 
     # Use base image to force failure at command execution (no oss_crs_handler.sh)
     result = run_ephemeral_build(
