@@ -1653,6 +1653,8 @@ class CRSCompose:
                     dst_dir,
                     dirs_exist_ok=True,
                     copy_function=shutil.copy2,
+                    ignore=shutil.ignore_patterns(".*"),
+                    symlinks=False,
                 )
                 copied_counts[artifact_dir] = count
             records.append(
@@ -2483,12 +2485,18 @@ class CRSCompose:
                     dst_dir,
                     dirs_exist_ok=True,
                     copy_function=shutil.copy2,
+                    ignore=shutil.ignore_patterns(".*"),
+                    symlinks=False,
                 )
             else:
                 # Flat types (povs, seeds) are hash-named files; subdirectories
                 # would break the consumers' flat-listing assumption.
                 for f in artifact_input.directory.iterdir():
-                    if f.is_file():
+                    if (
+                        f.is_file()
+                        and not f.is_symlink()
+                        and not f.name.startswith(".")
+                    ):
                         shutil.copy2(f, dst_dir / f.name)
 
         def copy_artifact_inputs(progress: MultiTaskProgress) -> TaskResult:

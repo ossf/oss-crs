@@ -1,5 +1,14 @@
 # SPDX-License-Identifier: MIT
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+# Polyfill fcntl on platforms (such as Windows) where it is missing
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 import oss_crs.src.crs_compose as crs_compose_module
 from oss_crs.src.crs_compose import ArtifactInput, CRSCompose, ForwardArtifactSource
@@ -622,3 +631,47 @@ def test_forward_artifacts_prefers_processed_povs_and_forwards_patches(
     assert (dst / "povs" / "triaged").read_text() == "triaged"
     assert (dst / "patches" / "fix.diff").read_text() == "patch"
     assert records[0]["copied"] == {"povs": 1, "patches": 1}
+
+
+def test_copy_forward_artifact_sources_skips_hidden_and_symlinks(
+    tmp_path: Path,
+) -> None:
+    compose = _make_run_compose(tmp_path)
+    target = Target(tmp_path / "work", tmp_path / "proj", None, "harness")
+    run_dir = tmp_path / "old" / "address" / "runs" / "run-1"
+    exchange = run_dir / "EXCHANGE_DIR" / "target_latest" / "harness"
+    (exchange / "patches").mkdir(parents=True)
+    (exchange / "patches" / "valid.diff").write_text("valid patch")
+    (exchange / "patches" / ".hidden.diff").write_text("hidden")
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside")
+    symlink_file = exchange / "patches" / "link.diff"
+    try:
+        symlink_file.symlink_to(outside)
+    except OSError:
+        pass
+
+    source = ForwardArtifactSource(
+        requested_run_id="run-1",
+        run_id="run-1",
+        sanitizer="address",
+        compose_hash="old",
+        run_dir=run_dir,
+        target_key="target_latest",
+        harness="harness",
+        exchange_dir=exchange,
+        processed_exchange_dir=None,
+    )
+
+    compose._copy_forward_artifact_sources(
+        sources=[source],
+        target=target,
+        run_id="new-run-symlink",
+        sanitizer="address",
+    )
+
+    dst = compose.work_dir.get_exchange_dir(target, "new-run-symlink", "address")
+    assert (dst / "patches" / "valid.diff").exists()
+    assert not (dst / "patches" / ".hidden.diff").exists()
+    assert not (dst / "patches" / "link.diff").exists()
