@@ -66,7 +66,7 @@ no `OSS_CRS_FUZZ_PROJ` mount, and `SANITIZER`, `ARCHITECTURE`,
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `--fuzz-proj-path` (`--target-path`, `--target-proj-path`, deprecated aliases) | Yes for harnessed/harness-gen runs; omitted for source-only runs | Path to the OSS-Fuzz target project directory (`Dockerfile`, `build.sh`; `project.yaml` optional). |
-| `--target-source-path` | Required for source-only runs; optional local source override otherwise | Path to the source tree. For source-only runs, this is directly bind-mounted. For harnessed runs, source is synchronized with `rsync -a --delete` into the effective Dockerfile `WORKDIR`. |
+| `--target-source-path` | Required for source-only runs; optional local source override otherwise | Path to the source tree. For source-only runs, this is directly bind-mounted. For harnessed runs, source is synchronized with `rsync -a --delete` into the resolved source directory (normally the effective Dockerfile `WORKDIR`; see Common Semantics). |
 | `--target-harness` | Yes (run) | Fuzz target harness binary name. |
 
 At least one of `--fuzz-proj-path` or `--target-source-path` is required.
@@ -83,8 +83,9 @@ Instead, during image build:
 1. The host source path is passed as a Docker build context (`repo_path=...`).
 2. It is copied into a temporary image path (`/OSS_CRS_REPO_OVERRIDE`).
 3. `rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ ./` runs from the effective
-   `WORKDIR`.
-4. `OSS_CRS_REPO_PATH` points to that effective `WORKDIR` path.
+   `WORKDIR`. When the source directory had to be resolved by fallback (see
+   below), the sync targets that directory instead of `./`.
+4. `OSS_CRS_REPO_PATH` points to that resolved source directory.
 
 ### Source-Only Runs
 
@@ -95,10 +96,18 @@ etc. are not injected.
 
 ### Common Semantics
 
-- `OSS_CRS_REPO_PATH` points to the effective final Dockerfile `WORKDIR`
-  inside the target image.
+- `OSS_CRS_REPO_PATH` points to the target source directory inside the target
+  image. Normally this is the effective final Dockerfile `WORKDIR`.
 - `WORKDIR` resolution follows Dockerfile semantics, with fallback chain:
   final `WORKDIR` -> `$SRC` -> `/src` (when `SRC` is not provided).
+  Variables set by OSS-Fuzz base images (`$SRC`, `$WORK`, `$OUT`, `$GOPATH`)
+  are expanded even when the project Dockerfile does not declare them.
+- If the final `WORKDIR` is a build scratch or output directory (`$WORK`,
+  `$OUT`) or still contains an unknown variable, it is not treated as the
+  source. Instead the source directory is where the Dockerfile `git clone`s the
+  project's `main_repo` (from `project.yaml`), for example `/src/alembic` for
+  a Dockerfile that ends with `WORKDIR $WORK/`. If no such clone is found,
+  `/src` is used and a warning is printed.
 - `libCRS download-source repo` prefers the live runtime source workspace
   rooted at `$SRC`/`/src`. When `OSS_CRS_REPO_PATH` is inside that workspace,
   the downloaded tree preserves the workspace layout rather than flattening a

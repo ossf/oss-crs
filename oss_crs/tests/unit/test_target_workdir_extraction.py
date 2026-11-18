@@ -246,6 +246,39 @@ class TestResolveEffectiveWorkdirWithInspectFallback:
         assert result == "/actual/workdir"
         mock_run.assert_called_once()
 
+    def test_does_not_inspect_when_workdir_is_scratch_dir(self, tmp_path):
+        """WORKDIR $WORK with no main_repo clone resolves to /src, not the image's /work."""
+        target = _make_target(
+            tmp_path=tmp_path,
+            dockerfile_content="FROM base\nWORKDIR $WORK/\n",
+        )
+
+        with (
+            patch("oss_crs.src.target.log_warning"),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = target._resolve_effective_workdir_with_inspect_fallback(
+                "test-proj:abc123"
+            )
+
+        assert result == "/src"
+        mock_run.assert_not_called()
+
+    def test_ignores_inspected_scratch_dir(self, tmp_path):
+        """An inspected WorkingDir of /work or /out is never treated as source."""
+        target = _make_target(tmp_path=tmp_path, dockerfile_content="FROM base\n")
+
+        inspect_result = MagicMock()
+        inspect_result.returncode = 0
+        inspect_result.stdout = "/work\n"
+
+        with patch("subprocess.run", return_value=inspect_result):
+            result = target._resolve_effective_workdir_with_inspect_fallback(
+                "test-proj:abc123"
+            )
+
+        assert result == "/src"
+
 
 class TestExtractWorkdirToHostEdgeCases:
     """Edge case tests for extract_workdir_to_host."""
