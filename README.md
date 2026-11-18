@@ -12,6 +12,8 @@
 
 ## Quick Start
 
+Prefer to watch first? See [Videos & Presentations](docs/presentations.md) for narrated walkthroughs of each step below.
+
 ### Prerequisites
 
 | Requirement | Version |
@@ -178,6 +180,7 @@ OSS-CRS is designed to make CRS development simple. Follow the [CRS Development 
 
 ## Documentation
 
+- [Videos & Presentations](docs/presentations.md): Narrated walkthroughs and conference slides
 - [CRS Development Guide](docs/crs-development-guide.md): How to build or integrate your own CRS
 - [Architecture](docs/design/architecture.md): System design and component overview
 - [Target Project](docs/config/target-project.md): Target project setup and OSS-Fuzz compatibility
