@@ -8,6 +8,8 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Builder sidecar: bound completed job history and captured memory output to prevent steady memory growth during long campaigns. Completed jobs are retained up to `MAX_JOB_HISTORY` (default: 100), pruning oldest completed records while keeping active and queued jobs intact. In-memory `stdout` and `stderr` are capped at `MAX_OUTPUT_BYTES` (default: 512KB) with explicit truncation markers, while full un-truncated logs remain persisted on disk.
+- Builder sidecar: bounded upload sizes and concurrency to prevent memory exhaustion and uncontrolled queueing during high-volume build and test requests. Uploads are read in bounded chunks enforcing `MAX_UPLOAD_SIZE` (default: 10MB per file) and `MAX_TOTAL_UPLOAD_SIZE` (default: 20MB total request), rejecting oversized payloads with HTTP 413. Active plus queued jobs are capped at `MAX_QUEUED_JOBS` (default: 64), returning HTTP 429 with `Retry-After: 5` when the sidecar is at capacity while preserving existing job deduplication semantics.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
