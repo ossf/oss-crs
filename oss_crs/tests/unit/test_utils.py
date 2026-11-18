@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for oss_crs.src.utils module."""
 
+import re
 from pathlib import Path
 
 import pytest
 import questionary
-import re
+from prompt_toolkit.input import DummyInput
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.output import DummyOutput
 from questionary.prompts.common import InquirerControl
 
 from oss_crs.src import utils
@@ -93,7 +95,18 @@ def _press_enter(question) -> _FakeApp:
     return event.app
 
 
+@pytest.fixture(autouse=True)
+def _mock_console_output_buffer(monkeypatch):
+    """Ensure tests never crash with NoConsoleScreenBufferError in headless environments."""
+    monkeypatch.setattr(
+        "prompt_toolkit.output.defaults.create_output",
+        lambda *args, **kwargs: DummyOutput(),
+    )
+
+
 def _checkbox(**kwargs):
+    kwargs.setdefault("input", DummyInput())
+    kwargs.setdefault("output", DummyOutput())
     return questionary.checkbox(
         "Select:",
         choices=[
@@ -132,6 +145,24 @@ def test_checkbox_enter_respects_validator():
     # The pointed-at fallback is a single value, so validation rejects it and
     # the prompt stays open (no exit result).
     assert _press_enter(question).result is None
+
+
+def test_checkbox_headless_environment_does_not_crash(monkeypatch):
+    """Ensure checkbox works without error when NoConsoleScreenBufferError is raised."""
+    try:
+        from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
+    except ImportError:
+
+        class NoConsoleScreenBufferError(Exception):  # type: ignore[no-redef]
+            pass
+
+    monkeypatch.setattr(
+        "prompt_toolkit.output.defaults.create_output",
+        lambda *args, **kwargs: (_ for _ in ()).throw(NoConsoleScreenBufferError()),
+    )
+    question = _checkbox()
+    _enter_selects_pointed_choice(question)
+    assert _press_enter(question).result == ["first"]
 
 
 class TestNormalizeRunId:
