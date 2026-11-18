@@ -71,7 +71,7 @@ The environment that was tested looks like the following.
 +-------------+
 ```
 
-# Endpoints Behind an Internal CA
+## Endpoints Behind an Internal CA
 
 If your LLM endpoint presents a certificate that chains to an internal corporate CA,
 the chain is valid but that CA is not in the trust store of the containers OSS-CRS
@@ -100,7 +100,7 @@ variable. The path is validated before any container starts: a missing file, or 
 OpenSSL cannot parse, fails immediately rather than surfacing as a TLS error an hour
 into a run.
 
-## Certificate requirements
+### Certificate requirements
 
 Python 3.13+ verifies certificates in strict X.509 mode, and so do `urllib3` and
 `httpx` running on it, which includes LiteLLM and most Python-based CRSs. Strict mode
@@ -125,7 +125,7 @@ strict mode whatever Python runs `oss-crs`, and reports either failure as needin
 reissued certificate; there is no setting to relax it, because LiteLLM and the CRSs
 would reject the same certificate later.
 
-## What this covers
+### What this covers
 
 OSS-CRS mounts the CA read-only at `/etc/oss-crs/ca` in the internal LiteLLM proxy and
 in every CRS run container, and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
@@ -143,7 +143,7 @@ that file to its own built-in roots.
 A CRS that manages its own trust store can override any of these four variables through
 `additional_env` in the compose file.
 
-## What this does not cover
+### What this does not cover
 
 `docker pull` and `docker build` use the **Docker daemon's** trust store, not container
 environment variables, so this setting has no effect on them. On a machine where IT has
@@ -156,7 +156,7 @@ per CRS via `additional_env`. `NO_PROXY` must include the compose-internal hostn
 `litellm.oss-crs`, `builder-sidecar.<crs>`, `runner-sidecar.<crs>`,
 `postgres.oss-crs-infra-only` — or intra-compose HTTP will break.
 
-# Verifying LiteLLM Proxy
+## Verifying LiteLLM Proxy
 
 We added a CRS called `test-local` to check the LiteLLM proxy forwarding.
 
@@ -180,6 +180,6 @@ uv run oss-crs run --compose-file example/test-local/compose.yaml \
     --target-harness json_array_fuzzer
 ```
 
-# Known Issues with Aliasing Models
+## Known Issues with Aliasing Models
 
 Recent LLMs like GPT-5 no longer support the `temperature` parameter. This can cause silent failures if you’re swapping model backends in LiteLLM while keeping the original model name (e.g., model name set to gpt-4o but relay configured to gpt-5). The temperature param gets passed through and the API rejects it.
