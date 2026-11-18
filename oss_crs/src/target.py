@@ -21,7 +21,7 @@ from .constants import (
     LEGACY_BASE_OS_VERSION,
 )
 from .ui import MultiTaskProgress, TaskResult
-from .utils import generate_random_name, log_warning
+from .utils import buildx_local_output_error, generate_random_name, log_warning
 from . import ui
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -566,6 +566,9 @@ class Target:
                 cmd[3:3] = ["--platform", "linux/arm64"]
             if no_cache:
                 cmd.insert(3, "--no-cache")
+            output_error = buildx_local_output_error(cmd, "build the target base image")
+            if output_error:
+                return TaskResult(success=False, error=output_error)
             return progress.run_command_with_streaming_output(
                 cmd=cmd,
                 cwd=self.work_dir,
@@ -610,6 +613,9 @@ class Target:
                 cmd[3:3] = ["--platform", "linux/arm64"]
             if no_cache:
                 cmd.insert(3, "--no-cache")
+            output_error = buildx_local_output_error(cmd, "build the target base image")
+            if output_error:
+                return TaskResult(success=False, error=output_error)
             return progress.run_command_with_streaming_output(
                 cmd=cmd,
                 cwd=self.work_dir,

@@ -166,6 +166,13 @@ target "my-crs-base" {
 
 This runs during `oss-crs prepare` and builds all images your CRS needs.
 
+Local workflows require build images to be present in Docker's image store.
+The default `docker` Buildx driver provides that implicitly; other drivers
+need an explicit local `--load` output for single-platform builds. Publishing
+continues to use `--push`. If a local build has no explicit output and the
+active builder does not load images locally, OSS-CRS fails before the build
+starts and recommends a compatible output or the `docker` driver.
+
 ---
 
 ## Step 3: Write Target Build Dockerfiles

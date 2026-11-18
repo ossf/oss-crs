@@ -102,6 +102,11 @@ def _mock_subprocess_for_pull(bake_plan, pull_succeeds=True):
     def mock_run(cmd, **kwargs):
         calls_log.append(cmd)
         result = MagicMock()
+        if cmd == ["docker", "buildx", "inspect"]:
+            result.returncode = 0
+            result.stdout = "Name: default\nDriver: docker\n"
+            result.stderr = ""
+            return result
         if "--print" in cmd:
             result.returncode = 0
             result.stdout = bake_plan
@@ -119,6 +124,17 @@ def _mock_subprocess_for_pull(bake_plan, pull_succeeds=True):
     return mock_run, calls_log
 
 
+def _mock_buildx_inspect_then_fail(cmd, **kwargs):
+    result = MagicMock()
+    if cmd == ["docker", "buildx", "inspect"]:
+        result.returncode = 0
+        result.stdout = "Name: default\nDriver: docker\n"
+        result.stderr = ""
+    else:
+        result.returncode = 1
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Original tests (env forwarding)
 # ---------------------------------------------------------------------------
@@ -130,7 +146,9 @@ def test_prepare_forwards_resource_additional_env(tmp_path):
 
     # Mock subprocess so _try_pull_prebuilt_images fails (bake --print fails),
     # falling through to the bake command captured by _CaptureProgress.
-    with patch("oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)):
+    with patch(
+        "oss_crs.src.crs.subprocess.run", side_effect=_mock_buildx_inspect_then_fail
+    ):
         result = crs._CRS__prepare_bake(multi_task_progress=progress)
 
     assert result.success is True
@@ -144,7 +162,9 @@ def test_prepare_keeps_crs_version_over_additional_env(tmp_path):
     crs = _make_crs(tmp_path, {"VERSION": "override-me"})
     progress = _CaptureProgress()
 
-    with patch("oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)):
+    with patch(
+        "oss_crs.src.crs.subprocess.run", side_effect=_mock_buildx_inspect_then_fail
+    ):
         result = crs._CRS__prepare_bake(multi_task_progress=progress)
 
     assert result.success is True
@@ -163,7 +183,9 @@ def test_prepare_does_not_override_hcl_cache_from(tmp_path):
     crs = _make_crs(tmp_path, {})
     progress = _CaptureProgress()
 
-    with patch("oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)):
+    with patch(
+        "oss_crs.src.crs.subprocess.run", side_effect=_mock_buildx_inspect_then_fail
+    ):
         result = crs._CRS__prepare_bake(
             multi_task_progress=progress, docker_registry="ghcr.io/example"
         )
@@ -276,6 +298,11 @@ def test_prepare_falls_back_when_no_registry_tags(tmp_path):
 
     def mock_run(cmd, **kwargs):
         result = MagicMock()
+        if cmd == ["docker", "buildx", "inspect"]:
+            result.returncode = 0
+            result.stdout = "Name: default\nDriver: docker\n"
+            result.stderr = ""
+            return result
         if "--print" in cmd:
             result.returncode = 0
             result.stdout = plan
@@ -296,7 +323,9 @@ def test_prepare_falls_back_when_bake_print_fails(tmp_path):
     crs = _make_crs(tmp_path, {})
     progress = _CaptureProgress()
 
-    with patch("oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)):
+    with patch(
+        "oss_crs.src.crs.subprocess.run", side_effect=_mock_buildx_inspect_then_fail
+    ):
         result = crs._CRS__prepare_bake(multi_task_progress=progress)
 
     assert result.success is True
@@ -309,15 +338,39 @@ def test_prepare_no_pull_skips_pull_and_builds(tmp_path):
     crs = _make_crs(tmp_path, {})
     progress = _CaptureProgress()
 
-    with patch("oss_crs.src.crs.subprocess.run") as mock_run:
+    with patch(
+        "oss_crs.src.crs.subprocess.run",
+        return_value=MagicMock(returncode=0, stdout="Name: default\nDriver: docker\n"),
+    ) as mock_run:
         result = crs._CRS__prepare_bake(multi_task_progress=progress, no_pull=True)
 
     assert result.success is True
-    # Should NOT have called subprocess.run (no pull attempt)
-    mock_run.assert_not_called()
+    # Should inspect the active builder without attempting the registry pull.
+    mock_run.assert_called_once_with(
+        ["docker", "buildx", "inspect"], capture_output=True, text=True
+    )
     # Should have gone straight to bake
     assert len(progress.calls) == 1
     assert "bake" in progress.calls[0]["cmd"]
+
+
+def test_prepare_fails_before_bake_for_builder_without_local_output(tmp_path):
+    crs = _make_crs(tmp_path, {})
+    progress = _CaptureProgress()
+    inspect_result = MagicMock(
+        returncode=0,
+        stdout="Name: container-builder\nDriver: docker-container\n",
+        stderr="",
+    )
+
+    with patch("oss_crs.src.crs.subprocess.run", return_value=inspect_result):
+        result = crs._CRS__prepare_bake(multi_task_progress=progress, no_pull=True)
+
+    assert result.success is False
+    assert result.error is not None
+    assert "`docker-container` driver" in result.error
+    assert "No build was started." in result.error
+    assert progress.calls == []
 
 
 # ---------------------------------------------------------------------------

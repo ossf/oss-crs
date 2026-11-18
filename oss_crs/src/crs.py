@@ -14,6 +14,7 @@ from .target import Target, file_lock
 from .templates import renderer
 from .utils import (
     TmpDockerCompose,
+    buildx_local_output_error,
     log_dim,
     log_warning,
     preserved_builder_image_name,
@@ -355,6 +356,10 @@ class CRS:
                 )
                 return TaskResult(success=False, error=error_msg)
             cmd.append("--push")
+
+        output_error = buildx_local_output_error(cmd, "build CRS images locally")
+        if output_error:
+            return TaskResult(success=False, error=output_error)
 
         info_text = (
             f"HCL: {hcl_path}\n"
