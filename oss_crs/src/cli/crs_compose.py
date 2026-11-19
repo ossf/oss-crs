@@ -712,7 +712,11 @@ def _handle_gen_compose(args) -> bool:
 
     reserved_keys = {"run_env", "docker_registry", "oss_crs_infra", "llm_config"}
     crs_names = [k for k in data if k not in reserved_keys]
-    infra = data.get("oss_crs_infra", {})
+    # Entries may have no body (YAML None) since every resource limit is optional.
+    infra = data.get("oss_crs_infra") or {}
+    for name in crs_names:
+        if data[name] is None:
+            data[name] = {}
 
     # 3. CPU handling
     has_cpusets = "cpuset" in infra or any(
@@ -741,11 +745,6 @@ def _handle_gen_compose(args) -> bool:
                 if not isinstance(data.get(name), dict):
                     data[name] = {}
                 data[name]["cpuset"] = scaled[name]
-    elif not has_cpusets:
-        raise ValueError(
-            "Template has no cpuset allocations and --cpus was not provided. "
-            "Use --cpus to specify a CPU pool."
-        )
 
     # 4. Memory handling
     has_memory = "memory" in infra or any(

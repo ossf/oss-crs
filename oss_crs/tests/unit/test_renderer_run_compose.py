@@ -1161,6 +1161,108 @@ def test_mcp_server_joins_owner_cgroup_in_cgroup_mode(
     assert "mem_limit" not in mcp_service
 
 
+def test_resource_limits_rendered_when_set(monkeypatch, tmp_path: Path) -> None:
+    """Configured limits are applied to CRS and oss-crs-* infra services."""
+    _patch_renderer(monkeypatch)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    crs_service = services["crs-a_patcher"]
+    assert crs_service["cpuset"] == "2-7"
+    assert crs_service["mem_limit"] == "8G"
+    infra_services = [s for name, s in services.items() if name.startswith("oss-crs")]
+    assert infra_services
+    for service in infra_services:
+        assert service["cpuset"] == "0-1"
+        assert service["mem_limit"] == "16G"
+
+
+@pytest.mark.parametrize(
+    ("cpuset", "memory"),
+    [(None, None), (None, "8G"), ("2-7", None)],
+)
+def test_unset_resource_limits_are_omitted(
+    monkeypatch, tmp_path: Path, cpuset, memory
+) -> None:
+    """Unset limits leave out the compose key instead of rendering null/None."""
+    _patch_renderer(monkeypatch)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(
+        cpuset=cpuset, memory=memory, additional_env={}, llm_budget=1
+    )
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    crs_compose.config.oss_crs_infra = SimpleNamespace(cpuset=cpuset, memory=memory)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    crs_service = services["crs-a_patcher"]
+    infra_services = [s for name, s in services.items() if name.startswith("oss-crs")]
+    assert infra_services
+    for service in [crs_service, *infra_services]:
+        if cpuset is None:
+            assert "cpuset" not in service
+        else:
+            assert service["cpuset"] == cpuset
+        if memory is None:
+            assert "mem_limit" not in service
+        else:
+            assert service["mem_limit"] == memory
+
+
+def test_unset_resource_limits_pass_none_to_service_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The renderer hands unset limits to build_run_service_env as None."""
+    seen: list[tuple] = []
+
+    def capturing_build_env(**kwargs):
+        seen.append((kwargs["cpuset"], kwargs["memory_limit"]))
+        return SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[])
+
+    _patch_renderer(monkeypatch, build_env_fn=capturing_build_env)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(additional_env={}, llm_budget=1)
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+
+    _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    assert seen
+    assert all(limits == (None, None) for limits in seen)
+
+
+def test_mcp_server_omits_unset_owner_limits(monkeypatch, tmp_path: Path) -> None:
+    """An MCP gateway inherits only the limits its owner CRS sets."""
+    _patch_renderer(monkeypatch)
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "ripgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "ripgrep",
+                "image": "ghcr.io/oss-crs/mcp-ripgrep:latest",
+                "url": "http://ripgrep:8000/mcp",
+            },
+            f,
+        )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(memory="8G", additional_env={}, llm_budget=1)
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["ripgrep"])
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    mcp_service = yaml.safe_load(rendered)["services"]["mcp-crs-a-ripgrep"]
+    assert "cpuset" not in mcp_service
+    assert mcp_service["mem_limit"] == "8G"
+
+
 def test_key_gen_request_scopes_mcp_servers_per_crs(tmp_path: Path) -> None:
     """key_gen_request.yaml grants each CRS key only its own MCP servers."""
     from oss_crs.src.templates.renderer import prepare_llm_context

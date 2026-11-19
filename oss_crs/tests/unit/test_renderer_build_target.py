@@ -26,14 +26,16 @@ def _patch_env(monkeypatch) -> None:
     )
 
 
-def _make_crs(tmp_path: Path) -> SimpleNamespace:
+def _make_crs(
+    tmp_path: Path, cpuset: str | None = "0-3", memory: str | None = "8G"
+) -> SimpleNamespace:
     return SimpleNamespace(
         name="crs-test",
         crs_path=tmp_path,
         crs_compose_env=SimpleNamespace(get_env=lambda: {"type": "local"}),
         resource=SimpleNamespace(
-            cpuset="0-3",
-            memory="8G",
+            cpuset=cpuset,
+            memory=memory,
             additional_env={},
         ),
         config=SimpleNamespace(version="1.0"),
@@ -57,12 +59,12 @@ def _make_build_config(dockerfile: str) -> SimpleNamespace:
     )
 
 
-def _render(monkeypatch, tmp_path: Path, dockerfile: str, **kwargs) -> dict:
+def _render(monkeypatch, tmp_path: Path, dockerfile: str, crs=None, **kwargs) -> dict:
     _patch_env(monkeypatch)
     (tmp_path / "proj").mkdir()
     (tmp_path / "repo").mkdir()
     rendered, _warnings = render_build_target_docker_compose(
-        crs=_make_crs(tmp_path),
+        crs=crs or _make_crs(tmp_path),
         target=_make_target(tmp_path),
         target_base_image="base:latest",
         build_config=_make_build_config(dockerfile),
@@ -122,3 +124,28 @@ def test_builder_privileged_by_default(monkeypatch, tmp_path, kwargs, expected):
     parsed = _render(monkeypatch, tmp_path, "oss-crs/builder.Dockerfile", **kwargs)
     [(_name, svc)] = list(parsed["services"].items())
     assert svc.get("privileged", False) is expected
+
+
+@pytest.mark.parametrize(
+    ("cpuset", "memory"),
+    [("0-3", "8G"), (None, "8G"), ("0-3", None), (None, None)],
+)
+def test_builder_renders_only_set_resource_limits(
+    monkeypatch, tmp_path, cpuset, memory
+):
+    parsed = _render(
+        monkeypatch,
+        tmp_path,
+        "oss-crs/builder.Dockerfile",
+        crs=_make_crs(tmp_path, cpuset=cpuset, memory=memory),
+    )
+    [(_name, svc)] = list(parsed["services"].items())
+
+    if cpuset is None:
+        assert "cpuset" not in svc
+    else:
+        assert svc["cpuset"] == cpuset
+    if memory is None:
+        assert "mem_limit" not in svc
+    else:
+        assert svc["mem_limit"] == memory

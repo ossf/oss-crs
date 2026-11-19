@@ -73,6 +73,106 @@ class TestResourceConfig:
         with pytest.raises(ValidationError):
             ResourceConfig(cpuset="0", memory="8G", llm_budget=0)
 
+    def test_limits_are_optional(self):
+        """cpuset and memory may be omitted; unset means no limit."""
+        assert ResourceConfig().cpuset is None
+        assert ResourceConfig().memory is None
+        assert ResourceConfig(memory="8G").cpuset is None
+        assert ResourceConfig(cpuset="0-3").memory is None
+
+
+class TestOptionalResourceLimits:
+    """Tests for compose configs that leave out cpuset and/or memory."""
+
+    @staticmethod
+    def _compose_data(infra, crs_entry) -> dict:
+        return {
+            "run_env": "local",
+            "docker_registry": "local",
+            "oss_crs_infra": infra,
+            "my-crs": crs_entry,
+        }
+
+    def test_config_without_cpuset_loads(self):
+        config = CRSComposeConfig.from_dict(
+            self._compose_data(
+                {"memory": "8G"},
+                {"memory": "16G", "source": {"local_path": "/tmp/dummy-crs"}},
+            )
+        )
+
+        assert config.oss_crs_infra.cpuset is None
+        assert config.oss_crs_infra.memory == "8G"
+        assert config.crs_entries["my-crs"].cpuset is None
+        assert config.crs_entries["my-crs"].memory == "16G"
+
+    def test_empty_infra_and_entry_bodies_load(self):
+        """`oss_crs_infra:` with no body parses as YAML None and means no limits."""
+        config = CRSComposeConfig.from_yaml(
+            "run_env: local\n"
+            "docker_registry: local\n"
+            "oss_crs_infra:\n"
+            "my-crs:\n"
+            "  source:\n"
+            "    local_path: /tmp/dummy-crs\n"
+        )
+
+        assert config.oss_crs_infra == ResourceConfig()
+        assert config.crs_entries["my-crs"].cpuset is None
+        assert config.crs_entries["my-crs"].memory is None
+
+    def test_missing_infra_key_loads(self):
+        data = self._compose_data({}, {"source": {"local_path": "/tmp/dummy-crs"}})
+        del data["oss_crs_infra"]
+
+        config = CRSComposeConfig.from_dict(data)
+
+        assert config.oss_crs_infra == ResourceConfig()
+
+    def test_map_cpus_skips_unpinned_entries(self):
+        config = CRSComposeConfig.from_dict(
+            {
+                "run_env": "local",
+                "docker_registry": "local",
+                "oss_crs_infra": {"cpuset": "0-1", "memory": "8G"},
+                "pinned-crs": {
+                    "cpuset": "2-3",
+                    "source": {"local_path": "/tmp/dummy-crs"},
+                },
+                "unpinned-crs": {"source": {"local_path": "/tmp/dummy-crs"}},
+            }
+        )
+
+        config.map_cpus("20-23")
+
+        assert config.oss_crs_infra.cpuset == "20-21"
+        assert config.crs_entries["pinned-crs"].cpuset == "22-23"
+        assert config.crs_entries["unpinned-crs"].cpuset is None
+
+    def test_map_cpus_without_any_cpuset_is_noop(self):
+        config = CRSComposeConfig.from_dict(
+            self._compose_data({}, {"source": {"local_path": "/tmp/dummy-crs"}})
+        )
+
+        config.map_cpus("20-23")
+
+        assert config.oss_crs_infra.cpuset is None
+        assert config.crs_entries["my-crs"].cpuset is None
+
+    def test_md5_hash_ignores_resource_limits(self):
+        source = {"local_path": "/tmp/dummy-crs"}
+        limited = CRSComposeConfig.from_dict(
+            self._compose_data(
+                {"cpuset": "0-1", "memory": "8G"},
+                {"cpuset": "2-3", "memory": "8G", "source": source},
+            )
+        )
+        unlimited = CRSComposeConfig.from_dict(
+            self._compose_data({}, {"source": source})
+        )
+
+        assert limited.md5_hash() == unlimited.md5_hash()
+
 
 class TestCRSEntry:
     """Tests for CRSEntry model."""

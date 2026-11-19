@@ -92,7 +92,7 @@ All checks passed! Your system is ready for cgroup-parent mode.
 Once setup is complete, `oss-crs build-target` and `oss-crs run` will automatically detect cgroup-parent availability:
 
 - **If available:** Creates per-run cgroups and uses shared resource limits
-- **If not available:** Falls back to per-container `mem_limit` and `cpuset` limits
+- **If not available:** Falls back to per-container `mem_limit` and `cpuset` limits for the limits set in the compose file. These need the matching cgroup controllers to be available to the container runtime; leave out any limit your host cannot apply (see [Resource Limits](config/crs-compose.md#resource-limits)).
 
 No additional configuration is needed after running `oss-crs setup`.
 

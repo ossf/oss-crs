@@ -60,22 +60,27 @@ def resolve_source_from_registry(crs_name: str) -> CRSSource:
 
 
 class ResourceConfig(BaseModel):
-    """Base resource configuration with cpuset and memory."""
+    """Base resource configuration with cpuset and memory.
 
-    cpuset: str
-    memory: str
+    Both limits are optional; an unset limit is not applied.
+    """
+
+    cpuset: Optional[str] = None
+    memory: Optional[str] = None
     llm_budget: Optional[int] = Field(default=None, gt=0)
 
     @field_validator("cpuset")
     @classmethod
-    def validate_cpuset(cls, v: str) -> str:
-        parse_cpuset(v)
+    def validate_cpuset(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            parse_cpuset(v)
         return v
 
     @field_validator("memory")
     @classmethod
-    def validate_memory(cls, v: str) -> str:
-        parse_memory(v)
+    def validate_memory(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            parse_memory(v)
         return v
 
 
@@ -185,7 +190,7 @@ class CRSComposeConfig(BaseModel):
 
     run_env: RunEnv
     docker_registry: str
-    oss_crs_infra: ResourceConfig
+    oss_crs_infra: ResourceConfig = Field(default_factory=ResourceConfig)
     crs_entries: dict[str, CRSEntry] = Field(default_factory=dict)
     llm_config: Optional[LLMConfig] = None
     # Host path to a PEM bundle of additional trusted CAs, for endpoints whose
@@ -290,14 +295,18 @@ class CRSComposeConfig(BaseModel):
             LLM_CONFIG,
             EXTRA_CA_CERTS,
         }
+        # An entry with no keys (e.g. `crs-name:` with no body, which YAML
+        # parses as None) is valid now that every resource limit is optional.
         crs_entries = {
-            key: value for key, value in data.items() if key not in reserved_keys
+            key: value if value is not None else {}
+            for key, value in data.items()
+            if key not in reserved_keys
         }
 
         payload: dict[str, Any] = {
             RUN_ENV: run_env,
             DOCKER_REGISTRY: docker_registry,
-            OSS_CRS_INFRA: oss_crs_infra,
+            OSS_CRS_INFRA: oss_crs_infra if oss_crs_infra is not None else {},
             "crs_entries": crs_entries,
             LLM_CONFIG: llm_config,
             EXTRA_CA_CERTS: data.get(EXTRA_CA_CERTS),
@@ -372,16 +381,21 @@ class CRSComposeConfig(BaseModel):
         # Validate cpus_pool format
         parse_cpuset(cpus_pool)
 
-        # Collect all cpusets from config
-        all_cpusets = [self.oss_crs_infra.cpuset]
-        for entry in self.crs_entries.values():
-            all_cpusets.append(entry.cpuset)
+        # Collect all cpusets from config; entries without one stay unpinned.
+        resources: list[ResourceConfig] = [
+            self.oss_crs_infra,
+            *self.crs_entries.values(),
+        ]
+        pinned = [r for r in resources if r.cpuset is not None]
+        if not pinned:
+            return
+        all_cpusets = [r.cpuset for r in pinned if r.cpuset is not None]
 
         # Create and apply mapping
         cpu_mapping = create_cpu_mapping(all_cpusets, cpus_pool)
-        self.oss_crs_infra.cpuset = map_cpuset(self.oss_crs_infra.cpuset, cpu_mapping)
-        for entry in self.crs_entries.values():
-            entry.cpuset = map_cpuset(entry.cpuset, cpu_mapping)
+        for resource in pinned:
+            if resource.cpuset is not None:
+                resource.cpuset = map_cpuset(resource.cpuset, cpu_mapping)
 
 
 def remove_keys(d, keys_to_remove):

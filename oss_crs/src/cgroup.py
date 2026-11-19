@@ -11,7 +11,7 @@ import secrets
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .docker_bin import docker_cmd
 from .memory import parse_memory
@@ -458,16 +458,16 @@ def create_worker_cgroup(worker_name: str) -> Path:
 def create_crs_cgroup(
     worker_path: Path,
     crs_name: str,
-    cpuset: str,
-    memory_bytes: int,
+    cpuset: Optional[str],
+    memory_bytes: Optional[int],
 ) -> Path:
     """Create a per-CRS cgroup under a worker cgroup.
 
     Args:
         worker_path: Path to parent worker cgroup
         crs_name: Name of the CRS
-        cpuset: CPU set for this CRS
-        memory_bytes: Memory limit for this CRS
+        cpuset: CPU set for this CRS, or None to inherit the parent's CPUs
+        memory_bytes: Memory limit for this CRS, or None for no limit
 
     Returns:
         Path to the created CRS cgroup
@@ -480,14 +480,13 @@ def create_crs_cgroup(
     # Create CRS directory
     crs_path.mkdir(parents=True, exist_ok=True)
 
-    # Set cpuset
-    (crs_path / "cpuset.cpus").write_text(cpuset)
+    if cpuset is not None:
+        (crs_path / "cpuset.cpus").write_text(cpuset)
 
-    # Set memory limit
-    (crs_path / "memory.max").write_text(str(memory_bytes))
-
-    # Disable swap to enforce hard memory limit (prevents OOM being deferred to swap)
-    (crs_path / "memory.swap.max").write_text("0")
+    if memory_bytes is not None:
+        (crs_path / "memory.max").write_text(str(memory_bytes))
+        # Disable swap to enforce hard memory limit (prevents OOM being deferred to swap)
+        (crs_path / "memory.swap.max").write_text("0")
 
     # Enable controllers for Docker container sub-cgroups
     (crs_path / "cgroup.subtree_control").write_text("+cpuset +memory")
@@ -527,7 +526,11 @@ def create_run_cgroups(
     for crs in crs_list:
         if crs.resource is None:
             raise ValueError(f"CRS '{crs.name}' is missing resource configuration")
-        memory_bytes = parse_memory(crs.resource.memory)
+        memory_bytes = (
+            parse_memory(crs.resource.memory)
+            if crs.resource.memory is not None
+            else None
+        )
         crs_cgroup_path = create_crs_cgroup(
             worker_path,
             crs.name,

@@ -92,6 +92,16 @@ def _resolve_module_dockerfile(crs_path: Path, dockerfile: str) -> str:
     return str(crs_path / dockerfile)
 
 
+def resource_limit_keys(cpuset: Optional[str], memory: Optional[str]) -> dict:
+    """Compose service keys for the resource limits that are set."""
+    limits = {}
+    if cpuset:
+        limits["cpuset"] = cpuset
+    if memory:
+        limits["mem_limit"] = memory
+    return limits
+
+
 def render_template(template_path: Path, context: dict) -> str:
     """Render a Jinja2 template with the given context.
 
@@ -713,10 +723,7 @@ def render_run_crs_compose_docker_compose(
     # Load as YAML and add common config for oss-crs-* services
     compose_data = yaml.safe_load(rendered)
     oss_crs_infra = crs_compose.config.oss_crs_infra
-    common_config = {
-        "cpuset": oss_crs_infra.cpuset,
-        "mem_limit": oss_crs_infra.memory,
-    }
+    common_config = resource_limit_keys(oss_crs_infra.cpuset, oss_crs_infra.memory)
 
     if "services" in compose_data:
         for service_name, service_config in compose_data["services"].items():

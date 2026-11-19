@@ -39,8 +39,12 @@ services:
     # Using cgroup-parent mode: resources managed by parent cgroup
     cgroup_parent: "{{ cgroup_parents[crs.name] }}"
 {%- else %}
+{%- if crs.resource.cpuset %}
     cpuset: "{{ crs.resource.cpuset }}"
+{%- endif %}
+{%- if crs.resource.memory %}
     mem_limit: "{{ crs.resource.memory }}"
+{%- endif %}
 {%- endif %}
     volumes:
 {%- if extra_ca_dir %}
@@ -396,8 +400,12 @@ services:
     # Same cgroup as the owning CRS: resources managed by parent cgroup.
     cgroup_parent: "{{ cgroup_parents[item.crs_name] }}"
 {%- else %}
+{%- if item.cpuset %}
     cpuset: "{{ item.cpuset }}"
+{%- endif %}
+{%- if item.memory %}
     mem_limit: "{{ item.memory }}"
+{%- endif %}
 {%- endif %}
     # Owner identity and sidecar routing for servers that drive builds and
     # replays themselves (e.g. trace). Framework-set, mirroring env_policy
