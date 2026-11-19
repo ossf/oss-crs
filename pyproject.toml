@@ -12,13 +12,13 @@ authors = [
     {name = "Team Atlanta"}
 ]
 dependencies = [
-    "certifi>=2025.1.31",
+    "certifi>=2026.10.18",
     "requests>=2.34.2",
     "PyYAML>=6.0.3",
     "Jinja2>=3.1.6",
     "python-dotenv>=1.2.2",
     "docker>=7.1.0",
-    "gitpython>=3.1.62",
+    "gitpython>=3.2.1",
     "pydantic>=2.12.5",
     "rich>=13.7.0",
     "questionary>=2.1.1",
@@ -37,7 +37,7 @@ include = ["oss_crs*", "scripts"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14.5",
+    "ruff>=0.14.5,<0.18",
     "pyright>=1.1.407",
     "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
@@ -59,3 +59,9 @@ markers = [
     "smoke: marks tests as smoke tests",
     "cgroup_parent_required: marks tests that require cgroup-parent support",
 ]
+
+[tool.ruff.lint]
+# ruff 0.16 grew the default rule set from 59 to 413 rules, which reports ~480
+# findings on this tree. Keep the pre-0.16 defaults explicit so ruff upgrades
+# stay lint-neutral; widen this list deliberately, not via a version bump.
+select = ["E4", "E7", "E9", "F"]

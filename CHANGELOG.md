@@ -16,7 +16,8 @@ stricter subset of Keep a Changelog).
 - `libCRS` `apply_patch_build`: builder-side errors returned before a `rebuild_id` is assigned are now written to `<response_dir>/stderr.log` instead of being dropped. The public signature (`apply_patch_build(patch_path, response_dir, ...)`) and the positional shell form (`apply-patch-build <patch> <response_dir>`) are unchanged; `apply_patch_test` and `run-pov` are likewise unchanged.
 - Added per-CRS token tracking (`prompt_tokens`/`completion_tokens`) alongside dollar spend.
 - Added support for MCP servers via the LiteLLM gateway which are accessible via libCRS mcp.
-- Added support for rootless docker and podman.
+- Added support for rootless docker and podman, optional cpuset and memory limits.
+- Command output shown in error, timeout and interrupt panels is now cut to its last 100 lines so a noisy CRS no longer floods the terminal. For `oss-crs run`, the notice about omitted lines also prints the run's logs directory where the full output is saved.
 
 ### Added
 - `oss-crs list-harnesses --fuzz-proj-path <PATH_TO_PROJ>` — builds an OSS-Fuzz project through its default Docker compile path and lists its runnable fuzz harnesses, reusing cached build artifacts until the project inputs or repository HEAD change.
@@ -52,6 +53,7 @@ stricter subset of Keep a Changelog).
 - fuzzing-brain to registry/ and example/ (bug-finding, C/C++, multi-provider LLM)
 - buttercup-seed-gen to registry/ and example/
 - 42-directed and 42-seedgen to registry/ and example/
+- scrutineer to registry/ and example/ (auditing, source-only)
 - `libCRS download-source fuzz-proj <dest>`: copies clean fuzz project
 - `libCRS download-source target-source <dest>`: copies clean target source
 
@@ -103,6 +105,7 @@ stricter subset of Keep a Changelog).
   `_relative_repo_hint`).
 
 ### Fixed
+- Auto-generated run and build ids now carry 6 random characters after the timestamp instead of 2 (e.g. `1739819274ab3kq9`), so runs started in the same second no longer have a 1-in-1296 chance of sharing a run directory and Docker Compose project name. Ids passed via `--run-id`/`--build-id` and existing run directories are unaffected.
 - Runner/builder OS mismatch for targets pinned to a newer base image. Fixes glibc symbol mismatch errors
 - Builder and runner sidecar APIs now reject path-like CRS, harness, and
   rebuild identifiers before using them to resolve artifact paths.

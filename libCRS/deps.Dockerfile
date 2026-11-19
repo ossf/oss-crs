@@ -18,7 +18,7 @@
 #   COPY --from=oss-crs-deps /usr/local/bin/rsync  /usr/local/bin/rsync
 #
 # The image is never run (no shell/CMD); it exists purely as a COPY --from source.
-ARG NIX_BUILDER_IMAGE=nixos/nix:2.28.3
+ARG NIX_BUILDER_IMAGE=nixos/nix:2.35.6
 FROM ${NIX_BUILDER_IMAGE} AS build
 
 # The libCRS directory (containing flake.nix) is the build context.

@@ -8,7 +8,7 @@ handling is asserted against the real clock.
 
 import importlib.util
 import json
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from unittest import mock
@@ -85,7 +85,10 @@ def test_collect_uses_exclusive_end_date(keygen: ModuleType) -> None:
     with mock.patch.object(keygen.requests, "get", side_effect=fake_get):
         keygen.collect_spend_summary({"a": {"api_key": "k1"}}, start_date="2026-09-04")
     assert seen["start_date"] == "2026-09-04"
-    assert seen["end_date"] == (date.today() + timedelta(days=1)).isoformat()
+    assert (
+        seen["end_date"]
+        == (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    )
     assert seen["end_date"] > seen["start_date"]
 
 
