@@ -355,6 +355,19 @@ def _run_env(**overrides):
     return build_run_service_env(**kwargs)
 
 
+def test_run_env_passes_resource_limits() -> None:
+    plan = _run_env()
+    assert plan.effective_env["OSS_CRS_CPUSET"] == "0-1"
+    assert plan.effective_env["OSS_CRS_MEMORY_LIMIT"] == "2G"
+
+
+def test_run_env_unset_resource_limits_are_empty() -> None:
+    """Unset limits become "" so libCRS and the builder sidecar apply none."""
+    plan = _run_env(cpuset=None, memory_limit=None)
+    assert plan.effective_env["OSS_CRS_CPUSET"] == ""
+    assert plan.effective_env["OSS_CRS_MEMORY_LIMIT"] == ""
+
+
 def test_extra_ca_injects_bundle_env_vars() -> None:
     plan = _run_env(extra_ca_mounted=True)
     bundle = "/etc/oss-crs/ca/bundle.pem"

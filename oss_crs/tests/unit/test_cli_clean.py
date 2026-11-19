@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from oss_crs.src.cli.discovery import (
     discover_build_target_images,
     discover_infra_images,
@@ -791,6 +793,10 @@ class TestPrepareImageDiscovery:
 class TestGetBakeImageTags:
     """Test CRS.get_bake_image_tags failure handling."""
 
+    @pytest.fixture(autouse=True)
+    def _bake_supported(self, monkeypatch):
+        monkeypatch.setattr("oss_crs.src.crs.bake_supported", lambda: True)
+
     def _make_crs(self, tmp_path, hcl_content="", prepare_hcl="bake.hcl"):
         """Create a minimal CRS object with a prepare phase."""
         crs_path = tmp_path / "my-crs"
@@ -809,6 +815,7 @@ class TestGetBakeImageTags:
         from oss_crs.src.crs import CRS
 
         crs.get_bake_image_tags = CRS.get_bake_image_tags.__get__(crs)
+        crs._resolve_bake_plan = CRS._resolve_bake_plan.__get__(crs)
         return crs
 
     def test_no_prepare_phase_returns_empty(self, tmp_path):

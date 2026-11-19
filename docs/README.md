@@ -52,10 +52,12 @@ Every CRS campaign follows three phases managed by `oss-crs`:
 
 Each CRS runs in its own containerized environment with strict resource boundaries:
 
-- **CPU** — Pinned to specific cores via `cpuset`
-- **Memory** — Hard memory cap via `mem_limit`
+- **CPU** — Pinned to specific cores via `cpuset` (when set)
+- **Memory** — Hard memory cap via `mem_limit` (when set)
 - **LLM Budget** — Per-CRS dollar-denominated limits enforced by LiteLLM
 - **Network** — Private Docker network per CRS; shared network for infrastructure access
+
+CPU and memory limits are optional in the [compose file](config/crs-compose.md#resource-limits); a CRS without them can use all host CPUs or memory.
 
 Run `oss-crs setup` to enable [cgroup-parent mode](setup.md) for flexible resource sharing within each CRS.
 

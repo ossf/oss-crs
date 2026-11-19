@@ -15,6 +15,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from ..docker_bin import docker_cmd
 from .discovery import discover_prepare_images
 
 
@@ -27,7 +28,7 @@ def _stream_images(image_tags: list[str], dest: Path) -> bool:
     """
     print(f"Saving {len(image_tags)} image(s) with 'docker save | zstd'...")
     save = subprocess.Popen(
-        ["docker", "save", *image_tags],
+        docker_cmd("save", *image_tags),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

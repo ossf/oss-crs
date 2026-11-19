@@ -18,9 +18,9 @@ The configuration file is written in YAML format and consists of the following s
 ```yaml
 run_env: <local|azure>
 docker_registry: <registry-url>
-oss_crs_infra:
-  cpuset: <cpu-set>
-  memory: <memory-limit>
+oss_crs_infra:                 # optional
+  cpuset: <cpu-set>            # optional; unset = not pinned
+  memory: <memory-limit>       # optional; unset = no memory cap
   llm_budget: <optional-integer>
 llm_config:                    # optional
   litellm:
@@ -35,8 +35,8 @@ llm_config:                    # optional
       key_env: <host-env-var-name>
 extra_ca_certs: <path-to-pem-bundle>   # optional
 <crs-name>:
-  cpuset: <cpu-set>
-  memory: <memory-limit>
+  cpuset: <cpu-set>            # optional; unset = not pinned
+  memory: <memory-limit>       # optional; unset = no memory cap
   llm_budget: <optional-integer>
   mcp_servers:                 # optional; requires internal LLM mode
     - <mcp-server-name>        # registry/mcp/ server name
@@ -178,14 +178,15 @@ docker_registry: ghcr.io/my-org
 
 ---
 
-### `oss_crs_infra` (required)
+### `oss_crs_infra` (optional)
 
 Defines the resource configuration for the OSS-CRS infrastructure components.
+If omitted, infrastructure containers run without CPU or memory limits.
 
 | Field       | Type    | Required | Description                                      |
 |-------------|---------|----------|--------------------------------------------------|
-| `cpuset`    | string  | Yes      | CPU cores to allocate (see [CPU Set Format](#cpu-set-format)) |
-| `memory`    | string  | Yes      | Memory limit (see [Memory Format](#memory-format)) |
+| `cpuset`    | string  | No       | CPU cores to allocate (see [CPU Set Format](#cpu-set-format)). If omitted, containers are not pinned to CPUs. |
+| `memory`    | string  | No       | Memory limit (see [Memory Format](#memory-format)). If omitted, no memory cap is set. |
 | `llm_budget`| integer | No       | LLM API budget limit (must be > 0 if specified)  |
 
 **Example:**
@@ -205,8 +206,8 @@ Each CRS entry is defined as a top-level key (other than `run_env` and `oss_crs_
 
 | Field       | Type    | Required | Description                                      |
 |-------------|---------|----------|--------------------------------------------------|
-| `cpuset`    | string  | Yes      | CPU cores to allocate (see [CPU Set Format](#cpu-set-format)) |
-| `memory`    | string  | Yes      | Memory limit (see [Memory Format](#memory-format)) |
+| `cpuset`    | string  | No       | CPU cores to allocate (see [CPU Set Format](#cpu-set-format)). If omitted, the CRS is not pinned to CPUs. |
+| `memory`    | string  | No       | Memory limit (see [Memory Format](#memory-format)). If omitted, no memory cap is set. |
 | `llm_budget`| integer | No       | LLM API budget limit (must be > 0 if specified)  |
 | `additional_env` | dict[string, string] | No | Additional environment variables applied across this CRS entry (prepare/build/run). CRS-level build-step/module `additional_env` acts as fallback defaults; this entry overrides them for user keys. Keys must match `[A-Za-z_][A-Za-z0-9_]*`. |
 | `source`    | object  | No       | Source configuration (see [Source Configuration](#source-configuration)). If omitted, resolved from the [CRS registry](../registry.md). |
@@ -258,6 +259,20 @@ my-local-crs:
     local_path: /home/user/my-crs
     # This will load a CRS defined at /home/user/my-crs/oss-crs/crs.yaml
 ```
+
+---
+
+### Resource Limits
+
+`cpuset` and `memory` are applied to every container of a CRS entry (or of the
+infrastructure for `oss_crs_infra`). Setting them is recommended when several
+CRSs share a host, so one CRS cannot starve the others. A limit that is left
+out is not applied, and that CRS may use all host CPUs or memory.
+
+Limits are enforced by the container runtime through cgroups. Under rootless
+Docker or Podman, a limit only works if the matching cgroup controller
+(`cpuset`, `memory`) is delegated to your user; otherwise the container fails
+to start. Leave out the limits your host cannot apply.
 
 ---
 
@@ -342,11 +357,11 @@ The configuration is validated using Pydantic with the following rules:
    - `local_path` cannot be combined with `url` or `ref`
 
 2. **CPU Set Validation:**
-   - Must match the pattern for valid CPU set specifications
+   - If specified, must match the pattern for valid CPU set specifications
    - Invalid examples: `"abc"`, `"0--3"`, `"-1"`
 
 3. **Memory Validation:**
-   - Must include a valid unit suffix (B, K, KB, M, MB, G, GB, T, TB)
+   - If specified, must include a valid unit suffix (B, K, KB, M, MB, G, GB, T, TB)
    - Invalid examples: `"8"`, `"8 Gigabytes"`, `"8g b"`
 
 4. **LLM Budget Validation:**

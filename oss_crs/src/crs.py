@@ -8,6 +8,8 @@ import subprocess
 
 from .config.crs import CRSConfig
 from .config.crs_compose import CRSEntry, CRSComposeEnv
+from .bake_hcl import parse_bake_hcl
+from .docker_bin import bake_supported, docker_cmd
 from .env_policy import build_prepare_env
 from .ui import MultiTaskProgress, TaskResult
 from .target import Target, file_lock
@@ -168,23 +170,8 @@ class CRS:
             version=self.config.version,
             scope=f"{self.name}:prepare",
         ).effective_env
-        result = subprocess.run(
-            ["docker", "buildx", "bake", "-f", str(hcl_path), "--print"],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=self.crs_path,
-        )
-        if result.returncode != 0:
-            log_warning(
-                f"{self.name}: could not discover prepare-phase image tags "
-                f"(bake --print exited {result.returncode})"
-            )
-            return []
-        try:
-            plan = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            log_warning(f"{self.name}: could not parse bake --print output as JSON")
+        plan = self._resolve_bake_plan(hcl_path, env, warn=True)
+        if plan is None:
             return []
         tags: list[str] = []
         for target_name, target_conf in plan.get("target", {}).items():
@@ -196,6 +183,33 @@ class CRS:
                 tags.append(target_name)
         return tags
 
+    def _resolve_bake_plan(
+        self, hcl_path: Path, env: dict, warn: bool = False
+    ) -> Optional[dict]:
+        """Resolved bake plan: `buildx bake --print`, or parsed HCL without bake."""
+        if not bake_supported():
+            return parse_bake_hcl(hcl_path, env)
+        result = subprocess.run(
+            docker_cmd("buildx", "bake", "-f", str(hcl_path), "--print"),
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=self.crs_path,
+        )
+        if result.returncode != 0:
+            if warn:
+                log_warning(
+                    f"{self.name}: could not discover prepare-phase image tags "
+                    f"(bake --print exited {result.returncode})"
+                )
+            return None
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            if warn:
+                log_warning(f"{self.name}: could not parse bake --print output as JSON")
+            return None
+
     def _try_pull_prebuilt_images(
         self, hcl_path: Path, env: dict
     ) -> Optional[list[str]]:
@@ -203,20 +217,8 @@ class CRS:
 
         Returns a list of pulled images on success, or None if any pull fails.
         """
-        # Get the resolved build plan as JSON
-        result = subprocess.run(
-            ["docker", "buildx", "bake", "-f", str(hcl_path), "--print"],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=self.crs_path,
-        )
-        if result.returncode != 0:
-            return None
-
-        try:
-            plan = json.loads(result.stdout)
-        except json.JSONDecodeError:
+        plan = self._resolve_bake_plan(hcl_path, env)
+        if plan is None:
             return None
 
         targets = plan.get("target", {})
@@ -243,7 +245,7 @@ class CRS:
 
             # Pull from registry
             pull_result = subprocess.run(
-                ["docker", "pull", registry_tag],
+                docker_cmd("pull", registry_tag),
                 capture_output=True,
                 text=True,
             )
@@ -257,7 +259,7 @@ class CRS:
             for tag in tags:
                 if tag != registry_tag:
                     subprocess.run(
-                        ["docker", "tag", registry_tag, tag],
+                        docker_cmd("tag", registry_tag, tag),
                         capture_output=True,
                         text=True,
                     )
@@ -345,7 +347,7 @@ class CRS:
         # Fall back to building via bake.
         # NOTE: cache-from/cache-to are NOT set here. Each CRS's HCL file
         # defines per-target cache refs with the correct image names.
-        cmd = ["docker", "buildx", "bake", "-f", str(hcl_path)]
+        cmd = docker_cmd("buildx", "bake", "-f", str(hcl_path))
 
         if publish:
             if not registry:
@@ -363,9 +365,53 @@ class CRS:
             f"Publish: {publish}"
         )
 
+        if not bake_supported():
+            if publish:
+                return TaskResult(
+                    success=False,
+                    error=(
+                        "Publishing requires `docker buildx bake`, which this "
+                        "container CLI does not provide."
+                    ),
+                )
+            return self.__build_bake_targets_fallback(
+                hcl_path, env, multi_task_progress, info_text
+            )
+
         return multi_task_progress.run_command_with_streaming_output(
             cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
         )
+
+    def __build_bake_targets_fallback(
+        self,
+        hcl_path: Path,
+        env: dict,
+        multi_task_progress: MultiTaskProgress,
+        info_text: str,
+    ) -> "TaskResult":
+        """Build HCL bake targets via `buildx build` when `buildx bake` is absent."""
+        plan = parse_bake_hcl(hcl_path, env)
+        targets = plan.get("target", {})
+        if not targets:
+            return TaskResult(success=True)
+        for target_name, target_conf in targets.items():
+            dockerfile = str(
+                self.crs_path / target_conf.get("dockerfile", "Dockerfile")
+            )
+            context = str(self.crs_path / target_conf.get("context", "."))
+            tags = target_conf.get("tags") or [f"{target_name}:latest"]
+            cmd = docker_cmd("buildx", "build", "-f", dockerfile)
+            for tag in tags:
+                cmd += ["-t", tag]
+            for k, v in (target_conf.get("args") or {}).items():
+                cmd += ["--build-arg", f"{k}={v}"]
+            cmd += ["--load", context]
+            ret = multi_task_progress.run_command_with_streaming_output(
+                cmd=cmd, cwd=self.crs_path, env=env, info_text=info_text
+            )
+            if not ret.success:
+                return ret
+        return TaskResult(success=True)
 
     def __target_independent_run_modules(self):
         """Run-phase modules built by the prepare phase (``target_dependent: false``)."""
@@ -427,7 +473,7 @@ class CRS:
         Skips the build when the image already exists locally.
         """
         inspect = subprocess.run(
-            ["docker", "image", "inspect", image_tag],
+            docker_cmd("image", "inspect", image_tag),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -448,8 +494,7 @@ class CRS:
         ).effective_env
 
         args = {"crs_version": self.config.version, **(build_args or {})}
-        cmd = [
-            "docker",
+        cmd = docker_cmd(
             "buildx",
             "build",
             "-f",
@@ -459,7 +504,7 @@ class CRS:
             "--build-context",
             f"libcrs={renderer.LIBCRS_PATH}",
             "--load",
-        ]
+        )
         for key, value in args.items():
             cmd += ["--build-arg", f"{key}={value}"]
         cmd.append(str(self.crs_path))
@@ -485,6 +530,7 @@ class CRS:
         bug_candidate_dir: Optional[Path] = None,
         input_hash: Optional[str] = None,
         target_source_path: Optional[Path] = None,
+        privileged: bool = True,
     ) -> "TaskResult":
         if not self.__is_supported_target(target):
             return TaskResult(
@@ -522,6 +568,7 @@ class CRS:
                             bug_candidate_dir=bug_candidate_dir,
                             input_hash=input_hash,
                             target_source_path=target_source_path,
+                            privileged=privileged,
                         )
                     ),
                 )
@@ -630,6 +677,7 @@ class CRS:
         bug_candidate_dir: Optional[Path] = None,
         input_hash: Optional[str] = None,
         target_source_path: Optional[Path] = None,
+        privileged: bool = True,
     ) -> "TaskResult":
         build_out_dir = self.work_dir.get_build_output_dir(
             self.name, target, build_id, sanitizer
@@ -653,6 +701,7 @@ class CRS:
                 sanitizer,
                 build_fetch_dir=build_fetch_dir,
                 target_source_path=target_source_path,
+                privileged=privileged,
             )
             for warning in warnings:
                 progress.add_note(warning)
@@ -737,7 +786,7 @@ class CRS:
                 src = f"{project_name}-target_builder"
                 dest = preserved_builder_image_name(self.name, build_name, build_id)
                 ret = p.run_command_with_streaming_output(
-                    cmd=["docker", "tag", src, dest],
+                    cmd=docker_cmd("tag", src, dest),
                     cwd=None,
                 )
                 if not ret.success:
@@ -770,13 +819,12 @@ class CRS:
 def get_image_content_hash(
     image_name: str, progress: MultiTaskProgress
 ) -> Optional[str]:
-    cmd = [
-        "docker",
+    cmd = docker_cmd(
         "inspect",
         "--format",
         "{{json .RootFS.Layers}}",
         image_name,
-    ]
+    )
     ret = progress.run_command_with_streaming_output(
         cmd=cmd,
         cwd=None,

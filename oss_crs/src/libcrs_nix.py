@@ -25,14 +25,15 @@ import subprocess
 from pathlib import Path
 
 from .constants import NIX_BUILDER_IMAGE, OSS_CRS_DEPS_IMAGE
+from .docker_bin import docker_bin, docker_cmd
 
 # Dockerfile (relative to the libCRS directory) that builds the deps image.
 DEPS_DOCKERFILE_NAME = "deps.Dockerfile"
 
 
 def docker_available() -> bool:
-    """Return True when the ``docker`` CLI is on PATH."""
-    return shutil.which("docker") is not None
+    """Return True when the container CLI is on PATH."""
+    return shutil.which(docker_bin()) is not None
 
 
 def deps_image_exists() -> bool:
@@ -40,7 +41,7 @@ def deps_image_exists() -> bool:
     if not docker_available():
         return False
     result = subprocess.run(
-        ["docker", "image", "inspect", OSS_CRS_DEPS_IMAGE],
+        docker_cmd("image", "inspect", OSS_CRS_DEPS_IMAGE),
         capture_output=True,
     )
     return result.returncode == 0
@@ -84,8 +85,7 @@ def build_deps_image(libcrs_dir: Path) -> tuple[bool, str]:
             f"{DEPS_DOCKERFILE_NAME} not found in libCRS directory: {dockerfile}",
         )
 
-    docker_cmd = [
-        "docker",
+    build_cmd = docker_cmd(
         "build",
         "-t",
         f"{OSS_CRS_DEPS_IMAGE}:latest",
@@ -94,10 +94,10 @@ def build_deps_image(libcrs_dir: Path) -> tuple[bool, str]:
         "--build-arg",
         f"NIX_BUILDER_IMAGE={NIX_BUILDER_IMAGE}",
         str(libcrs_dir.resolve()),
-    ]
+    )
 
     result = subprocess.run(
-        docker_cmd,
+        build_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -106,7 +106,7 @@ def build_deps_image(libcrs_dir: Path) -> tuple[bool, str]:
         return False, (
             f"'docker build' failed (exit {result.returncode}) while building "
             f"the oss-crs-deps image in {NIX_BUILDER_IMAGE}.\n"
-            f"Command: {' '.join(docker_cmd)}\n"
+            f"Command: {' '.join(build_cmd)}\n"
             f"Output:\n{result.stdout}"
         )
 

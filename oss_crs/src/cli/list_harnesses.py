@@ -12,6 +12,7 @@ from typing import Any
 
 from rich.console import Console
 
+from ..docker_bin import docker_cmd
 from ..env_policy import OSS_FUZZ_TARGET_ENV
 from ..target import Target, file_lock
 from ..utils import rm_with_docker
@@ -64,6 +65,12 @@ def add_list_harnesses_command(subparsers, default_work_dir: Path) -> None:
         default=default_work_dir,
         help="Working directory used to cache compiled harnesses",
     )
+    parser.add_argument(
+        "--unprivileged",
+        action="store_true",
+        default=False,
+        help="Compile without --privileged (privileged by default).",
+    )
 
 
 def _read_metadata(path: Path) -> dict[str, Any]:
@@ -114,7 +121,9 @@ def _build_sanitizer(target: Target) -> str:
     return "none" if target.language == "javascript" else target.sanitizer
 
 
-def _compile_project(target: Target, image_tag: str, out_dir: Path) -> bool:
+def _compile_project(
+    target: Target, image_tag: str, out_dir: Path, privileged: bool = True
+) -> bool:
     target_env = target.get_target_env()
     target_env["sanitizer"] = _build_sanitizer(target)
     environment = {
@@ -129,15 +138,14 @@ def _compile_project(target: Target, image_tag: str, out_dir: Path) -> bool:
     work_dir = out_dir.parent / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
     platform = "linux/arm64" if target.architecture == "aarch64" else "linux/amd64"
-    command = [
-        "docker",
+    command = docker_cmd(
         "run",
-        "--privileged",
+        *(["--privileged"] if privileged else []),
         "--shm-size=2g",
         "--platform",
         platform,
         "--rm",
-    ]
+    )
     for name, value in environment.items():
         command.extend(["-e", f"{name}={value}"])
     command.extend(
@@ -260,10 +268,14 @@ def handle_list_harnesses(args) -> bool:
     cache_dir = _cache_dir(args.work_dir, project_dir)
     lock_path = cache_dir.parent / f"{cache_dir.name}.lock"
     with file_lock(lock_path):
-        return _handle_list_harnesses_locked(target, cache_dir)
+        return _handle_list_harnesses_locked(
+            target, cache_dir, privileged=not args.unprivileged
+        )
 
 
-def _handle_list_harnesses_locked(target: Target, cache_dir: Path) -> bool:
+def _handle_list_harnesses_locked(
+    target: Target, cache_dir: Path, privileged: bool = True
+) -> bool:
     out_dir = cache_dir / "out"
     metadata_file = cache_dir / "metadata.json"
     previous = _read_metadata(metadata_file)
@@ -300,7 +312,7 @@ def _handle_list_harnesses_locked(target: Target, cache_dir: Path) -> bool:
             return False
         _clear_build_artifacts(cache_dir, image_tag)
         out_dir.mkdir(parents=True, exist_ok=True)
-        if not _compile_project(target, image_tag, out_dir):
+        if not _compile_project(target, image_tag, out_dir, privileged=privileged):
             _error(f"Failed to compile OSS-Fuzz project: {target.name}")
             return False
         _write_metadata(

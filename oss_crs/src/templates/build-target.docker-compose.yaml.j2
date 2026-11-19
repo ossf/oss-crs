@@ -1,6 +1,8 @@
 services:
   target_builder:
+{%- if privileged %}
     privileged: true
+{%- endif %}
     shm_size: 2g
     environment:
 {%- for key, value in effective_env.items() %}

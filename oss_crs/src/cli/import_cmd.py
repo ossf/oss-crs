@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from ..docker_bin import docker_cmd
 from ..utils import rm_with_docker
 
 
@@ -40,7 +41,7 @@ def _load_images(staging: Path) -> bool:
         return False
 
     load = subprocess.Popen(
-        ["docker", "load"],
+        docker_cmd("load"),
         stdin=decompress.stdout,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

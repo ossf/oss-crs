@@ -374,7 +374,7 @@ def test_sidecars_mount_per_crs_log_dir_for_api_logging(
     log_mount = f"{tmp_path / 'log'}:/sidecar-logs/crs-plain:rw"
     for svc in ("oss-crs-builder-sidecar", "oss-crs-runner-sidecar"):
         assert "SIDECAR_LOG_DIR=/sidecar-logs" in services[svc]["environment"]
-        assert log_mount in services[svc]["volumes"]
+        assert any(v.startswith(log_mount) for v in services[svc]["volumes"])
 
 
 # ---------------------------------------------------------------------------
@@ -786,19 +786,23 @@ def test_compose06_fetch_dir_per_type_routing_with_triage_only(
 
     # POVs come from processed_exchange_dir (triage handles them)
     assert any(
-        f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro" == v for v in finder_volumes
+        v.startswith(f"{processed}/povs:/OSS_CRS_FETCH_DIR/povs:ro")
+        for v in finder_volumes
     ), f"finder must mount processed povs; got: {finder_volumes}"
     # Seeds come from exchange_dir (no seed-filter present)
     assert any(
-        f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/seeds:/OSS_CRS_FETCH_DIR/seeds:ro")
+        for v in finder_volumes
     ), f"finder must mount raw seeds; got: {finder_volumes}"
     # Reports come from exchange_dir (not owned by the triage/seed-filter processors)
     assert any(
-        f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/reports:/OSS_CRS_FETCH_DIR/reports:ro")
+        for v in finder_volumes
     ), f"finder must mount raw reports; got: {finder_volumes}"
     # Patches come from exchange_dir (not owned by triage/seed-filter processors)
     assert any(
-        f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro" == v for v in finder_volumes
+        v.startswith(f"{exchange}/patches:/OSS_CRS_FETCH_DIR/patches:ro")
+        for v in finder_volumes
     ), f"finder must mount raw patches; got: {finder_volumes}"
 
 
@@ -1157,6 +1161,108 @@ def test_mcp_server_joins_owner_cgroup_in_cgroup_mode(
     assert "mem_limit" not in mcp_service
 
 
+def test_resource_limits_rendered_when_set(monkeypatch, tmp_path: Path) -> None:
+    """Configured limits are applied to CRS and oss-crs-* infra services."""
+    _patch_renderer(monkeypatch)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    crs_service = services["crs-a_patcher"]
+    assert crs_service["cpuset"] == "2-7"
+    assert crs_service["mem_limit"] == "8G"
+    infra_services = [s for name, s in services.items() if name.startswith("oss-crs")]
+    assert infra_services
+    for service in infra_services:
+        assert service["cpuset"] == "0-1"
+        assert service["mem_limit"] == "16G"
+
+
+@pytest.mark.parametrize(
+    ("cpuset", "memory"),
+    [(None, None), (None, "8G"), ("2-7", None)],
+)
+def test_unset_resource_limits_are_omitted(
+    monkeypatch, tmp_path: Path, cpuset, memory
+) -> None:
+    """Unset limits leave out the compose key instead of rendering null/None."""
+    _patch_renderer(monkeypatch)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(
+        cpuset=cpuset, memory=memory, additional_env={}, llm_budget=1
+    )
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+    crs_compose.config.oss_crs_infra = SimpleNamespace(cpuset=cpuset, memory=memory)
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    services = yaml.safe_load(rendered)["services"]
+    crs_service = services["crs-a_patcher"]
+    infra_services = [s for name, s in services.items() if name.startswith("oss-crs")]
+    assert infra_services
+    for service in [crs_service, *infra_services]:
+        if cpuset is None:
+            assert "cpuset" not in service
+        else:
+            assert service["cpuset"] == cpuset
+        if memory is None:
+            assert "mem_limit" not in service
+        else:
+            assert service["mem_limit"] == memory
+
+
+def test_unset_resource_limits_pass_none_to_service_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The renderer hands unset limits to build_run_service_env as None."""
+    seen: list[tuple] = []
+
+    def capturing_build_env(**kwargs):
+        seen.append((kwargs["cpuset"], kwargs["memory_limit"]))
+        return SimpleNamespace(effective_env={"EXAMPLE": "1"}, warnings=[])
+
+    _patch_renderer(monkeypatch, build_env_fn=capturing_build_env)
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(additional_env={}, llm_budget=1)
+    crs_compose = _make_crs_compose(tmp_path, [crs])
+
+    _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    assert seen
+    assert all(limits == (None, None) for limits in seen)
+
+
+def test_mcp_server_omits_unset_owner_limits(monkeypatch, tmp_path: Path) -> None:
+    """An MCP gateway inherits only the limits its owner CRS sets."""
+    _patch_renderer(monkeypatch)
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "ripgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "ripgrep",
+                "image": "ghcr.io/oss-crs/mcp-ripgrep:latest",
+                "url": "http://ripgrep:8000/mcp",
+            },
+            f,
+        )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+    crs = _make_crs(tmp_path, "crs-a")
+    crs.resource = CRSEntry(memory="8G", additional_env={}, llm_budget=1)
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["ripgrep"])
+
+    rendered, _ = _render(crs_compose, _make_target(tmp_path), tmp_path)
+
+    mcp_service = yaml.safe_load(rendered)["services"]["mcp-crs-a-ripgrep"]
+    assert "cpuset" not in mcp_service
+    assert mcp_service["mem_limit"] == "8G"
+
+
 def test_key_gen_request_scopes_mcp_servers_per_crs(tmp_path: Path) -> None:
     """key_gen_request.yaml grants each CRS key only its own MCP servers."""
     from oss_crs.src.templates.renderer import prepare_llm_context
@@ -1328,14 +1434,14 @@ def test_mcp_hook_mounted_for_internal_llm(monkeypatch, tmp_path: Path) -> None:
     litellm_service = compose_data["services"]["oss-crs-litellm"]
     volumes = litellm_service.get("volumes", [])
     # Generated MCP config is mounted as the proxy config...
-    assert any(v.endswith(":/app/config.yaml:ro") for v in volumes)
+    assert any(":/app/config.yaml:ro" in v for v in volumes)
     # ...and the prompt hook module sits beside it.
-    hook_mounts = [v for v in volumes if v.endswith(":/app/oss_crs_mcp_hook.py:ro")]
+    hook_mounts = [v for v in volumes if ":/app/oss_crs_mcp_hook.py:ro" in v]
     assert len(hook_mounts) == 1
     hook_host_path = Path(hook_mounts[0].split(":")[0])
     assert hook_host_path.exists()
     assert "proxy_handler_instance" in hook_host_path.read_text()
-    config_mount = next(v for v in volumes if v.endswith(":/app/config.yaml:ro"))
+    config_mount = next(v for v in volumes if ":/app/config.yaml:ro" in v)
     gateway_config = yaml.safe_load(Path(config_mount.split(":")[0]).read_text())
     entry = gateway_config["mcp_servers"]["crs_claude_code_ripgrep"]
     assert entry["url"] == "http://crs_claude_code_ripgrep:8000/mcp"
@@ -1398,10 +1504,8 @@ def test_mcp_requires_build_artifacts_mounts(monkeypatch, tmp_path: Path) -> Non
     target = _make_target(tmp_path, has_repo=True)
     rendered, _ = _render(crs_compose, target, tmp_path)
     svc = yaml.safe_load(rendered)["services"]["mcp-crs-a-an"]
-    assert any(v.endswith(":/OSS_CRS_BUILD_OUT_DIR:ro") for v in svc.get("volumes", []))
-    assert any(
-        v.endswith(":/OSS_CRS_REBUILD_OUT_DIR:rw") for v in svc.get("volumes", [])
-    )
+    assert any(":/OSS_CRS_BUILD_OUT_DIR:ro" in v for v in svc.get("volumes", []))
+    assert any(":/OSS_CRS_REBUILD_OUT_DIR:rw" in v for v in svc.get("volumes", []))
 
 
 def test_mcp_requires_build_artifacts_missing_fails(
@@ -1455,7 +1559,7 @@ def test_extra_ca_mounts_bundle_into_crs_modules(monkeypatch, tmp_path: Path) ->
 
     service = yaml.safe_load(rendered)["services"]["crs-libfuzzer_patcher"]
     ca_dir = tmp_path / "tmp-compose" / "ca"
-    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    assert any(v.startswith(f"{ca_dir}:/etc/oss-crs/ca:ro") for v in service["volumes"])
     assert (ca_dir / "bundle.pem").exists()
     assert (ca_dir / "extra.pem").read_text() == _ORG_PEM
 
@@ -1487,12 +1591,12 @@ def test_extra_ca_mounts_bundle_into_litellm(monkeypatch, tmp_path: Path) -> Non
 
     service = yaml.safe_load(rendered)["services"]["oss-crs-litellm"]
     ca_dir = tmp_path / "tmp-compose" / "ca"
-    assert f"{ca_dir}:/etc/oss-crs/ca:ro" in service["volumes"]
+    assert any(v.startswith(f"{ca_dir}:/etc/oss-crs/ca:ro") for v in service["volumes"])
     # LiteLLM resolves its CA file from SSL_CERT_FILE, so this is the whole fix.
     assert "SSL_CERT_FILE=/etc/oss-crs/ca/bundle.pem" in service["environment"]
     assert "NODE_EXTRA_CA_CERTS=/etc/oss-crs/ca/extra.pem" in service["environment"]
     # The config mount and secret-derived exports must survive.
-    assert any(v.endswith("/app/config.yaml:ro") for v in service["volumes"])
+    assert any("/app/config.yaml:ro" in v for v in service["volumes"])
     assert "$(cat /run/secrets/litellm_env_OPENAI_API_KEY)" in " ".join(
         service["command"]
     )
@@ -1543,3 +1647,35 @@ def test_extra_ca_not_mounted_into_infra_sidecars(monkeypatch, tmp_path: Path) -
             continue
         for volume in service.get("volumes") or []:
             assert "/etc/oss-crs/ca" not in volume, f"{name} must not mount the CA dir"
+
+
+def test_docker_sock_warns_for_daemonless_podman(monkeypatch, tmp_path: Path) -> None:
+    from oss_crs.src.templates import renderer
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr(renderer, "OSS_CRS_ROOT_PATH", tmp_path)
+    monkeypatch.setattr(
+        renderer, "describe_daemon", lambda: ("podman", "daemonless (/usr/bin/podman)")
+    )
+    monkeypatch.setattr(renderer.os.path, "exists", lambda _p: False)
+
+    sock, warning = renderer._docker_sock_from_env()
+
+    assert sock == str(tmp_path / ".oss-crs-workdir" / "podman.sock")
+    assert warning is not None and "podman.socket" in warning
+
+
+def test_docker_sock_prefers_detected_podman_api_socket(monkeypatch) -> None:
+    from oss_crs.src.templates import renderer
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr(
+        renderer,
+        "describe_daemon",
+        lambda: ("podman", "unix:///run/user/1000/podman/podman.sock"),
+    )
+
+    assert renderer._docker_sock_from_env() == (
+        "/run/user/1000/podman/podman.sock",
+        None,
+    )

@@ -170,8 +170,8 @@
       <h2>{{ name }}</h2>
       <div class="resources">
         {% if crs_resources.get(name) %}
-        <span>CPU: {{ crs_resources[name].cpuset }}</span>
-        <span>MEM: {{ crs_resources[name].memory }}</span>
+        <span>CPU: {{ crs_resources[name].cpuset or "unlimited" }}</span>
+        <span>MEM: {{ crs_resources[name].memory or "unlimited" }}</span>
         {% endif %}
       </div>
     </div>

@@ -347,8 +347,8 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_SERVICE_NAME` | Full service name | `my-crs_fuzzer` |
 | `OSS_CRS_TARGET` | Target project name | `libxml2` |
 | `OSS_CRS_TARGET_HARNESS` | Target harness binary name. Unset for no-harness source-level runs. | `xml` |
-| `OSS_CRS_CPUSET` | Allocated CPU cores | `4-7` |
-| `OSS_CRS_MEMORY_LIMIT` | Memory limit | `16G` |
+| `OSS_CRS_CPUSET` | Allocated CPU cores. Empty when the compose entry sets no `cpuset`; use `os.cpu_count()` then. | `4-7` |
+| `OSS_CRS_MEMORY_LIMIT` | Memory limit. Empty when the compose entry sets no `memory`. | `16G` |
 | `OSS_CRS_BUILD_OUT_DIR` | Build output directory (read-only at run time) | `/OSS_CRS_BUILD_OUT_DIR` |
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |

@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from rich.console import Console
 
 from .config.target import FuzzingEngine, TargetConfig, TargetSanitizer
+from .docker_bin import docker_cmd
 from .constants import (
     BASE_RUNNER_IMAGE,
     DEFAULT_BASE_RUNNER_TAG,
@@ -277,7 +278,7 @@ class Target:
 
         # Skip rebuild if the image already exists locally
         check = subprocess.run(
-            ["docker", "image", "inspect", image_tag],
+            docker_cmd("image", "inspect", image_tag),
             capture_output=True,
             text=True,
         )
@@ -548,8 +549,7 @@ class Target:
             tmp_dockerfile.write_bytes(added_dockerfile)
 
             # TODO: We might need to consider cache options here later.
-            cmd = [
-                "docker",
+            cmd = docker_cmd(
                 "buildx",
                 "build",
                 "--build-arg",
@@ -561,7 +561,7 @@ class Target:
                 "-f",
                 str(tmp_dockerfile),
                 str(self.proj_path),
-            ]
+            )
             if getattr(self, "architecture", self.DEFAULT_ARCHITECTURE) == "aarch64":
                 cmd[3:3] = ["--platform", "linux/arm64"]
             if no_cache:
@@ -596,8 +596,7 @@ class Target:
             added_dockerfile += b"COPY . /OSS_CRS_PROJ_PATH\n"
             tmp_dockerfile.write_bytes(added_dockerfile)
 
-            cmd = [
-                "docker",
+            cmd = docker_cmd(
                 "buildx",
                 "build",
                 "-t",
@@ -605,7 +604,7 @@ class Target:
                 "-f",
                 str(tmp_dockerfile),
                 str(self.proj_path),
-            ]
+            )
             if getattr(self, "architecture", self.DEFAULT_ARCHITECTURE) == "aarch64":
                 cmd[3:3] = ["--platform", "linux/arm64"]
             if no_cache:
@@ -735,14 +734,13 @@ class Target:
 
         # /src is ambiguous (could be default or explicitly set); verify via docker inspect
         result = subprocess.run(
-            [
-                "docker",
+            docker_cmd(
                 "image",
                 "inspect",
                 "--format",
                 "{{.Config.WorkingDir}}",
                 image_tag,
-            ],
+            ),
             capture_output=True,
             text=True,
         )
@@ -770,7 +768,7 @@ class Target:
         try:
             # Step 1: Create a stopped container (no --rm so we can docker cp from it)
             create_result = subprocess.run(
-                ["docker", "create", f"--name={container_name}", image_tag],
+                docker_cmd("create", f"--name={container_name}", image_tag),
                 capture_output=True,
                 text=True,
             )
@@ -784,12 +782,11 @@ class Target:
 
             # Step 2: Copy WORKDIR contents to host (trailing /. copies contents, not dir itself)
             cp_result = subprocess.run(
-                [
-                    "docker",
+                docker_cmd(
                     "cp",
                     f"{container_name}:{workdir}/.",
                     str(dest_dir),
-                ],
+                ),
                 capture_output=True,
                 text=True,
             )
@@ -812,7 +809,7 @@ class Target:
             return True
         finally:
             subprocess.run(
-                ["docker", "rm", "-f", container_name],
+                docker_cmd("rm", "-f", container_name),
                 capture_output=True,
                 text=True,
             )
