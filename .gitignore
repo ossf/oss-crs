@@ -17,3 +17,7 @@ third_party/
 .planning/
 docs/meeting/*/main.md
 docs/meeting/*/*.svg
+.coverage
+.coverage.*
+coverage*.xml
+htmlcov/
