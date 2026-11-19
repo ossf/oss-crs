@@ -12,6 +12,7 @@ on:
       - "uv.lock"
       - "pyproject.toml"
       - ".github/workflows/ci.yml"
+      - ".codecov.yml"
       - "!**/*.md"
 
 jobs:
@@ -30,6 +31,14 @@ jobs:
       - run: uv sync --frozen --dev
       - name: Verify
         run: uv run verify
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+          verbose: true
 
   integration-test:
     name: Integration tests
@@ -47,7 +56,15 @@ jobs:
       - name: sync
         run: uv sync --frozen --dev
       - name: Integration Tests
-        run: uv run pytest -m "integration and not smoke and not cgroup_parent_required" -v oss_crs
+        run: uv run pytest -m "integration and not smoke and not cgroup_parent_required" --cov=oss_crs --cov=libCRS --cov=oss-crs-infra --cov-report=term --cov-report=xml -v oss_crs
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: integration
+          fail_ci_if_error: false
+          verbose: true
 
   smoke-c:
     name: Smoke test (C)

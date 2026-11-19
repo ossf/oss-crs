@@ -64,3 +64,17 @@ markers = [
 # findings on this tree. Keep the pre-0.16 defaults explicit so ruff upgrades
 # stay lint-neutral; widen this list deliberately, not via a version bump.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.coverage.run]
+branch = true
+source = ["oss_crs", "libCRS", "oss-crs-infra"]
+omit = [
+    "*/tests/*",
+    "*conftest.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
