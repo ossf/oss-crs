@@ -1,4 +1,7 @@
-FROM gcr.io/oss-fuzz-base/base-runner
+ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest
+FROM ${base_runner_image}
+
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Install Python and pip for the FastAPI HTTP server.
 # base-runner may already have Python3 but pip is not guaranteed.

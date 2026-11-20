@@ -105,7 +105,7 @@ stricter subset of Keep a Changelog).
 
 ### Fixed
 - Auto-generated run and build ids now carry 6 random characters after the timestamp instead of 2 (e.g. `1739819274ab3kq9`), so runs started in the same second no longer have a 1-in-1296 chance of sharing a run directory and Docker Compose project name. Ids passed via `--run-id`/`--build-id` and existing run directories are unaffected.
-- Runner/builder OS mismatch for targets pinned to a newer base image. Fixes glibc symbol mismatch errors
+- Runner/builder OS mismatch: targets with base OS versions pinned in `Dockerfile` (e.g. `FROM ...base-builder...:ubuntu-24-04`) are now detected when omitted from `project.yaml`. CRS runner module Dockerfiles lacking `ARG base_runner_image` are adapted during run image builds, and `oss-crs-runner-sidecar` is built with matching `base_runner_image` args, resolving runtime glibc mismatch errors (#101).
 - Builder and runner sidecar APIs now reject path-like CRS, harness, and
   rebuild identifiers before using them to resolve artifact paths.
 - The local run path now passes a `Path` compose-file object consistently into

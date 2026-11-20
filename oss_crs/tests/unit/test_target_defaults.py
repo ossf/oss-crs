@@ -3,7 +3,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from oss_crs.src.target import Target, extract_name_from_proj_path
+from oss_crs.src.target import (
+    Target,
+    detect_base_os_from_dockerfile,
+    extract_name_from_proj_path,
+)
 
 
 def test_extract_name_from_project_path_is_platform_neutral() -> None:
@@ -198,6 +202,96 @@ def test_known_base_os_version_does_not_warn(tmp_path: Path, capsys) -> None:
     Target(tmp_path / "work", proj, None)
     captured = capsys.readouterr()
     assert "Unknown base_os_version" not in (captured.out + captured.err)
+
+
+def test_base_runner_image_derived_from_dockerfile_when_omitted_in_project_yaml(
+    tmp_path: Path,
+) -> None:
+    """When project.yaml omits base_os_version, fallback to target's Dockerfile (issue #101)."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text("language: c\n")
+    (proj / "Dockerfile").write_text(
+        "FROM gcr.io/oss-fuzz-base/base-builder:ubuntu-24-04\nRUN apt-get update\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    assert target.base_os_version == "ubuntu-24-04"
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+
+
+def test_base_runner_image_derived_from_dockerfile_without_project_yaml(
+    tmp_path: Path,
+) -> None:
+    """When project.yaml does not exist, derive base_os_version from Dockerfile."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "Dockerfile").write_text(
+        "FROM gcr.io/oss-fuzz-base/base-builder-rust:ubuntu-24-04 as builder\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    assert target.base_os_version == "ubuntu-24-04"
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+
+
+def test_project_yaml_base_os_version_takes_precedence_over_dockerfile(
+    tmp_path: Path,
+) -> None:
+    """Explicit project.yaml base_os_version overrides Dockerfile base-builder tag."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text("language: c\nbase_os_version: ubuntu-20-04\n")
+    (proj / "Dockerfile").write_text(
+        "FROM gcr.io/oss-fuzz-base/base-builder:ubuntu-24-04\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    assert target.base_os_version == "ubuntu-20-04"
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-20-04"
+
+
+def test_project_yaml_explicit_legacy_takes_precedence_over_dockerfile(
+    tmp_path: Path,
+) -> None:
+    """Explicit base_os_version: legacy in project.yaml overrides Dockerfile."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.yaml").write_text("language: c\nbase_os_version: legacy\n")
+    (proj / "Dockerfile").write_text(
+        "FROM gcr.io/oss-fuzz-base/base-builder:ubuntu-24-04\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    assert target.base_os_version == "legacy"
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:latest"
+
+
+def test_detect_base_os_from_dockerfile_arg_expansion(tmp_path: Path) -> None:
+    """detect_base_os_from_dockerfile resolves ARG-expanded base-builder tags."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "ARG BASE_TAG=ubuntu-24-04\n"
+        "FROM gcr.io/oss-fuzz-base/base-builder:${BASE_TAG}\n"
+    )
+    assert detect_base_os_from_dockerfile(dockerfile) == "ubuntu-24-04"
+
+
+def test_detect_base_os_from_dockerfile_latest_ignored(tmp_path: Path) -> None:
+    """detect_base_os_from_dockerfile returns None for 'latest' tags."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM gcr.io/oss-fuzz-base/base-builder:latest\n")
+    assert detect_base_os_from_dockerfile(dockerfile) is None
+
+
+def test_unknown_base_os_version_in_dockerfile_warns(tmp_path: Path, capsys) -> None:
+    """An unknown base_os_version detected from Dockerfile logs a warning."""
+    proj = tmp_path / "proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "Dockerfile").write_text(
+        "FROM gcr.io/oss-fuzz-base/base-builder:ubuntu-22-04\n"
+    )
+    target = Target(tmp_path / "work", proj, None)
+    assert target.base_os_version == "ubuntu-22-04"
+    assert target.base_runner_image == "gcr.io/oss-fuzz-base/base-runner:ubuntu-22-04"
+    captured = capsys.readouterr()
+    assert "Unknown base_os_version 'ubuntu-22-04'" in (captured.out + captured.err)
 
 
 def test_user_provided_missing_repo_path_fails_init(tmp_path: Path) -> None:
