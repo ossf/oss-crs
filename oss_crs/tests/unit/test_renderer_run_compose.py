@@ -245,6 +245,13 @@ def test_infra_sidecars_use_stable_run_independent_image_tags(
     assert services["oss-crs-builder-sidecar"]["image"] == expected["builder-sidecar"]
     assert services["oss-crs-runner-sidecar"]["image"] == expected["runner-sidecar"]
 
+    # runner-sidecar builds with target's base_runner_image (issue #101)
+    runner_build = services["oss-crs-runner-sidecar"].get("build")
+    assert runner_build is not None
+    assert f"base_runner_image={target.base_runner_image}" in runner_build.get(
+        "args", []
+    )
+
     # None of the infra sidecar tags embed the per-run project name ("proj").
     for svc in (
         "oss-crs-exchange",

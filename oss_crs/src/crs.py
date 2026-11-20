@@ -4,6 +4,7 @@ from typing import Optional
 import hashlib
 import json
 import os
+import re
 import subprocess
 
 from .config.crs import CRSConfig
@@ -87,6 +88,60 @@ def init_crs_repo(
 
         with MultiTaskProgress(tasks, title=f"Init CRS: {name}") as progress:
             return progress.run_added_tasks()
+
+
+def adapt_runner_dockerfile_if_needed(
+    dockerfile: str,
+    work_dir: Path,
+    crs_name: str,
+    module_name: str,
+    build_args: Optional[dict[str, str]] = None,
+) -> str:
+    """Ensure a CRS runner Dockerfile accepts base_runner_image as a build-arg.
+
+    If a runner Dockerfile starts FROM base-runner without declaring
+    ``ARG base_runner_image``, Docker ignores the ``--build-arg base_runner_image=...``
+    passed by OSS-CRS and pulls the hardcoded/default tag. This rewrites the Dockerfile
+    into a temporary adapted copy in the CRS's work directory with:
+        ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest
+        FROM ${base_runner_image}
+    so the runner OS tag matches the target.
+    """
+    if not build_args or "base_runner_image" not in build_args:
+        return dockerfile
+
+    dockerfile_path = Path(dockerfile)
+    if not dockerfile_path.is_file():
+        return dockerfile
+
+    try:
+        content = dockerfile_path.read_text(encoding="utf-8")
+    except Exception:
+        return dockerfile
+
+    # If the Dockerfile already declares ARG base_runner_image, no adaptation is needed.
+    if re.search(r"^\s*ARG\s+base_runner_image\b", content, re.MULTILINE):
+        return dockerfile
+
+    # Check for FROM base-runner (with or without registry, and with optional tag/alias)
+    base_runner_pattern = re.compile(
+        r"(?i)(^\s*FROM\s+(?:--platform=\S+\s+)?)(?:[^\s/]+/)*base-runner(?::[a-zA-Z0-9._-]+)?",
+        re.MULTILINE,
+    )
+    if not base_runner_pattern.search(content):
+        return dockerfile
+
+    adapted_content = base_runner_pattern.sub(r"\g<1>${base_runner_image}", content)
+    adapted_content = (
+        "ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest\n"
+        + adapted_content
+    )
+
+    adapted_dir = work_dir / ".adapted_dockerfiles" / crs_name
+    adapted_dir.mkdir(parents=True, exist_ok=True)
+    adapted_path = adapted_dir / f"{module_name}.Dockerfile"
+    adapted_path.write_text(adapted_content, encoding="utf-8")
+    return str(adapted_path)
 
 
 class CRS:
@@ -438,6 +493,17 @@ class CRS:
         dockerfile = renderer._resolve_module_dockerfile(
             self.crs_path, module_config.dockerfile
         )
+        work_dir_path = (
+            self.work_dir.path if hasattr(self.work_dir, "path") else self.work_dir
+        )
+        if isinstance(work_dir_path, Path):
+            dockerfile = adapt_runner_dockerfile_if_needed(
+                dockerfile,
+                work_dir_path,
+                self.name,
+                module_name,
+                build_args=build_args,
+            )
         env = build_prepare_env(
             base_env=os.environ.copy(),
             crs_additional_env=(

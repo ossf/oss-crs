@@ -4,7 +4,7 @@ import textwrap
 from unittest.mock import patch, MagicMock
 
 from oss_crs.src.config.crs_compose import CRSEntry, CRSSource
-from oss_crs.src.crs import CRS
+from oss_crs.src.crs import CRS, adapt_runner_dockerfile_if_needed
 from oss_crs.src.ui import TaskResult
 from oss_crs.src.workdir import WorkDir
 
@@ -471,3 +471,143 @@ def test_target_dependent_run_modules_excludes_opted_out_modules(tmp_path):
     assert crs._CRS__target_dependent_run_modules() == []
     independent = crs._CRS__target_independent_run_modules()
     assert [name for name, _ in independent] == ["lsp"]
+
+
+def test_adapt_runner_dockerfile_injects_arg_and_replaces_from(tmp_path):
+    """When ARG base_runner_image is missing, rewrite FROM base-runner to use the build-arg."""
+    dockerfile = tmp_path / "runner.Dockerfile"
+    dockerfile.write_text("FROM gcr.io/oss-fuzz-base/base-runner\nRUN apt-get update\n")
+
+    work_dir = tmp_path / "work"
+    adapted = adapt_runner_dockerfile_if_needed(
+        dockerfile=str(dockerfile),
+        work_dir=work_dir,
+        crs_name="my-crs",
+        module_name="runner",
+        build_args={
+            "base_runner_image": "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+        },
+    )
+    assert adapted != str(dockerfile)
+    from pathlib import Path
+
+    adapted_content = Path(adapted).read_text()
+    assert (
+        "ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest"
+        in adapted_content
+    )
+    assert "FROM ${base_runner_image}" in adapted_content
+    assert "FROM gcr.io/oss-fuzz-base/base-runner\n" not in adapted_content
+
+
+def test_adapt_runner_dockerfile_multi_stage(tmp_path):
+    """Multi-stage Dockerfiles preserve stages and stage aliases when adapted."""
+    dockerfile = tmp_path / "runner.Dockerfile"
+    dockerfile.write_text(
+        "FROM golang:1.22 AS build\n"
+        "RUN make\n\n"
+        "FROM gcr.io/oss-fuzz-base/base-runner:latest AS runner\n"
+        "COPY --from=build /bin /bin\n"
+    )
+
+    work_dir = tmp_path / "work"
+    adapted = adapt_runner_dockerfile_if_needed(
+        dockerfile=str(dockerfile),
+        work_dir=work_dir,
+        crs_name="my-crs",
+        module_name="runner",
+        build_args={
+            "base_runner_image": "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+        },
+    )
+    from pathlib import Path
+
+    adapted_content = Path(adapted).read_text()
+    assert (
+        "ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest"
+        in adapted_content
+    )
+    assert "FROM golang:1.22 AS build" in adapted_content
+    assert "FROM ${base_runner_image} AS runner" in adapted_content
+
+
+def test_adapt_runner_dockerfile_leaves_existing_arg_untouched(tmp_path):
+    """If ARG base_runner_image is already present, the Dockerfile is unchanged."""
+    dockerfile = tmp_path / "runner.Dockerfile"
+    original_text = (
+        "ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest\n"
+        "FROM ${base_runner_image}\n"
+        "RUN apt-get update\n"
+    )
+    dockerfile.write_text(original_text)
+
+    work_dir = tmp_path / "work"
+    adapted = adapt_runner_dockerfile_if_needed(
+        dockerfile=str(dockerfile),
+        work_dir=work_dir,
+        crs_name="my-crs",
+        module_name="runner",
+        build_args={
+            "base_runner_image": "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+        },
+    )
+    assert adapted == str(dockerfile)
+
+
+def test_adapt_runner_dockerfile_skips_non_base_runner(tmp_path):
+    """Dockerfiles not inheriting from base-runner are untouched."""
+    dockerfile = tmp_path / "runner.Dockerfile"
+    dockerfile.write_text("FROM alpine:latest\nRUN apk add bash\n")
+
+    work_dir = tmp_path / "work"
+    adapted = adapt_runner_dockerfile_if_needed(
+        dockerfile=str(dockerfile),
+        work_dir=work_dir,
+        crs_name="my-crs",
+        module_name="runner",
+        build_args={
+            "base_runner_image": "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04"
+        },
+    )
+    assert adapted == str(dockerfile)
+
+
+def test_build_run_image_adapts_runner_dockerfile(tmp_path):
+    """__build_run_image invokes Docker buildx with adapted Dockerfile when base-runner is hardcoded."""
+    crs = _make_run_module_crs(tmp_path, target_dependent=True)
+    # Write a real Dockerfile that hardcodes base-runner
+    real_dockerfile = tmp_path / "crs" / "oss-crs" / "lsp.Dockerfile"
+    real_dockerfile.write_text("FROM gcr.io/oss-fuzz-base/base-runner\nRUN true\n")
+
+    progress = _CaptureProgress()
+    module_config = crs.config.crs_run_phase.modules["lsp"]
+
+    with patch("oss_crs.src.crs.subprocess.run", return_value=MagicMock(returncode=1)):
+        result = crs._CRS__build_run_image(
+            module_name="lsp",
+            module_config=module_config,
+            image_tag="oss-crs-runner:test-crs-lsp-deadbeef99",
+            progress=progress,
+            scope="test-crs:build-target:lsp",
+            build_args={
+                "target_base_image": "proj:deadbeef99",
+                "base_runner_image": "gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04",
+            },
+        )
+
+    assert result.success is True
+    assert len(progress.calls) == 1
+    cmd = progress.calls[0]["cmd"]
+    cmd_str = " ".join(cmd)
+    f_idx = cmd.index("-f")
+    dockerfile_used = cmd[f_idx + 1]
+    assert dockerfile_used != str(real_dockerfile)
+    from pathlib import Path
+
+    adapted_content = Path(dockerfile_used).read_text()
+    assert (
+        "ARG base_runner_image=gcr.io/oss-fuzz-base/base-runner:latest"
+        in adapted_content
+    )
+    assert "FROM ${base_runner_image}" in adapted_content
+    assert "base_runner_image=gcr.io/oss-fuzz-base/base-runner:ubuntu-24-04" in cmd_str

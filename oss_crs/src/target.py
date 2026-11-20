@@ -145,6 +145,60 @@ def extract_name_from_proj_path(proj_path: str) -> str:
     return Path(proj_path).name
 
 
+def detect_base_os_from_dockerfile(dockerfile_path: Path) -> Optional[str]:
+    """Inspect a target's Dockerfile for a pinned base-builder OS tag.
+
+    Matches instructions like:
+        FROM gcr.io/oss-fuzz-base/base-builder:ubuntu-24-04
+        FROM gcr.io/oss-fuzz-base/base-builder-rust:ubuntu-24-04
+        FROM base-builder:ubuntu-20-04
+    Also expands variables if the tag was defined via ARG prior to FROM.
+
+    Returns the tag (e.g. 'ubuntu-24-04'), or None if not found or if the tag is 'latest'.
+    """
+    if not dockerfile_path.is_file():
+        return None
+
+    try:
+        lines = dockerfile_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except Exception:
+        return None
+
+    env_vars: dict[str, str] = {}
+    detected_tag: Optional[str] = None
+
+    for raw_line in lines:
+        line = Target._strip_inline_comment(raw_line).strip()
+        if not line:
+            continue
+
+        arg_match = re.match(r"(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", line)
+        if arg_match:
+            key = arg_match.group(1)
+            val = arg_match.group(2)
+            if val is not None:
+                val = val.strip().strip("'\"")
+                env_vars[key] = Target._expand_docker_vars(val, env_vars)
+            continue
+
+        from_match = re.match(
+            r"(?i)^FROM\s+(?:--platform=\S+\s+)?(?:[^\s/]+/)*base-builder(?:-[a-zA-Z0-9._-]+)*:([a-zA-Z0-9._$-{}]+)",
+            line,
+        )
+        if from_match:
+            raw_tag = from_match.group(1).strip()
+            expanded_tag = Target._expand_docker_vars(raw_tag, env_vars).strip()
+            if expanded_tag and expanded_tag.lower() not in (
+                DEFAULT_BASE_RUNNER_TAG,
+                LEGACY_BASE_OS_VERSION,
+            ):
+                detected_tag = expanded_tag
+
+    return detected_tag
+
+
 class Target:
     DEFAULT_SANITIZER = "address"
     DEFAULT_ENGINE = "libfuzzer"
@@ -184,46 +238,60 @@ class Target:
         self.source_only = source_only
 
     def _load_project_yaml_defaults(self) -> None:
-        """Load optional OSS-Fuzz project.yaml defaults.
+        """Load optional OSS-Fuzz project.yaml defaults and Dockerfile fallback.
 
         Precedence is enforced by callers via env merge policy:
-        compose additional_env > project.yaml > framework defaults.
+        compose additional_env > project.yaml > Dockerfile > framework defaults.
         """
         project_yaml = self.proj_path / "project.yaml"
-        if not project_yaml.exists():
-            return
-        try:
-            cfg = TargetConfig.from_yaml_file(project_yaml)
-        except Exception as exc:
-            log_warning(
-                f"Failed to parse {project_yaml}; falling back to framework defaults. ({type(exc).__name__}: {exc})"
-            )
-            return
+        base_os_from_yaml = False
+        if project_yaml.exists():
+            try:
+                cfg = TargetConfig.from_yaml_file(project_yaml)
+            except Exception as exc:
+                log_warning(
+                    f"Failed to parse {project_yaml}; falling back to framework defaults. ({type(exc).__name__}: {exc})"
+                )
+            else:
+                self.main_repo = cfg.main_repo
+                if "base_os_version" in cfg.model_fields_set:
+                    self.base_os_version = cfg.base_os_version
+                    base_os_from_yaml = True
+                    if self.base_os_version not in KNOWN_BASE_OS_VERSIONS:
+                        log_warning(
+                            f"Unknown base_os_version '{self.base_os_version}' in {project_yaml}; "
+                            f"using it as the base-runner image tag verbatim "
+                            f"(known values: {', '.join(sorted(KNOWN_BASE_OS_VERSIONS))}). "
+                            f"The runner image pull will fail if that tag does not exist."
+                        )
+                self.language = cfg.language.value
+                if cfg.fuzzing_engines:
+                    # Prefer "libfuzzer" if listed; otherwise use first entry
+                    if FuzzingEngine.LIBFUZZER in cfg.fuzzing_engines:
+                        self.engine = FuzzingEngine.LIBFUZZER.value
+                    else:
+                        self.engine = cfg.fuzzing_engines[0].value
+                if cfg.sanitizers:
+                    # Prefer "address" if listed; otherwise use first entry
+                    if TargetSanitizer.ASAN in cfg.sanitizers:
+                        self.sanitizer = TargetSanitizer.ASAN.value
+                    else:
+                        self.sanitizer = cfg.sanitizers[0].value
+                if cfg.architectures:
+                    self.architecture = cfg.architectures[0].value
 
-        self.main_repo = cfg.main_repo
-        self.base_os_version = cfg.base_os_version
-        if self.base_os_version not in KNOWN_BASE_OS_VERSIONS:
-            log_warning(
-                f"Unknown base_os_version '{self.base_os_version}' in {project_yaml}; "
-                f"using it as the base-runner image tag verbatim "
-                f"(known values: {', '.join(sorted(KNOWN_BASE_OS_VERSIONS))}). "
-                f"The runner image pull will fail if that tag does not exist."
-            )
-        self.language = cfg.language.value
-        if cfg.fuzzing_engines:
-            # Prefer "libfuzzer" if listed; otherwise use first entry
-            if FuzzingEngine.LIBFUZZER in cfg.fuzzing_engines:
-                self.engine = FuzzingEngine.LIBFUZZER.value
-            else:
-                self.engine = cfg.fuzzing_engines[0].value
-        if cfg.sanitizers:
-            # Prefer "address" if listed; otherwise use first entry
-            if TargetSanitizer.ASAN in cfg.sanitizers:
-                self.sanitizer = TargetSanitizer.ASAN.value
-            else:
-                self.sanitizer = cfg.sanitizers[0].value
-        if cfg.architectures:
-            self.architecture = cfg.architectures[0].value
+        if not base_os_from_yaml:
+            dockerfile = self.proj_path / "Dockerfile"
+            detected_os = detect_base_os_from_dockerfile(dockerfile)
+            if detected_os:
+                self.base_os_version = detected_os
+                if self.base_os_version not in KNOWN_BASE_OS_VERSIONS:
+                    log_warning(
+                        f"Unknown base_os_version '{self.base_os_version}' in {dockerfile}; "
+                        f"using it as the base-runner image tag verbatim "
+                        f"(known values: {', '.join(sorted(KNOWN_BASE_OS_VERSIONS))}). "
+                        f"The runner image pull will fail if that tag does not exist."
+                    )
 
     @property
     def _has_repo(self) -> bool:
