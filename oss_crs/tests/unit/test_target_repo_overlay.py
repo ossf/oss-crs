@@ -58,6 +58,63 @@ def test_repo_override_uses_rsync_delete_overlay(tmp_path: Path) -> None:
     )
 
 
+def test_repo_override_syncs_into_resolved_source_when_workdir_is_scratch(
+    tmp_path: Path,
+) -> None:
+    """With WORKDIR $WORK, the override must replace /src/alembic, not /work."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Dockerfile").write_text(
+        "FROM base\n"
+        "RUN git clone --depth 1 https://github.com/alembic/alembic\n"
+        "WORKDIR $WORK/\n"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    target = Target.__new__(Target)
+    target.proj_path = proj
+    target.main_repo = "https://github.com/alembic/alembic"
+    target.work_dir = tmp_path / "work"
+    target.work_dir.mkdir()
+    target.repo_path = repo
+
+    progress = _CaptureProgress()
+    result = target._Target__build_docker_image_with_repo("demo:tag", progress)
+
+    assert result.success is True
+    assert (
+        "RUN rsync -a --delete /OSS_CRS_REPO_OVERRIDE/ /src/alembic/\n"
+        in progress.generated_dockerfile
+    )
+    assert "/OSS_CRS_REPO_OVERRIDE/ ./" not in progress.generated_dockerfile
+
+
+def test_repo_override_never_deletes_into_bare_src_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Without a main_repo clone, keep syncing into ./ rather than wiping /src."""
+    monkeypatch.setattr("oss_crs.src.target.log_warning", lambda _msg: None)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Dockerfile").write_text("FROM base\nWORKDIR $WORK/\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    target = Target.__new__(Target)
+    target.proj_path = proj
+    target.main_repo = None
+    target.work_dir = tmp_path / "work"
+    target.work_dir.mkdir()
+    target.repo_path = repo
+
+    progress = _CaptureProgress()
+    target._Target__build_docker_image_with_repo("demo:tag", progress)
+
+    assert "/OSS_CRS_REPO_OVERRIDE/ ./\n" in progress.generated_dockerfile
+    assert "/OSS_CRS_REPO_OVERRIDE/ /src/" not in progress.generated_dockerfile
+
+
 def test_repo_override_can_force_uncached_build(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     proj.mkdir()

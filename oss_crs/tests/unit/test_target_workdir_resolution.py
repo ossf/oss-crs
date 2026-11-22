@@ -166,3 +166,115 @@ def test_resolve_effective_workdir_multistage_no_workdir_in_final_stage(
     # Current behavior: returns /build (leaked from builder stage)
     # Correct Docker behavior would be /src (default for oss-fuzz base)
     assert target._resolve_effective_workdir() == "/build"
+
+
+def _make_target_with_main_repo(
+    tmp_path: Path, dockerfile: str, main_repo: str | None
+) -> Target:
+    target = _make_target_with_dockerfile(tmp_path, dockerfile)
+    target.main_repo = main_repo
+    return target
+
+
+def test_resolve_falls_back_to_main_repo_clone_when_workdir_is_work(
+    tmp_path: Path,
+) -> None:
+    """alembic: clones into $SRC/alembic, then ends with WORKDIR $WORK/."""
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM gcr.io/oss-fuzz-base/base-builder\n"
+        "RUN git clone -b v3.2.1 --depth 1 https://github.com/AcademySoftwareFoundation/imath $SRC/imath && \\\n"
+        "    cd $SRC/imath && \\\n"
+        "    make install\n"
+        "RUN git clone --depth 1 https://github.com/alembic/alembic\n"
+        "COPY build.sh $SRC/\n"
+        "WORKDIR $WORK/\n",
+        "https://github.com/alembic/alembic",
+    )
+    assert target._resolve_effective_workdir() == "/src/alembic"
+
+
+def test_resolve_uses_explicit_clone_destination(tmp_path: Path) -> None:
+    """draco: clones into a relative dest, then ends with WORKDIR $WORK/."""
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM base\n"
+        "RUN git clone --depth 1 https://github.com/google/draco draco\n"
+        "WORKDIR $WORK/\n",
+        "https://github.com/google/draco",
+    )
+    assert target._resolve_effective_workdir() == "/src/draco"
+
+
+def test_resolve_tracks_cd_and_options_inside_continued_run(tmp_path: Path) -> None:
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM base\n"
+        "RUN mkdir -p deps && cd deps && \\\n"
+        "    # a comment line inside the continuation\n"
+        "    git clone --branch v1 --filter=blob:none -c core.autocrlf=false \\\n"
+        "      git@github.com:Example/Proj.git\n"
+        "WORKDIR $OUT\n",
+        "https://github.com/example/proj/",
+    )
+    assert target._resolve_effective_workdir() == "/src/deps/Proj"
+
+
+def test_resolve_expands_base_image_gopath(tmp_path: Path) -> None:
+    """Go projects use $GOPATH, which base-builder-go sets to /root/go."""
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM gcr.io/oss-fuzz-base/base-builder-go\n"
+        "RUN git clone --depth 1 https://github.com/google/mtail $GOPATH/src/github.com/google/mtail\n"
+        "WORKDIR $GOPATH/src/github.com/google/mtail\n",
+        "https://github.com/google/mtail",
+    )
+    assert target._resolve_effective_workdir() == "/root/go/src/github.com/google/mtail"
+
+
+def test_resolve_keeps_source_workdir_even_if_main_repo_cloned_elsewhere(
+    tmp_path: Path,
+) -> None:
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM base\n"
+        "RUN git clone https://github.com/example/proj upstream\n"
+        "WORKDIR $SRC/proj\n",
+        "https://github.com/example/proj",
+    )
+    assert target._resolve_effective_workdir() == "/src/proj"
+
+
+def test_resolve_defaults_to_src_with_one_warning_when_no_clone_found(
+    tmp_path: Path, monkeypatch
+) -> None:
+    warnings: list[str] = []
+    monkeypatch.setattr("oss_crs.src.target.log_warning", warnings.append)
+    target = _make_target_with_main_repo(
+        tmp_path,
+        "FROM base\nRUN curl -L https://example.com/proj.tgz | tar xz\nWORKDIR $WORK\n",
+        "https://github.com/example/proj",
+    )
+
+    assert target._resolve_effective_workdir() == "/src"
+    assert target._resolve_effective_workdir() == "/src"
+    assert len(warnings) == 1
+    assert "/work" in warnings[0]
+
+
+def test_resolve_defaults_to_src_for_unknown_variable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("oss_crs.src.target.log_warning", lambda _msg: None)
+    target = _make_target_with_main_repo(
+        tmp_path, "FROM base\nWORKDIR $UNDEFINED_DIR/proj\n", None
+    )
+    assert target._resolve_effective_workdir() == "/src"
+
+
+def test_resolve_ignores_workdir_text_inside_continued_run(tmp_path: Path) -> None:
+    target = _make_target_with_dockerfile(
+        tmp_path,
+        "FROM base\nWORKDIR $SRC/proj\nRUN echo \\\n    WORKDIR /bogus\n",
+    )
+    assert target._resolve_effective_workdir() == "/src/proj"
