@@ -12,7 +12,7 @@ const sidebars = {
       type: 'category',
       label: 'Getting started',
       collapsed: false,
-      items: ['setup', 'registry', 'crs-development-guide'],
+      items: ['setup', 'registry', 'crs-development-guide', 'presentations'],
     },
     {
       type: 'category',

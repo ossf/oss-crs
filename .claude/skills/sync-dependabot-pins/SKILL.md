@@ -158,6 +158,11 @@ The mapping from Dockerfile `FROM` image to Python constant is:
 |------------------------|-----------------|
 | `ghcr.io/berriai/litellm-database` | `LITELLM_IMAGE` |
 | `postgres` | `POSTGRES_IMAGE` |
+| `alpine` | `ALPINE_IMAGE` |
+| `nixos/nix` | `NIX_BUILDER_IMAGE` (also update the `ARG NIX_BUILDER_IMAGE=nixos/nix:<tag>` default in `libCRS/deps.Dockerfile`) |
+
+`alpine` and `nixos/nix` are on Docker Hub, so the `postgres` tags-API
+strategy above applies to them as well (`library/alpine`, `nixos/nix`).
 
 For each changed image, update **both** the digest and the inline comment in constants.py to match what is now in dependabot-pins.Dockerfile. Use the Edit tool.
 
