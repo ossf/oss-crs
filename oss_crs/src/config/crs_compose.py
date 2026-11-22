@@ -11,6 +11,7 @@ import yaml
 from ..cpuset import parse_cpuset, map_cpuset, create_cpu_mapping
 from ..env_schema import validate_additional_env_keys
 from ..memory import parse_memory
+from .crs import validate_docker_registry_value
 from .mcp import mcp_gateway_name, validate_mcp_server_name
 
 CRS_ENTRY_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -225,8 +226,7 @@ class CRSComposeConfig(BaseModel):
     @field_validator("docker_registry")
     @classmethod
     def validate_docker_registry(cls, v: str) -> str:
-        # TODO: Add more robust validation for docker registry URL if needed
-        return v
+        return validate_docker_registry_value(v, allow_empty=False)
 
     @field_validator("crs_entries")
     @classmethod

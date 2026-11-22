@@ -294,3 +294,38 @@ class TestExtraCACerts:
         )
         reparsed = CRSComposeConfig.from_dict(config.to_dict())
         assert reparsed.extra_ca_certs == "/etc/pki/corp-root.pem"
+
+
+class TestCRSComposeDockerRegistryValidation:
+    """Tests for docker_registry field in CRSComposeConfig."""
+
+    def test_rejects_empty_docker_registry(self, tmp_path):
+        compose_file = tmp_path / "crs-compose.yaml"
+        content = {
+            "run_env": "local",
+            "docker_registry": "",
+            "crs_entries": {},
+        }
+        with pytest.raises(ValidationError, match="docker_registry cannot be empty"):
+            CRSComposeConfig.from_dict(content, config_path=compose_file)
+
+    def test_accepts_valid_registries(self, tmp_path):
+        compose_file = tmp_path / "crs-compose.yaml"
+        for reg in ["local", "ghcr.io", "docker.io/library", "localhost:5000"]:
+            content = {
+                "run_env": "local",
+                "docker_registry": reg,
+                "crs_entries": {},
+            }
+            config = CRSComposeConfig.from_dict(content, config_path=compose_file)
+            assert config.docker_registry == reg
+
+    def test_rejects_invalid_scheme(self, tmp_path):
+        compose_file = tmp_path / "crs-compose.yaml"
+        content = {
+            "run_env": "local",
+            "docker_registry": "https://ghcr.io",
+            "crs_entries": {},
+        }
+        with pytest.raises(ValidationError, match="must not contain a URL scheme"):
+            CRSComposeConfig.from_dict(content, config_path=compose_file)

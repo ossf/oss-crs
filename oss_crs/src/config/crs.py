@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import re
 from pathlib import Path
 from enum import Enum
 from typing import Optional, Set
@@ -45,6 +46,72 @@ def _validate_dockerfile_value(v: Optional[str]) -> Optional[str]:
         raise ValueError(
             "must be a valid Dockerfile path or oss-crs-infra:<module> reference"
         )
+    return v
+
+
+VERSION_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$")
+DOCKER_REGISTRY_HOST_RE = re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*|localhost)$"
+)
+DOCKER_REGISTRY_PATH_SEGMENT_RE = re.compile(r"^[a-zA-Z0-9]+(?:[._-][a-zA-Z0-9]+)*$")
+
+
+def validate_docker_registry_value(v: str, allow_empty: bool = False) -> str:
+    """Validate a docker registry string.
+
+    Accepts:
+    - Empty string (if allow_empty is True)
+    - "local" (special sentinel for local Docker daemon)
+    - Valid host[:port][/namespace...] references (e.g., "docker.io", "ghcr.io/org", "localhost:5000")
+
+    Rejects:
+    - URL schemes (e.g., "https://ghcr.io")
+    - Whitespace, leading/trailing slashes, consecutive slashes
+    - Invalid port numbers (must be 1-65535)
+    - Invalid hostnames or path segments
+    """
+    v = v.strip()
+    if not v:
+        if allow_empty:
+            return ""
+        raise ValueError("docker_registry cannot be empty")
+
+    if v == "local":
+        return v
+
+    if "://" in v or v.startswith(("http://", "https://", "docker://", "tcp://")):
+        raise ValueError(f"docker_registry must not contain a URL scheme: '{v}'")
+
+    if any(c.isspace() for c in v):
+        raise ValueError(f"docker_registry cannot contain whitespace: '{v}'")
+
+    if v.startswith("/") or v.endswith("/"):
+        raise ValueError(f"docker_registry cannot start or end with a slash: '{v}'")
+
+    if "//" in v:
+        raise ValueError(f"docker_registry cannot contain consecutive slashes: '{v}'")
+
+    parts = v.split("/", 1)
+    host_port = parts[0]
+
+    if ":" in host_port:
+        host, port_str = host_port.rsplit(":", 1)
+        if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
+            raise ValueError(f"Invalid port in docker_registry: '{port_str}'")
+    else:
+        host = host_port
+
+    if not DOCKER_REGISTRY_HOST_RE.fullmatch(host):
+        raise ValueError(f"Invalid host in docker_registry: '{host}'")
+
+    if len(parts) > 1:
+        path = parts[1]
+        for segment in path.split("/"):
+            if not DOCKER_REGISTRY_PATH_SEGMENT_RE.fullmatch(segment):
+                raise ValueError(
+                    f"Invalid path segment in docker_registry: '{segment}'"
+                )
+
     return v
 
 
@@ -258,17 +325,21 @@ class CRSConfig(BaseModel):
     @field_validator("version")
     @classmethod
     def validate_version(cls, v: str) -> str:
-        # TODO: Improve version validation if needed
-        v = v.strip()  # Remove leading/trailing whitespace
+        v = v.strip()
         if not v:
             raise ValueError("version cannot be empty")
+        if not VERSION_RE.fullmatch(v):
+            raise ValueError(
+                f"Invalid version '{v}': version must be 1-128 characters, "
+                "start with an alphanumeric character or underscore, and contain "
+                "only letters, numbers, dots, hyphens, or underscores"
+            )
         return v
 
     @field_validator("docker_registry")
     @classmethod
     def validate_docker_registry(cls, v: str) -> str:
-        # TODO: Improve docker_registry validation if needed
-        return v.strip()
+        return validate_docker_registry_value(v, allow_empty=True)
 
     @field_validator("required_llms")
     @classmethod
