@@ -363,3 +363,84 @@ class TestSidecarDeploymentConditions:
         bf_ens, bfix_ens = self._compute_conditions(configs)
         assert bf_ens is False
         assert bfix_ens is True
+
+
+class TestVersionValidation:
+    """Tests for version field validation in CRSConfig."""
+
+    def test_valid_versions(self):
+        for version in ["1.0.0", "v1.2.3", "0.1.0-alpha.1", "latest", "_build_12"]:
+            config = CRSConfig.from_dict(_minimal_crs_config(version=version))
+            assert config.version == version
+
+    def test_version_whitespace_stripped(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(version="  1.0.0  "))
+        assert config.version == "1.0.0"
+
+    def test_rejects_empty_version(self):
+        with pytest.raises(ValidationError, match="version cannot be empty"):
+            CRSConfig.from_dict(_minimal_crs_config(version=""))
+        with pytest.raises(ValidationError, match="version cannot be empty"):
+            CRSConfig.from_dict(_minimal_crs_config(version="   "))
+
+    def test_rejects_invalid_version_characters(self):
+        for invalid in [".1.0", "-v1", "1.0 0", "v1:tag", "v1/branch", "@1.0"]:
+            with pytest.raises(ValidationError, match="Invalid version"):
+                CRSConfig.from_dict(_minimal_crs_config(version=invalid))
+
+    def test_rejects_too_long_version(self):
+        long_version = "a" * 129
+        with pytest.raises(ValidationError, match="Invalid version"):
+            CRSConfig.from_dict(_minimal_crs_config(version=long_version))
+
+
+class TestDockerRegistryValidation:
+    """Tests for docker_registry validation in CRSConfig."""
+
+    def test_empty_registry_accepted_by_default(self):
+        config = CRSConfig.from_dict(_minimal_crs_config())
+        assert config.docker_registry == ""
+
+    def test_local_sentinel_accepted(self):
+        config = CRSConfig.from_dict(_minimal_crs_config(docker_registry="local"))
+        assert config.docker_registry == "local"
+
+    def test_valid_registries_accepted(self):
+        valid_registries = [
+            "docker.io",
+            "docker.io/library",
+            "ghcr.io",
+            "ghcr.io/org",
+            "ghcr.io/org/repo",
+            "registry.gitlab.com:5000",
+            "localhost",
+            "localhost:5000",
+            "127.0.0.1:5000",
+        ]
+        for reg in valid_registries:
+            config = CRSConfig.from_dict(_minimal_crs_config(docker_registry=reg))
+            assert config.docker_registry == reg
+
+    def test_rejects_url_schemes(self):
+        for invalid in ["https://ghcr.io", "http://docker.io", "tcp://localhost:5000"]:
+            with pytest.raises(ValidationError, match="must not contain a URL scheme"):
+                CRSConfig.from_dict(_minimal_crs_config(docker_registry=invalid))
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ValidationError, match="cannot contain whitespace"):
+            CRSConfig.from_dict(_minimal_crs_config(docker_registry="bad registry"))
+
+    def test_rejects_leading_trailing_consecutive_slashes(self):
+        for invalid in ["/ghcr.io", "ghcr.io/", "ghcr.io//org"]:
+            with pytest.raises(ValidationError, match="slash"):
+                CRSConfig.from_dict(_minimal_crs_config(docker_registry=invalid))
+
+    def test_rejects_invalid_port(self):
+        for invalid in ["ghcr.io:0", "ghcr.io:70000", "ghcr.io:abc"]:
+            with pytest.raises(ValidationError, match="Invalid port"):
+                CRSConfig.from_dict(_minimal_crs_config(docker_registry=invalid))
+
+    def test_rejects_invalid_host(self):
+        for invalid in ["bad@host"]:
+            with pytest.raises(ValidationError, match="Invalid host"):
+                CRSConfig.from_dict(_minimal_crs_config(docker_registry=invalid))
