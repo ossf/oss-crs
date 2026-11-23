@@ -1,0 +1,36 @@
+##############################################################################
+#                        CRS Compose Configuration                           #
+#            Example for crs-vuln-patch-variant (bug-finding)                #
+##############################################################################
+# Needs a crashing PoV for the target harness:
+#   oss-crs run ... --target-harness <harness> --pov <crashing input> [--diff ref.diff]
+# Submits accepted variant harnesses as `report` bundles, their crashing
+# inputs as `pov` (when they also crash the project's own target) and their
+# crash locations as SARIF `bug-candidate`s.
+
+# --- General Settings -------------------------------------------------------
+run_env: local
+docker_registry: local
+
+# --- Infrastructure ---------------------------------------------------------
+oss_crs_infra:
+  cpuset: "0-1"
+  memory: "4G"
+
+# --- CRS (crs-vuln-patch-variant) ------------------------------------------
+# No llm_config: the CRS talks to the provider directly with the key below
+# (required_envs: ANTHROPIC_API_KEY), so no LiteLLM proxy is started.
+crs-vuln-patch-variant:
+  cpuset: "2-7"
+  memory: "16G"
+  additional_env:
+    ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"   # from the shell environment or ./.env
+    LLM_BACKEND: anthropic
+    # ANTHROPIC_MODEL: claude-opus-5-5
+    # ANTHROPIC_EFFORT: high
+    VP_RUN_TIMEOUT: "3600"       # keep equal to `oss-crs run --timeout`
+    VP_TARGET_SUCCESSES: "3"     # stop after this many accepted harnesses
+    VP_MAX_ATTEMPTS: "10"        # or after this many generation attempts
+    # VP_VERIFY_TIMEOUT: "180"   # seconds per harness on the vulnerable build
+    # VP_SCREEN_SECONDS: "90"    # fork-mode screen per accepted harness
+    # VP_NO_CRASH_TRIAGE: "0"    # "1" disables the LLM crash-triage gate
