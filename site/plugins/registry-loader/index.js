@@ -8,6 +8,8 @@ const TYPE_LABELS = {
   'bug-finding-triage': 'Bug-finding triage',
   'bug-fixing-ensemble': 'Bug-fixing ensemble',
   'seed-filter': 'Seed filter',
+  'auditing': 'Auditing',
+  'harness-gen': 'Harness generation',
 };
 
 function loadYamlSafe(absPath) {
