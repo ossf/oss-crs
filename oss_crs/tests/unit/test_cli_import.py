@@ -4,9 +4,17 @@
 import json
 import argparse
 import shutil
+import sys
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 import pytest
 
@@ -157,6 +165,20 @@ def test_import_load_failure_returns_false(tmp_path: Path, monkeypatch) -> None:
     _make_bundle(bundle)
 
     assert handle_import(_args(bundle, tmp_path)) is False
+
+
+def test_import_fails_fast_when_zstd_missing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        import_mod.shutil, "which", lambda cmd: None if cmd == "zstd" else "/bin/docker"
+    )
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "images.tar.zst").write_text("dummy")
+
+    assert import_mod._load_images(staging) is False
+    assert "Please install zstd" in capsys.readouterr().err
 
 
 def test_import_cli_does_not_require_compose_file() -> None:

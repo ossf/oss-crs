@@ -2,9 +2,17 @@
 """Unit tests for exporting prepared images and CRS source."""
 
 import json
+import sys
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 from oss_crs.src.cli import export as export_mod
 from oss_crs.src.cli.export import handle_export
@@ -36,7 +44,9 @@ def test_export_source_without_images(tmp_path: Path, monkeypatch) -> None:
     assert "crs_src/crs-codex/build.sh" in _members(out)
 
     with tarfile.open(out, "r") as tar:
-        manifest = json.loads(tar.extractfile("export-manifest.json").read())
+        f = tar.extractfile("export-manifest.json")
+        assert f is not None
+        manifest = json.loads(f.read())
     assert manifest["images"] == []
     assert manifest["crs_sources"] == ["crs-codex"]
     assert "libcrs" not in manifest
@@ -65,7 +75,9 @@ def test_export_includes_images_and_source(tmp_path: Path, monkeypatch) -> None:
     assert not any(name.startswith("libcrs/") for name in members)
 
     with tarfile.open(out, "r") as tar:
-        manifest = json.loads(tar.extractfile("export-manifest.json").read())
+        f = tar.extractfile("export-manifest.json")
+        assert f is not None
+        manifest = json.loads(f.read())
     assert manifest["images"] == ["oss-crs-deps:latest", "crs-image:latest"]
     assert manifest["crs_sources"] == ["crs-codex"]
     assert manifest["compression"] == "zstd"
@@ -87,3 +99,15 @@ def test_export_save_failure_returns_false(tmp_path: Path, monkeypatch) -> None:
 
     assert handle_export(SimpleNamespace(out=str(out)), compose) is False
     assert not out.exists()
+
+
+def test_export_fails_fast_when_zstd_missing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        export_mod.shutil, "which", lambda cmd: None if cmd == "zstd" else "/bin/docker"
+    )
+    out = tmp_path / "images.tar.zst"
+
+    assert export_mod._stream_images(["img:1"], out) is False
+    assert "Please install zstd" in capsys.readouterr().err
