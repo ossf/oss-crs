@@ -770,12 +770,18 @@ class CRSCompose:
         if bug_candidate_dir is not None:
             bc_subdir = build_fetch_dir / "bug-candidates"
             bc_subdir.mkdir(parents=True, exist_ok=True)
+            resolved_bc_dir = bug_candidate_dir.resolve()
             for f in bug_candidate_dir.rglob("*"):
-                if f.is_file():
-                    rel = f.relative_to(bug_candidate_dir)
-                    dst = bc_subdir / rel
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(f, dst)
+                if f.is_symlink() or not f.is_file():
+                    continue
+                try:
+                    f.resolve().relative_to(resolved_bc_dir)
+                except ValueError:
+                    continue
+                rel = f.relative_to(bug_candidate_dir)
+                dst = bc_subdir / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dst)
         return build_fetch_dir
 
     def __prepare_oss_crs_infra(
