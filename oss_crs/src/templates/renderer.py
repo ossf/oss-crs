@@ -533,8 +533,8 @@ def render_run_crs_compose_docker_compose(
         "webui_url": "http://host.docker.internal:9090",
         # Pin the publisher sidecar to the host user so it can write to the
         # host-owned /webui_logs bind mount (the image runs as non-root).
-        "webui_uid": os.getuid(),
-        "webui_gid": os.getgid(),
+        "webui_uid": getattr(os, "getuid", lambda: 1000)(),
+        "webui_gid": getattr(os, "getgid", lambda: 1000)(),
         "webui_log_dir": str(
             crs_compose.work_dir.get_run_dir(run_id, sanitizer) / "webui_logs"
         ),

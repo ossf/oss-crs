@@ -1332,11 +1332,11 @@ def test_mcp_hook_mounted_for_internal_llm(monkeypatch, tmp_path: Path) -> None:
     # ...and the prompt hook module sits beside it.
     hook_mounts = [v for v in volumes if v.endswith(":/app/oss_crs_mcp_hook.py:ro")]
     assert len(hook_mounts) == 1
-    hook_host_path = Path(hook_mounts[0].split(":")[0])
+    hook_host_path = Path(hook_mounts[0].rsplit(":/app/", 1)[0])
     assert hook_host_path.exists()
     assert "proxy_handler_instance" in hook_host_path.read_text()
     config_mount = next(v for v in volumes if v.endswith(":/app/config.yaml:ro"))
-    gateway_config = yaml.safe_load(Path(config_mount.split(":")[0]).read_text())
+    gateway_config = yaml.safe_load(Path(config_mount.rsplit(":/app/", 1)[0]).read_text())
     entry = gateway_config["mcp_servers"]["crs_claude_code_ripgrep"]
     assert entry["url"] == "http://crs_claude_code_ripgrep:8000/mcp"
 
