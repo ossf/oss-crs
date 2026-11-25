@@ -7,10 +7,20 @@ Verifies that:
 3. All expected image patterns are correctly matched.
 """
 
+import sys
+from unittest.mock import MagicMock
+
+# Polyfill fcntl on platforms (such as Windows) where it is missing
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
+
 import docker.errors
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from oss_crs.src.cli.discovery import (
     discover_build_target_images,
@@ -791,7 +801,7 @@ class TestPrepareImageDiscovery:
 class TestGetBakeImageTags:
     """Test CRS.get_bake_image_tags failure handling."""
 
-    def _make_crs(self, tmp_path, hcl_content="", prepare_hcl="bake.hcl"):
+    def _make_crs(self, tmp_path, hcl_content: str | None = "", prepare_hcl="bake.hcl"):
         """Create a minimal CRS object with a prepare phase."""
         crs_path = tmp_path / "my-crs"
         crs_path.mkdir()
@@ -925,3 +935,108 @@ class TestGetBakeImageTags:
             result = crs.get_bake_image_tags()
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Clean execution and path containment tests
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteCleanPlanPathContainment:
+    """Tests for execute_clean_plan and path containment verification."""
+
+    def test_artifact_dirs_inside_work_dir_are_deleted(self, tmp_path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        artifact_dir = work_dir / "builds" / "build1"
+        artifact_dir.mkdir(parents=True)
+        test_file = artifact_dir / "test.txt"
+        test_file.write_text("hello")
+
+        plan = CleanPlan(artifact_dirs=[artifact_dir])
+
+        with patch("docker.from_env"):
+            success = execute_clean_plan(plan, work_dir=work_dir)
+
+        assert success is True
+        assert not artifact_dir.exists()
+
+    def test_artifact_dirs_outside_work_dir_are_refused(self, tmp_path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        outside_dir = tmp_path / "outside_dir"
+        outside_dir.mkdir()
+        canary = outside_dir / "canary.txt"
+        canary.write_text("critical data")
+
+        plan = CleanPlan(artifact_dirs=[outside_dir])
+
+        with patch("docker.from_env"):
+            success = execute_clean_plan(plan, work_dir=work_dir)
+
+        assert success is False
+        assert outside_dir.exists()
+        assert canary.exists()
+
+    def test_traversal_path_outside_work_dir_is_refused(self, tmp_path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        outside_dir = tmp_path / "other"
+        outside_dir.mkdir()
+        canary = outside_dir / "secret.txt"
+        canary.write_text("secret")
+
+        # Traversing path that attempts to escape work_dir
+        traversal_dir = work_dir / ".." / "other"
+
+        plan = CleanPlan(artifact_dirs=[traversal_dir])
+
+        with patch("docker.from_env"):
+            success = execute_clean_plan(plan, work_dir=work_dir)
+
+        assert success is False
+        assert outside_dir.exists()
+        assert canary.exists()
+
+    def test_unbounded_when_work_dir_none(self, tmp_path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        target_dir = tmp_path / "any_dir"
+        target_dir.mkdir()
+
+        plan = CleanPlan(artifact_dirs=[target_dir])
+
+        with patch("docker.from_env"):
+            success = execute_clean_plan(plan, work_dir=None)
+
+        assert success is True
+        assert not target_dir.exists()
+
+    def test_mixed_artifact_dirs_only_deletes_contained(self, tmp_path):
+        from oss_crs.src.cli.clean import CleanPlan, execute_clean_plan
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        inside_dir = work_dir / "inside"
+        inside_dir.mkdir()
+
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+
+        plan = CleanPlan(artifact_dirs=[inside_dir, outside_dir])
+
+        with patch("docker.from_env"):
+            success = execute_clean_plan(plan, work_dir=work_dir)
+
+        assert success is False  # outside_dir failed/refused
+        assert not inside_dir.exists()  # inside was safely removed
+        assert outside_dir.exists()  # outside was protected

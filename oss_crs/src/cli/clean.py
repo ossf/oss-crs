@@ -135,8 +135,24 @@ def display_clean_plan(plan: CleanPlan) -> None:
 # ---------------------------------------------------------------------------
 
 
-def execute_clean_plan(plan: CleanPlan) -> bool:
-    """Remove all images and directories in the plan. Returns True on full success."""
+def _is_contained_in_work_dir(path: Path, work_dir: Path) -> bool:
+    """Return True if path is contained within (or equal to) work_dir."""
+    try:
+        resolved_path = path.resolve()
+        resolved_work_dir = work_dir.resolve()
+        return resolved_path == resolved_work_dir or resolved_path.is_relative_to(
+            resolved_work_dir
+        )
+    except Exception:
+        return False
+
+
+def execute_clean_plan(plan: CleanPlan, work_dir: Path | None = None) -> bool:
+    """Remove all images and directories in the plan. Returns True on full success.
+
+    If work_dir is provided, artifact directories are validated to ensure they
+    reside within work_dir before deletion, preventing deletion outside the workspace.
+    """
     console = get_console()
     client = docker.from_env()
     removed = 0
@@ -154,6 +170,12 @@ def execute_clean_plan(plan: CleanPlan) -> bool:
             failed.append(tag)
 
     for d in plan.artifact_dirs:
+        if work_dir is not None and not _is_contained_in_work_dir(d, work_dir):
+            console.print(
+                f"  {red('Skipped')} {d} (path is outside work directory - refusing to delete)"
+            )
+            failed.append(str(d))
+            continue
         try:
             shutil.rmtree(d)
             console.print(f"  {green('Removed')} {d}")
@@ -260,7 +282,12 @@ def handle_clean(args) -> bool:
         console.print(yellow("Aborted."))
         return True  # not an error
 
-    return execute_clean_plan(plan)
+    work_dir_path = (
+        crs_compose.work_dir.path
+        if hasattr(crs_compose, "work_dir") and hasattr(crs_compose.work_dir, "path")
+        else None
+    )
+    return execute_clean_plan(plan, work_dir=work_dir_path)
 
 
 # ---------------------------------------------------------------------------
