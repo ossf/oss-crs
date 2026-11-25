@@ -2,31 +2,17 @@
 """Unit tests for builder-sidecar docker_ops.py and server.py.
 
 Uses fully mocked Docker SDK — no real Docker daemon required.
-Sidecar code lives outside the oss_crs package tree; sys.path insertion
-is required before any imports from the sidecar.
 """
-
-# ruff: noqa: E402
-
-import sys
-from pathlib import Path
-
-_SIDECAR_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "oss-crs-infra"
-    / "builder-sidecar"
-)
-sys.path.insert(0, str(_SIDECAR_DIR))
 
 import hashlib
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import docker
 import docker.errors
 import pytest
-
-from docker_ops import (
+from oss_crs_infra.builder_sidecar.docker_ops import (
     get_build_image,
     get_test_image,
     next_rebuild_id,
@@ -35,6 +21,8 @@ from docker_ops import (
     run_ephemeral_test,
     stage_cached_rebuild,
 )
+
+from oss_crs_infra.builder_sidecar import server
 
 # ---------------------------------------------------------------------------
 # Test-wide builder name constant
@@ -52,7 +40,6 @@ TEST_CRS_NAME = "test-crs"
 def _make_test_client():
     """Return a TestClient for the server app with a clean job_results dict."""
     from fastapi.testclient import TestClient
-    import server
 
     # Reset global state between tests so job_results don't bleed across tests
     server.job_results.clear()
@@ -249,7 +236,7 @@ class TestRunEphemeralBuild:
 
     def test_successful_build_returns_exit_code_0(self, tmp_path):
         client, _ = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -259,7 +246,7 @@ class TestRunEphemeralBuild:
     def test_first_success_does_not_commit_snapshot(self, tmp_path):
         """Ephemeral containers no longer commit snapshots."""
         client, container = self._make_mock_client(exit_code=0, snapshot_exists=False)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -268,7 +255,7 @@ class TestRunEphemeralBuild:
     def test_existing_snapshot_skips_commit(self, tmp_path):
         """Snapshot already exists: container.commit() must NOT be called."""
         client, container = self._make_mock_client(exit_code=0, snapshot_exists=True)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -277,7 +264,7 @@ class TestRunEphemeralBuild:
     def test_failed_build_no_commit(self, tmp_path):
         """Non-zero exit code: snapshot must NOT be committed."""
         client, container = self._make_mock_client(exit_code=1, snapshot_exists=False)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -287,7 +274,7 @@ class TestRunEphemeralBuild:
     def test_container_removed_on_success(self, tmp_path):
         """Container.remove(force=True) called after successful build."""
         client, container = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -296,7 +283,7 @@ class TestRunEphemeralBuild:
     def test_container_removed_on_failure(self, tmp_path):
         """Container.remove(force=True) called even when build fails."""
         client, container = self._make_mock_client(exit_code=1)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -308,7 +295,7 @@ class TestRunEphemeralBuild:
 
         client, container = self._make_mock_client(exit_code=0)
         container.wait.side_effect = requests.exceptions.ReadTimeout()
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_build(
                 "base:latest",
                 1,
@@ -327,7 +314,7 @@ class TestRunEphemeralBuild:
     def test_creates_output_directory(self, tmp_path):
         """On success, output directory is created under rebuild_out_dir/{crs_name}/{rebuild_id}/."""
         client, _ = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -336,7 +323,7 @@ class TestRunEphemeralBuild:
     def test_failed_build_does_not_create_version_directory(self, tmp_path):
         """ART-02: Failed builds must not consume version slots."""
         client, _ = self._make_mock_client(exit_code=1)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_build(
                 "base:latest", 1, TEST_BUILDER_NAME, "test-crs", b"patch", tmp_path
             )
@@ -455,7 +442,7 @@ class TestBuildEndpoint:
     @pytest.mark.parametrize("bad_crs_name", ["../other-crs", "other/crs", ".", ".."])
     def test_rejects_path_traversal_crs_name(self, bad_crs_name):
         """Path-like CRS names are rejected before a build job is queued."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         client = _make_test_client()
         files, data = self._patch_bytes()
@@ -492,7 +479,8 @@ class TestBuildCacheRebuildId:
         Returns (job_id, test_client). ``job_results`` is cleared first.
         """
         from fastapi.testclient import TestClient
-        import server
+
+        from oss_crs_infra.builder_sidecar import server
 
         server.job_results.clear()
         job_id = server._make_job_id(self._PATCH, TEST_BUILDER_NAME)
@@ -544,7 +532,7 @@ class TestBuildCacheRebuildId:
 
     def test_cache_hit_with_differing_rebuild_id_stages_and_rewrites(self, tmp_path):
         """Explicit rebuild_id ≠ cached rid → stage cached tree, return new rid."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         with patch.dict(os.environ, {"REBUILD_OUT_DIR": str(tmp_path)}):
             job_id, client = self._seed_cached_entry(tmp_path, cached_rid=7)
@@ -586,7 +574,7 @@ class TestStatusEndpoint:
 
     def test_returns_result_when_done(self):
         """When job_results contains a done entry, /status returns it."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         client = _make_test_client()
         # Manually insert a completed result (simulates worker finishing)
@@ -609,7 +597,7 @@ class TestStatusEndpoint:
 
     def test_returns_queued_status(self):
         """When job is queued, /status returns queued status."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         client = _make_test_client()
         server.job_results["queuedjob"] = {"id": "queuedjob", "status": "queued"}
@@ -722,7 +710,7 @@ class TestRunEphemeralTest:
 
     def test_successful_test_returns_exit_code_0(self, tmp_path):
         client, _ = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_test(
                 "base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path
             )
@@ -732,21 +720,21 @@ class TestRunEphemeralTest:
     def test_first_success_does_not_commit_test_snapshot(self, tmp_path):
         """Ephemeral containers no longer commit snapshots."""
         client, container = self._make_mock_client(exit_code=0, snapshot_exists=False)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path)
         container.commit.assert_not_called()
 
     def test_existing_snapshot_skips_commit(self, tmp_path):
         """Test snapshot already exists: container.commit() must NOT be called."""
         client, container = self._make_mock_client(exit_code=0, snapshot_exists=True)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path)
         container.commit.assert_not_called()
 
     def test_failed_test_no_commit(self, tmp_path):
         """Non-zero exit code: test snapshot must NOT be committed."""
         client, container = self._make_mock_client(exit_code=1, snapshot_exists=False)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_test(
                 "base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path
             )
@@ -756,14 +744,14 @@ class TestRunEphemeralTest:
     def test_container_removed_on_success(self, tmp_path):
         """container.remove(force=True) called after successful test."""
         client, container = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path)
         container.remove.assert_called_once_with(force=True)
 
     def test_container_removed_on_failure(self, tmp_path):
         """container.remove(force=True) called even when test fails."""
         client, container = self._make_mock_client(exit_code=1)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path)
         container.remove.assert_called_once_with(force=True)
 
@@ -773,7 +761,7 @@ class TestRunEphemeralTest:
 
         client, container = self._make_mock_client(exit_code=0)
         container.wait.side_effect = requests.exceptions.ReadTimeout()
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_test(
                 "base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path, timeout=1
             )
@@ -786,7 +774,7 @@ class TestRunEphemeralTest:
     def test_invokes_run_tests(self, tmp_path):
         """Container OSS_CRS_BUILD_CMD env var must reference run_tests.sh."""
         client, _ = self._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             run_ephemeral_test("base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path)
         call_kwargs = client.containers.create.call_args
         environment = call_kwargs[1].get("environment", {})
@@ -823,10 +811,10 @@ class TestHandleTestProjectImage:
 
     def test_handle_test_uses_project_base_image(self, tmp_path):
         """_handle_test() uses PROJECT_BASE_IMAGE to create the container (D-02)."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         mock_client = self._make_mock_client()
-        with patch("docker_ops.docker.from_env", return_value=mock_client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=mock_client):
             with patch.dict(
                 __import__("os").environ,
                 {
@@ -843,22 +831,23 @@ class TestHandleTestProjectImage:
 
     def test_handle_test_raises_when_project_base_image_missing(self):
         """_handle_test() raises ValueError when PROJECT_BASE_IMAGE is not in os.environ."""
-        import server
         import os as _os
+
+        from oss_crs_infra.builder_sidecar import server
 
         mock_client = self._make_mock_client()
         env_without_project_base = {
             k: v for k, v in _os.environ.items() if k != "PROJECT_BASE_IMAGE"
         }
         env_without_project_base["REBUILD_OUT_DIR"] = "/tmp/test"
-        with patch("docker_ops.docker.from_env", return_value=mock_client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=mock_client):
             with patch.dict(_os.environ, env_without_project_base, clear=True):
                 with pytest.raises(ValueError, match="PROJECT_BASE_IMAGE"):
                     server._handle_test("job1", b"patch", b"", TEST_CRS_NAME, 1, "", "")
 
     def test_handle_test_ignores_builder_base_image(self, tmp_path):
         """_handle_test() does not read BASE_IMAGE_{builder_name} even when set."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         mock_client = self._make_mock_client()
         env_vars = {
@@ -866,7 +855,7 @@ class TestHandleTestProjectImage:
             "PROJECT_BASE_IMAGE": "project:correct",
             "REBUILD_OUT_DIR": str(tmp_path),
         }
-        with patch("docker_ops.docker.from_env", return_value=mock_client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=mock_client):
             with patch.dict(__import__("os").environ, env_vars, clear=False):
                 server._handle_test("job1", b"patch", b"", TEST_CRS_NAME, 1, "", "")
         call_args = mock_client.containers.create.call_args
@@ -877,7 +866,7 @@ class TestHandleTestProjectImage:
     def test_test_response_schema(self, tmp_path):
         """Response dict keys are exactly {exit_code, stdout, stderr, rebuild_id}."""
         client, _ = TestRunEphemeralTest()._make_mock_client(exit_code=0)
-        with patch("docker_ops.docker.from_env", return_value=client):
+        with patch("oss_crs_infra.builder_sidecar.docker_ops.docker.from_env", return_value=client):
             result = run_ephemeral_test(
                 "base:latest", 1, TEST_CRS_NAME, b"patch", tmp_path
             )
@@ -958,7 +947,7 @@ class TestTestEndpoint:
     @pytest.mark.parametrize("bad_crs_name", ["../other-crs", "other/crs", ".", ".."])
     def test_rejects_path_traversal_crs_name(self, bad_crs_name):
         """Path-like CRS names are rejected before a test job is queued."""
-        import server
+        from oss_crs_infra.builder_sidecar import server
 
         client = _make_test_client()
         files, data = self._patch_bytes()
