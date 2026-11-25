@@ -986,3 +986,294 @@ class TestErrorFormat:
         response = client.get("/status/totally-unknown-id")
         assert response.status_code == 404
         assert "error" in response.json()
+
+
+# ===========================================================================
+# TestUploadAndQueueLimits
+# ===========================================================================
+
+
+class TestUploadAndQueueLimits:
+    """Tests for builder-sidecar upload size limits and queue bounds."""
+
+    def test_upload_within_limit_succeeds(self):
+        """Upload within configured limit succeeds and returns 200."""
+        client = _make_test_client()
+        patch_content = b"a" * 1024  # 1 KB
+        with patch.dict(os.environ, {"MAX_UPLOAD_SIZE": "2048"}):
+            resp = client.post(
+                "/build",
+                files={
+                    "patch": ("patch.diff", patch_content, "application/octet-stream")
+                },
+                data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+
+    def test_upload_exceeding_file_limit_rejected_413(self):
+        """Single file exceeding MAX_UPLOAD_SIZE is rejected with 413."""
+        import server
+
+        client = _make_test_client()
+        patch_content = b"a" * 2049
+        with patch.dict(os.environ, {"MAX_UPLOAD_SIZE": "2048"}):
+            with patch.object(server._executor, "submit") as mock_submit:
+                resp = client.post(
+                    "/build",
+                    files={
+                        "patch": (
+                            "patch.diff",
+                            patch_content,
+                            "application/octet-stream",
+                        )
+                    },
+                    data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+                )
+        assert resp.status_code == 413
+        assert "exceeds maximum allowed size" in resp.json()["detail"]
+        mock_submit.assert_not_called()
+
+    def test_test_endpoint_upload_exceeding_limit_rejected_413(self):
+        """POST /test rejects oversized upload with 413."""
+        import server
+
+        client = _make_test_client()
+        patch_content = b"a" * 2049
+        with patch.dict(os.environ, {"MAX_UPLOAD_SIZE": "2048"}):
+            with patch.object(server._executor, "submit") as mock_submit:
+                resp = client.post(
+                    "/test",
+                    files={
+                        "patch": (
+                            "patch.diff",
+                            patch_content,
+                            "application/octet-stream",
+                        )
+                    },
+                    data={"crs_name": TEST_CRS_NAME},
+                )
+        assert resp.status_code == 413
+        assert "exceeds maximum allowed size" in resp.json()["detail"]
+        mock_submit.assert_not_called()
+
+    def test_upload_exceeding_total_limit_rejected_413(self):
+        """Multiple files whose combined size exceeds MAX_TOTAL_UPLOAD_SIZE return 413."""
+        import server
+
+        client = _make_test_client()
+        patch1 = b"a" * 1500
+        patch2 = b"b" * 1500
+        # per-file limit is 2000, total limit is 2500
+        with patch.dict(
+            os.environ, {"MAX_UPLOAD_SIZE": "2000", "MAX_TOTAL_UPLOAD_SIZE": "2500"}
+        ):
+            with patch.object(server._executor, "submit") as mock_submit:
+                resp = client.post(
+                    "/build",
+                    files={
+                        "patch": ("patch.diff", patch1, "application/octet-stream"),
+                        "fuzz_proj_patch": (
+                            "fuzz.diff",
+                            patch2,
+                            "application/octet-stream",
+                        ),
+                    },
+                    data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+                )
+        assert resp.status_code == 413
+        assert "Total request upload exceeds maximum" in resp.json()["detail"]
+        mock_submit.assert_not_called()
+
+    def test_queue_saturation_returns_429(self):
+        """When active + queued jobs reach MAX_QUEUED_JOBS, new jobs return 429."""
+        import server
+
+        client = _make_test_client()
+        # Seed running jobs up to the limit
+        with patch.dict(os.environ, {"MAX_QUEUED_JOBS": "2"}):
+            server.job_results["job1"] = {"id": "job1", "status": "running"}
+            server.job_results["job2"] = {"id": "job2", "status": "queued"}
+
+            with patch.object(server._executor, "submit") as mock_submit:
+                resp = client.post(
+                    "/build",
+                    files={
+                        "patch": ("patch.diff", b"new diff", "application/octet-stream")
+                    },
+                    data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+                )
+            assert resp.status_code == 429
+            body = resp.json()
+            assert body["error"] == "Builder queue is full"
+            assert "Retry-After" in resp.headers
+            mock_submit.assert_not_called()
+
+    def test_queue_saturation_does_not_block_dedup(self):
+        """Even if the queue is saturated, a request for an already queued/running job returns existing status."""
+        import server
+
+        client = _make_test_client()
+        patch_content = b"already running patch"
+        existing_job_id = server._make_job_id(patch_content, TEST_BUILDER_NAME)
+
+        with patch.dict(os.environ, {"MAX_QUEUED_JOBS": "1"}):
+            server.job_results[existing_job_id] = {
+                "id": existing_job_id,
+                "status": "running",
+            }
+
+            resp = client.post(
+                "/build",
+                files={
+                    "patch": ("patch.diff", patch_content, "application/octet-stream")
+                },
+                data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["id"] == existing_job_id
+            assert resp.json()["status"] == "running"
+
+    def test_done_jobs_do_not_count_towards_queue_saturation(self):
+        """Completed jobs (done/error) do not count towards MAX_QUEUED_JOBS."""
+        import server
+
+        client = _make_test_client()
+        with patch.dict(os.environ, {"MAX_QUEUED_JOBS": "2"}):
+            server.job_results["done1"] = {
+                "id": "done1",
+                "status": "done",
+                "result": {"exit_code": 0},
+            }
+            server.job_results["done2"] = {
+                "id": "done2",
+                "status": "done",
+                "result": {"exit_code": 1},
+            }
+
+            resp = client.post(
+                "/build",
+                files={
+                    "patch": ("patch.diff", b"new work", "application/octet-stream")
+                },
+                data={"crs_name": TEST_CRS_NAME, "builder_name": TEST_BUILDER_NAME},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "queued"
+
+
+# ===========================================================================
+# TestJobRetentionAndOutputCapping
+# ===========================================================================
+
+
+class TestJobRetentionAndOutputCapping:
+    """Tests for completed job retention pruning and output truncation in builder-sidecar."""
+
+    def test_prune_completed_jobs_preserves_active(self):
+        """Pruning removes oldest completed jobs while preserving queued and running jobs."""
+        import server
+
+        _make_test_client()  # clear state
+        server.job_results["active_running"] = {
+            "id": "active_running",
+            "status": "running",
+        }
+        server.job_results["active_queued"] = {
+            "id": "active_queued",
+            "status": "queued",
+        }
+        server.job_results["done_old"] = {
+            "id": "done_old",
+            "status": "done",
+            "completed_ts": 100.0,
+        }
+        server.job_results["done_recent"] = {
+            "id": "done_recent",
+            "status": "done",
+            "completed_ts": 200.0,
+        }
+
+        # Cap max completed jobs to 1
+        with server._jobs_lock:
+            server._prune_completed_jobs_locked(1)
+
+        # 'done_old' should be pruned, 'done_recent' and active jobs remain
+        assert "done_old" not in server.job_results
+        assert "done_recent" in server.job_results
+        assert "active_running" in server.job_results
+        assert "active_queued" in server.job_results
+
+    def test_run_job_prunes_on_completion(self):
+        """Completing a job automatically triggers history pruning."""
+        import server
+
+        _make_test_client()
+        server.job_results["done1"] = {
+            "id": "done1",
+            "status": "done",
+            "completed_ts": 10.0,
+        }
+        server.job_results["done2"] = {
+            "id": "done2",
+            "status": "done",
+            "completed_ts": 20.0,
+        }
+        server.job_results["job_new"] = {
+            "id": "job_new",
+            "status": "queued",
+        }
+
+        with patch.dict(os.environ, {"MAX_JOB_HISTORY": "2"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": "ok", "stderr": ""},
+            ):
+                server._run_job("build", "job_new", crs_name="test-crs")
+
+        # History limit 2: oldest completed 'done1' should be evicted, leaving 'done2' and 'job_new'
+        assert "done1" not in server.job_results
+        assert "done2" in server.job_results
+        assert "job_new" in server.job_results
+        assert server.job_results["job_new"]["status"] == "done"
+
+    def test_output_capping_truncates_large_output(self):
+        """Large stdout/stderr are truncated with an explicit truncation marker."""
+        import server
+
+        _make_test_client()
+        huge_stdout = "X" * 1000
+        server.job_results["job_big"] = {"id": "job_big", "status": "queued"}
+
+        with patch.dict(os.environ, {"MAX_OUTPUT_BYTES": "100"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": huge_stdout, "stderr": ""},
+            ):
+                server._run_job("build", "job_big", crs_name="test-crs")
+
+        res = server.job_results["job_big"]["result"]
+        assert len(res["stdout"]) <= 100 + len(server._TRUNCATION_MARKER)
+        assert server._TRUNCATION_MARKER in res["stdout"]
+
+    def test_output_capping_leaves_small_output_intact(self):
+        """Stdout within limits is unchanged."""
+        import server
+
+        _make_test_client()
+        normal_stdout = "All tests passed cleanly."
+        server.job_results["job_small"] = {"id": "job_small", "status": "queued"}
+
+        with patch.dict(os.environ, {"MAX_OUTPUT_BYTES": "1024"}):
+            with patch.object(
+                server,
+                "_handle_build",
+                return_value={"exit_code": 0, "stdout": normal_stdout, "stderr": ""},
+            ):
+                server._run_job("build", "job_small", crs_name="test-crs")
+
+        res = server.job_results["job_small"]["result"]
+        assert res["stdout"] == normal_stdout
+        assert server._TRUNCATION_MARKER not in res["stdout"]
