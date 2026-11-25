@@ -107,6 +107,14 @@ def handle_archive(
             )
             _add_dir(collected, log_dir, f"logs/crs/{crs.name}")
 
+        meta_file = work_dir.get_run_meta_file(run_id, sanitizer)
+        if meta_file.is_file():
+            collected.append((meta_file, "meta.json"))
+
+        build_id_file = work_dir.get_build_id_file(run_id, sanitizer)
+        if build_id_file.is_file():
+            collected.append((build_id_file, "BUILD_ID"))
+
     if not collected:
         print("No artifacts found for the selected run.", file=sys.stderr)
         return False

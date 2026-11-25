@@ -1,9 +1,17 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for the archive command and --latest flag."""
 
+import sys
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 from oss_crs.src.cli.archive import handle_archive
 from oss_crs.src.cli.artifacts import resolve_run_context
@@ -79,6 +87,12 @@ class _FakeWorkDir:
         if create:
             p.mkdir(parents=True, exist_ok=True)
         return p
+
+    def get_run_meta_file(self, run_id: str, sanitizer: str) -> Path:
+        return self._tmp / sanitizer / "runs" / run_id / "meta.json"
+
+    def get_build_id_file(self, run_id: str, sanitizer: str) -> Path:
+        return self._tmp / sanitizer / "runs" / run_id / "BUILD_ID"
 
 
 def _make_crs(name: str, *, is_triage: bool = False) -> SimpleNamespace:
@@ -340,6 +354,8 @@ def test_archive_all_includes_exchange_and_logs(tmp_path: Path) -> None:
     )
     _write_file(work_dir.get_exchange_dir(None, run_id, "address") / "extra.bin")
     _write_file(work_dir.get_run_logs_dir(None, run_id, "address") / "compose.log")
+    _write_file(work_dir.get_run_meta_file(run_id, "address"))
+    _write_file(work_dir.get_build_id_file(run_id, "address"))
 
     out = tmp_path / "results.tar.gz"
     args = _make_args(run_id=run_id, out=str(out), include_all=True)
@@ -350,6 +366,8 @@ def test_archive_all_includes_exchange_and_logs(tmp_path: Path) -> None:
     assert "povs/crash-001" in members
     assert "exchange/extra.bin" in members
     assert "logs/compose.log" in members
+    assert "meta.json" in members
+    assert "BUILD_ID" in members
 
 
 def test_archive_default_excludes_exchange_and_logs(tmp_path: Path) -> None:
