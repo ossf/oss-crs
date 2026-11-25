@@ -49,10 +49,23 @@ def init_crs_repo(
             ),
         )
 
-        reset_task = (
+        # In the online path, git fetch origin <branch> records the fetched ref
+        # (whether a branch, tag, or refspec) into FETCH_HEAD. Resetting to
+        # FETCH_HEAD supports both branch and tag refs without ambiguity.
+        reset_fetch_head_task = (
             "Git Reset",
             lambda progress: progress.run_command_with_streaming_output(
-                cmd=["git", "reset", "--hard", f"origin/{branch}"],
+                cmd=["git", "reset", "--hard", "FETCH_HEAD"],
+                cwd=dest_path,
+            ),
+        )
+
+        # In the offline path where no fetch is performed, reset directly to the
+        # specified ref (or origin/{branch} if a remote tracking branch exists).
+        reset_offline_task = (
+            "Git Reset",
+            lambda progress: progress.run_command_with_streaming_output(
+                cmd=["git", "reset", "--hard", branch],
                 cwd=dest_path,
             ),
         )
@@ -78,10 +91,10 @@ def init_crs_repo(
                 error=f"Repository at {dest_path} does not exist and --offline is enabled.",
             )
         elif offline and dest_path.exists():
-            tasks.append(reset_task)
+            tasks.append(reset_offline_task)
         elif not offline and dest_path.exists():
             tasks.append(fetch_task)
-            tasks.append(reset_task)
+            tasks.append(reset_fetch_head_task)
         else:
             tasks.append(clone_task)
 
