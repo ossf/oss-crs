@@ -2,10 +2,17 @@
 """Tests for the standalone ``list-harnesses`` command."""
 
 import argparse
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
+
+if "fcntl" not in sys.modules:
+    try:
+        import fcntl  # noqa: F401
+    except ImportError:
+        sys.modules["fcntl"] = MagicMock()
 
 from oss_crs.src.cli import list_harnesses as module
 from oss_crs.src.cli import crs_compose as cli_module
@@ -41,6 +48,22 @@ def test_find_harnesses_uses_native_entrypoint_marker(tmp_path: Path) -> None:
         "second_fuzzer",
         "xml_fuzzer",
     ]
+
+
+def test_find_harnesses_ignores_symlinks(tmp_path: Path) -> None:
+    _write_native_harness(tmp_path / "real_fuzzer")
+
+    outside = tmp_path / "outside_dir"
+    outside.mkdir()
+    _write_native_harness(outside / "external_fuzzer")
+
+    link = tmp_path / "symlink_fuzzer"
+    try:
+        link.symlink_to(outside / "external_fuzzer")
+    except (OSError, NotImplementedError):
+        pass
+
+    assert module.find_harnesses(tmp_path, "c++") == ["real_fuzzer"]
 
 
 def test_find_harnesses_recognizes_jvm_launcher(tmp_path: Path) -> None:
