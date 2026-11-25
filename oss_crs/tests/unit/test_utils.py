@@ -7,6 +7,7 @@ import pytest
 import questionary
 import re
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.output import DummyOutput
 from questionary.prompts.common import InquirerControl
 
 from oss_crs.src import utils
@@ -66,6 +67,15 @@ def test_rm_with_docker_overrides_target_image_entrypoint(
             "/data/out",
         ]
     ]
+
+
+@pytest.fixture(autouse=True)
+def mock_prompt_output(monkeypatch):
+    """Ensure headless/non-interactive environments use DummyOutput for prompt_toolkit."""
+    monkeypatch.setattr(
+        "prompt_toolkit.output.defaults.create_output",
+        lambda *args, **kwargs: DummyOutput(),
+    )
 
 
 class _FakeApp:
