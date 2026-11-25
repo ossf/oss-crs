@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Shared fixtures for integration tests."""
 
+import os
 import subprocess
 import sys
 import shutil
@@ -44,13 +45,20 @@ def init_git_repo(dst):
 
 
 @pytest.fixture
-def cli_runner(request):
+def cli_runner(request, tmp_path):
     """Return a function to run the oss-crs CLI.
 
-    Logs are saved to oss_crs/tests/integration/.logs/<test_name>/<call>_<command>/
+    Logs are saved to <tmp_path>/logs/<test_name>/<call>_<command>/ (or
+    $OSS_CRS_TEST_LOG_DIR/<test_name>/<call>_<command>/ if set), preventing
+    pollution of the repository working directory.
     """
     test_name = request.node.name
-    log_dir = Path(__file__).parent / ".logs" / test_name
+    custom_log_dir = os.environ.get("OSS_CRS_TEST_LOG_DIR")
+    if custom_log_dir:
+        log_dir = Path(custom_log_dir) / test_name
+    else:
+        log_dir = tmp_path / "logs" / test_name
+
     if log_dir.exists():
         shutil.rmtree(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)

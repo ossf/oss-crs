@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Shared pytest fixtures for oss_crs tests."""
 
-import pytest
 from pathlib import Path
-import tempfile
-import shutil
+import pytest
 
 
 def pytest_configure(config):
@@ -19,11 +17,9 @@ def pytest_configure(config):
 
 
 @pytest.fixture
-def tmp_dir():
-    """Create a temporary directory that is cleaned up after the test."""
-    d = tempfile.mkdtemp()
-    yield Path(d)
-    shutil.rmtree(d, ignore_errors=True)
+def tmp_dir(tmp_path: Path) -> Path:
+    """Return a temporary directory path managed by pytest's native tmp_path."""
+    return tmp_path
 
 
 @pytest.fixture
