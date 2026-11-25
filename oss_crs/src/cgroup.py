@@ -536,3 +536,62 @@ def create_run_cgroups(
         cgroup_parents[crs.name] = cgroup_path_for_docker(crs_cgroup_path)
 
     return worker_path, cgroup_parents
+
+
+def verify_cgroup_limits(
+    cgroup_path: Path,
+    expected_cpuset: str | None = None,
+    expected_memory_bytes: int | None = None,
+) -> tuple[bool, list[str]]:
+    """Verify that effective resource limits in a cgroup directory match expected values.
+
+    Args:
+        cgroup_path: Path to the cgroup directory.
+        expected_cpuset: Optional expected CPU set string (e.g. '0-3').
+        expected_memory_bytes: Optional expected memory limit in bytes.
+
+    Returns:
+        Tuple of (is_valid, error_messages).
+    """
+    errors: list[str] = []
+    if not cgroup_path.exists():
+        return False, [f"Cgroup path does not exist: {cgroup_path}"]
+
+    if expected_memory_bytes is not None:
+        mem_file = cgroup_path / "memory.max"
+        if not mem_file.exists():
+            errors.append(f"Memory limit file missing: {mem_file}")
+        else:
+            try:
+                content = mem_file.read_text().strip()
+                if content != "max":
+                    actual_mem = int(content)
+                    if actual_mem != expected_memory_bytes:
+                        errors.append(
+                            f"Memory limit mismatch in {cgroup_path}: expected {expected_memory_bytes} bytes, got {actual_mem} bytes"
+                        )
+            except (ValueError, OSError) as e:
+                errors.append(f"Failed to read memory.max: {e}")
+
+    if expected_cpuset is not None:
+        cpuset_file = cgroup_path / "cpuset.cpus"
+        if not cpuset_file.exists():
+            errors.append(f"Cpuset file missing: {cpuset_file}")
+        else:
+            try:
+                actual_cpuset = cpuset_file.read_text().strip()
+                # Compare canonicalized cpusets if cpuset module available
+                from .cpuset import parse_cpuset
+
+                if parse_cpuset(actual_cpuset) != parse_cpuset(expected_cpuset):
+                    errors.append(
+                        f"Cpuset mismatch in {cgroup_path}: expected '{expected_cpuset}', got '{actual_cpuset}'"
+                    )
+            except Exception:
+                actual_cpuset = cpuset_file.read_text().strip()
+                if actual_cpuset != expected_cpuset.strip():
+                    errors.append(
+                        f"Cpuset mismatch in {cgroup_path}: expected '{expected_cpuset}', got '{actual_cpuset}'"
+                    )
+
+    return len(errors) == 0, errors
