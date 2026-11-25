@@ -9,7 +9,17 @@ import stat
 import subprocess
 import uuid
 import git
-import fcntl
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover
+    msvcrt = None
+
 from contextlib import contextmanager
 from rich.console import Console
 
@@ -61,6 +71,27 @@ def _ensure_third_party_oss_fuzz() -> bool:
     return result.returncode == 0
 
 
+def _flock_acquire(lock_file) -> None:
+    fileno = lock_file.fileno()
+    if fcntl is not None:
+        fcntl.flock(fileno, fcntl.LOCK_EX)
+    elif msvcrt is not None:
+        lock_file.seek(0)
+        msvcrt.locking(fileno, msvcrt.LK_LOCK, 1)
+
+
+def _flock_release(lock_file) -> None:
+    fileno = lock_file.fileno()
+    if fcntl is not None:
+        fcntl.flock(fileno, fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        try:
+            lock_file.seek(0)
+            msvcrt.locking(fileno, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+
 @contextmanager
 def file_lock(lock_path: Path, *, shared_permissions: bool = False):
     """
@@ -75,7 +106,7 @@ def file_lock(lock_path: Path, *, shared_permissions: bool = False):
         lock_path.parent.mkdir(mode=SHARED_LOCK_DIR_MODE, parents=True, exist_ok=True)
         try:
             lock_path.parent.chmod(SHARED_LOCK_DIR_MODE)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
     else:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,16 +130,16 @@ def file_lock(lock_path: Path, *, shared_permissions: bool = False):
             else:
                 try:
                     os.fchmod(fd, SHARED_LOCK_FILE_MODE)
-                except PermissionError:
+                except (PermissionError, OSError, AttributeError):
                     pass
                 lock_file = os.fdopen(fd, "r+")
         else:
             lock_file = open(lock_path, "w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        _flock_acquire(lock_file)
         yield
     finally:
         if lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            _flock_release(lock_file)
             lock_file.close()
 
 
