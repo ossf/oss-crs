@@ -113,6 +113,8 @@ class MultiTaskProgress:
         self._early_exit_triggered = threading.Event()
         # Where the full output is persisted, shown when error output is tailed.
         self.full_logs_hint: Optional[str] = None
+        # Configured secret substrings to redact from displayed output lines
+        self.secrets_to_redact: list[str] = []
         self.statuses: dict[str, TaskStatus] = {
             name: TaskStatus.PENDING for name in self.task_names
         }
@@ -606,6 +608,10 @@ class MultiTaskProgress:
 
     def add_output_line(self, line: str) -> None:
         """Add an output line for the current in-progress task."""
+        if self.secrets_to_redact:
+            from .utils import redact_secrets
+
+            line = redact_secrets(line, self.secrets_to_redact)
         self.current_output_lines.append(line)
         if self._headless:
             self._print_headless(escape(line))

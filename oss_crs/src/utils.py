@@ -91,6 +91,31 @@ def generate_random_key(length: int = 10) -> str:
     return "".join(secrets.choice(RAND_CHARS) for _ in range(length))
 
 
+def redact_secrets(
+    text: str, secrets_to_redact: list[str] | set[str] | None = None
+) -> str:
+    """Redact configured secret values and API keys from a text string.
+
+    Replaces exact matches of known secrets with '[REDACTED]' to prevent
+    credential leakage in logs and terminal outputs.
+    """
+    if not text:
+        return text
+    if not secrets_to_redact:
+        return text
+
+    redacted = text
+    # Filter out empty or trivially short secrets to prevent over-redaction
+    valid_secrets = [s for s in secrets_to_redact if s and len(s) >= 4]
+    # Sort descending by length so longer substrings are matched first
+    valid_secrets.sort(key=len, reverse=True)
+
+    for secret in valid_secrets:
+        if secret in redacted:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    return redacted
+
+
 def generate_run_id() -> str:
     """Generate a run ID from unix timestamp + 6 random alphanumeric chars.
 
