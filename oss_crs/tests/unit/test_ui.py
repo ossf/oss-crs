@@ -902,3 +902,35 @@ def test_run_command_with_streaming_output_keeps_full_success_output(
 
     assert result.success is True
     assert result.output == "\n".join(f"log line {i}" for i in range(total))
+
+
+def test_show_run_result_prints_run_dir_and_index_link(tmp_path: Path) -> None:
+    progress = MultiTaskProgress(tasks=[], title="test")
+    submit_dir = tmp_path / "SUBMIT_DIR" / "h"
+    submit_dir.mkdir(parents=True)
+
+    progress.show_run_result(
+        [{"name": "crs-a", "submit_dir": submit_dir}],
+        run_dir=tmp_path / "runs" / "r1",
+        index_link=tmp_path / "index" / "by-target" / "proj" / "20260101-000000_r1",
+    )
+
+    text = progress._deferred_prints[-1].plain
+    assert f"Run dir: {tmp_path / 'runs' / 'r1'}" in text
+    assert (
+        f"Index:   {tmp_path / 'index' / 'by-target' / 'proj' / '20260101-000000_r1'}"
+        in text
+    )
+    assert "crs-a:" in text
+
+
+def test_show_run_result_omits_run_dir_lines_when_not_given(tmp_path: Path) -> None:
+    progress = MultiTaskProgress(tasks=[], title="test")
+    submit_dir = tmp_path / "SUBMIT_DIR" / "h"
+    submit_dir.mkdir(parents=True)
+
+    progress.show_run_result([{"name": "crs-a", "submit_dir": submit_dir}])
+
+    text = progress._deferred_prints[-1].plain
+    assert "Run dir:" not in text
+    assert "Index:" not in text

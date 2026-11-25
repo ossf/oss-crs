@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Clean command for oss-crs: remove Docker images and work-directory artifacts."""
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,7 @@ import docker.errors
 from ..constants import (
     OSS_CRS_ALPINE_TAG,
 )
+from ..run_index import find_prunable_links, unlink_if_dangling
 from ..utils import (
     confirm,
     get_console,
@@ -42,6 +44,8 @@ class CleanPlan:
     target_images: list[str] = field(default_factory=list)
     run_images: list[str] = field(default_factory=list)
     artifact_dirs: list[Path] = field(default_factory=list)
+    # <work_dir>/index symlinks that are dangling or point into artifact_dirs.
+    index_links: list[Path] = field(default_factory=list)
 
     @property
     def all_images(self) -> list[str]:
@@ -55,7 +59,7 @@ class CleanPlan:
 
     @property
     def is_empty(self) -> bool:
-        return not self.all_images and not self.artifact_dirs
+        return not self.all_images and not self.artifact_dirs and not self.index_links
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +131,10 @@ def display_clean_plan(plan: CleanPlan) -> None:
         )
         for d in plan.artifact_dirs:
             console.print(f"    - {d}  ({_dir_size(d)})")
+    if plan.index_links:
+        console.print(f"\n  [bold]Index links[/bold] ({len(plan.index_links)}):")
+        for link in plan.index_links:
+            console.print(f"    - {link} -> {os.readlink(link)}")
     console.print()
 
 
@@ -171,6 +179,21 @@ def execute_clean_plan(plan: CleanPlan) -> bool:
             console.print(f"  {red('Failed')} {d}: {e}")
             failed.append(str(d))
 
+    # Index links are only ever unlinked, never rmtree'd, and only once their
+    # run directory is gone; a link whose directory failed to delete is kept.
+    for link in plan.index_links:
+        try:
+            if unlink_if_dangling(link):
+                console.print(f"  {green('Removed')} link {link}")
+                removed += 1
+            else:
+                console.print(
+                    f"  {yellow('Skipped')} link {link} (run directory still exists)"
+                )
+        except OSError as e:
+            console.print(f"  {red('Failed')} link {link}: {e}")
+            failed.append(str(link))
+
     console.print()
     console.print(f"Removed {removed} item(s).")
     if failed:
@@ -209,6 +232,10 @@ def build_clean_plan(
 
     if include_artifacts:
         plan.artifact_dirs = discover_artifact_dirs(crs_compose.work_dir, phase)
+        if phase in ("run", "all"):
+            plan.index_links = find_prunable_links(
+                crs_compose.work_dir.get_run_index_dir(), plan.artifact_dirs
+            )
 
     return plan
 
