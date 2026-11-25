@@ -41,6 +41,7 @@ _RUNNER_SERVER_PATH = _RUNNER_DIR / "server.py"
 
 # Load the module under a collision-safe alias.
 _spec = importlib.util.spec_from_file_location("runner_server", _RUNNER_SERVER_PATH)
+assert _spec is not None and _spec.loader is not None
 runner_server = importlib.util.module_from_spec(_spec)
 sys.modules["runner_server"] = runner_server
 _spec.loader.exec_module(runner_server)
@@ -201,7 +202,10 @@ class TestRunPOV:
         with patch.dict("os.environ", {"OUT_DIR": "/custom/out"}):
             client.post("/run-pov", **_pov_upload())
         call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["env"]["OUT"] == "/custom/out/test-crs/1/build"
+        assert (
+            call_kwargs["env"]["OUT"].replace("\\", "/")
+            == "/custom/out/test-crs/1/build"
+        )
 
     @patch("runner_server.subprocess.run")
     @patch("runner_server.os.path.exists", return_value=True)
@@ -303,4 +307,66 @@ class TestRunPOVDefaultRebuildId:
         assert response.status_code == 200
         call_kwargs = mock_run.call_args[1]
         out_env = call_kwargs["env"]["OUT"]
-        assert out_env == "/out/test-crs/42/build"
+        assert out_env.replace("\\", "/") == "/out/test-crs/42/build"
+
+
+# ---------------------------------------------------------------------------
+# TestUploadLimits
+# ---------------------------------------------------------------------------
+
+
+class TestRunnerUploadLimits:
+    """Tests for runner-sidecar upload size limits."""
+
+    @patch("runner_server.subprocess.run")
+    @patch("runner_server.os.path.exists", return_value=True)
+    def test_upload_within_limit_succeeds(self, mock_exists, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        client = _make_test_client()
+
+        with patch.dict("os.environ", {"MAX_UPLOAD_SIZE": "1024"}):
+            upload = {
+                "files": {"pov": ("crash.bin", b"A" * 500, "application/octet-stream")},
+                "data": {
+                    "harness_name": "my_fuzzer",
+                    "crs_name": "test-crs",
+                    "rebuild_id": "1",
+                },
+            }
+            resp = client.post("/run-pov", **upload)
+            assert resp.status_code == 200
+
+    def test_upload_exceeding_limit_returns_413(self):
+        client = _make_test_client()
+
+        with patch.dict("os.environ", {"MAX_UPLOAD_SIZE": "512"}):
+            upload = {
+                "files": {
+                    "pov": ("oversized.bin", b"B" * 1024, "application/octet-stream")
+                },
+                "data": {
+                    "harness_name": "my_fuzzer",
+                    "crs_name": "test-crs",
+                    "rebuild_id": "1",
+                },
+            }
+            resp = client.post("/run-pov", **upload)
+            assert resp.status_code == 413
+            assert "exceeds maximum allowed size" in resp.json()["detail"]
+
+    @patch("runner_server.subprocess.run")
+    @patch("runner_server.os.path.exists", return_value=True)
+    def test_default_limit_allows_standard_pov(self, mock_exists, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        client = _make_test_client()
+
+        upload = {
+            "files": {"pov": ("crash.bin", b"C" * 10000, "application/octet-stream")},
+            "data": {
+                "harness_name": "my_fuzzer",
+                "crs_name": "test-crs",
+                "rebuild_id": "1",
+            },
+        }
+        resp = client.post("/run-pov", **upload)
+        assert resp.status_code == 200

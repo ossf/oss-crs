@@ -8,6 +8,7 @@ stricter subset of Keep a Changelog).
 
 ### Changed
 
+- Runner sidecar: bounded POV upload size to prevent memory exhaustion during POV execution requests. Uploads are streamed in bounded chunks enforcing `MAX_UPLOAD_SIZE` (default: 10MB), rejecting oversized payloads with HTTP 413.
 - Auditing CRS type: does not require a target harness and produces bug-candidates
 - `oss-crs export` and `oss-crs import` commands — imports/exports docker images/CRS source code to transfer to another host.
 - Run-phase modules now default to `target_dependent: true`, so their images are built once per target during `build-target`. Set `target_dependent: false` for modules that can be built once during `prepare`.
