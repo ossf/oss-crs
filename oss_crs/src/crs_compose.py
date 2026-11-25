@@ -2297,10 +2297,15 @@ class CRSCompose:
                 "completion_tokens": crs_llm.get("completion_tokens", 0),
             }
 
+            git_commit = (
+                crs.get_git_revision() if hasattr(crs, "get_git_revision") else None
+            )
+
             crs_meta[crs.name] = {
                 "artifacts": artifacts,
                 "llm": llm,
                 "sidecar": sidecar,
+                "git_commit": git_commit,
             }
 
             for key in totals["artifacts"]:
