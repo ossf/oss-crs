@@ -70,6 +70,8 @@ def _make_crs_compose(
             get_submit_dir=lambda *_a, **_k: tmp_path / "submit",
             get_shared_dir=lambda *_a, **_k: tmp_path / "shared",
             get_log_dir=lambda *_a, **_k: tmp_path / "log",
+            get_crs_ledger_dir=lambda *_a, **_k: tmp_path / "ledger",
+            get_crs_ledger_history_dir=lambda *_a, **_k: tmp_path / "ledgers",
             get_rebuild_out_dir=lambda *_a, **_k: tmp_path / "rebuild_out",
             get_target_source_dir=lambda *_a, **_k: tmp_path / "target-source",
             get_run_dir=lambda *_a, **_k: tmp_path / "run",
@@ -1002,6 +1004,8 @@ def test_no_harness_run_does_not_inject_harness_env(
             get_log_dir=lambda *_args, **_kwargs: (
                 tmp_path / "log" / "OSS_CRS_UNHARNESSED"
             ),
+            get_crs_ledger_dir=lambda *_args, **_kwargs: tmp_path / "ledger",
+            get_crs_ledger_history_dir=lambda *_args, **_kwargs: tmp_path / "ledgers",
             get_rebuild_out_dir=lambda *_args, **_kwargs: (
                 tmp_path / "rebuild_out" / "_no_harness"
             ),

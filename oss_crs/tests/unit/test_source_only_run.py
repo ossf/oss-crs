@@ -174,6 +174,8 @@ def test_source_only_render_omits_build_and_fuzz_mounts(monkeypatch, tmp_path: P
             get_submit_dir=lambda *_args, **_kwargs: tmp_path / "submit",
             get_shared_dir=lambda *_args, **_kwargs: tmp_path / "shared",
             get_log_dir=lambda *_args, **_kwargs: tmp_path / "log",
+            get_crs_ledger_dir=lambda *_args, **_kwargs: tmp_path / "ledger",
+            get_crs_ledger_history_dir=lambda *_args, **_kwargs: tmp_path / "ledgers",
             get_rebuild_out_dir=lambda *_args, **_kwargs: tmp_path / "rebuild_out",
             get_target_source_dir=lambda *_args, **_kwargs: tmp_path / "target-source",
             get_run_dir=lambda *_args, **_kwargs: tmp_path / "run",

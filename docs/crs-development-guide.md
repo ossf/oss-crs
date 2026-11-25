@@ -353,6 +353,8 @@ Your containers receive these environment variables automatically:
 | `OSS_CRS_SUBMIT_DIR` | Submission directory | `/OSS_CRS_SUBMIT_DIR` |
 | `OSS_CRS_SHARED_DIR` | Shared directory (between containers in this CRS) | `/OSS_CRS_SHARED_DIR` |
 | `OSS_CRS_LOG_DIR` | Log directory for persisting CRS agent/internal logs to the host | `/OSS_CRS_LOG_DIR` |
+| `OSS_CRS_LEDGER_DIR` | Writable cross-run knowledge base for this run (see [Cross-Run Ledger](#cross-run-ledger)) | `/OSS_CRS_LEDGER_DIR` |
+| `OSS_CRS_LEDGER_HISTORY_DIR` | Read-only view of every ledger this CRS has written, one subdirectory per run-id | `/OSS_CRS_LEDGER_HISTORY_DIR` |
 | `OSS_CRS_FETCH_DIR` | Inter-CRS data exchange + bootup data (read-only, shared across all CRSs) | `/OSS_CRS_FETCH_DIR` |
 | `FUZZING_ENGINE` | OSS-Fuzz fuzzing engine | `libfuzzer` |
 | `SANITIZER` | OSS-Fuzz sanitizer | `address` |
@@ -424,6 +426,41 @@ directories against their base mounts and rebuilds — no hand-written diffs),
 then `submit-harness` to publish both directories.
 
 For the complete libCRS reference, see [design/libCRS.md](design/libCRS.md).
+
+### Cross-Run Ledger
+
+A CRS can keep its own knowledge base across runs (e.g. learned dictionaries,
+prior findings, tuned parameters). The format is up to the CRS, as long as it is
+regular files and directories.
+
+- `OSS_CRS_LEDGER_DIR` is writable and dedicated to the current run.
+- `OSS_CRS_LEDGER_HISTORY_DIR` is read-only and contains the ledgers of all
+  previous and parallel runs of this CRS, named by run-id. It also contains a
+  `latest` symlink pointing at the most recently started run (which may be the
+  current run). The current run's ledger appears here read-only too.
+
+Ledgers are delimited **only by the CRS name** from `crs-compose.yaml`; they are
+shared across compose files, projects, and harnesses that use the same
+`--work-dir`. On the host they live at:
+
+```
+<work-dir>/ledgers/<crs-name>/runs/<run-id>/
+<work-dir>/ledgers/<crs-name>/runs/latest -> <run-id>
+```
+
+Because ledgers span projects, a CRS that wants project-specific knowledge
+should namespace it itself (for example by `$OSS_CRS_TARGET`). The run-id
+`latest` is reserved.
+
+```bash
+# Read prior knowledge from every earlier run, then record this run's.
+for prev in "$OSS_CRS_LEDGER_HISTORY_DIR"/*/; do
+  name="$(basename "$prev")"
+  [ "$name" = "$OSS_CRS_RUN_ID" ] || [ "$name" = latest ] && continue
+  cat "$prev/dict.txt" 2>/dev/null >> /tmp/merged-dict.txt
+done
+cp /tmp/learned-dict.txt "$OSS_CRS_LEDGER_DIR/dict.txt"
+```
 
 ---
 
