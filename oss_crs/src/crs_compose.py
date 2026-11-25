@@ -1227,6 +1227,10 @@ class CRSCompose:
         if artifact_error:
             print(artifact_error)
             return 1
+        limit_error = self._validate_artifact_input_limits(artifact_inputs)
+        if limit_error:
+            print(limit_error)
+            return 1
         forward_sources = self._resolve_forward_artifact_sources(
             forward_artifacts,
             target=target,
@@ -1388,6 +1392,79 @@ class CRSCompose:
     @classmethod
     def _has_forwardable_artifacts(cls, source: ForwardArtifactSource) -> bool:
         return any(cls._artifact_counts_for_forward_source(source).values())
+
+    @staticmethod
+    def _validate_artifact_input_limits(
+        artifact_inputs: ArtifactInputs,
+        max_file_size: int | None = None,
+        max_file_count: int | None = None,
+    ) -> str | None:
+        """Validate optional size and file count bounds on staged artifact inputs.
+
+        Can be configured via max_file_size/max_file_count arguments or via
+        OSS_CRS_MAX_INPUT_FILE_SIZE / OSS_CRS_MAX_INPUT_FILE_COUNT environment variables.
+        """
+        if max_file_size is None:
+            raw_size = os.environ.get("OSS_CRS_MAX_INPUT_FILE_SIZE")
+            if raw_size:
+                try:
+                    max_file_size = int(raw_size)
+                except ValueError:
+                    pass
+
+        if max_file_count is None:
+            raw_count = os.environ.get("OSS_CRS_MAX_INPUT_FILE_COUNT")
+            if raw_count:
+                try:
+                    max_file_count = int(raw_count)
+                except ValueError:
+                    pass
+
+        for name, artifact_input in artifact_inputs.items():
+            spec = RUN_ARTIFACT_INPUT_SPECS_BY_NAME.get(name)
+            flag_name = f"--{spec.flag}" if spec else f"--{name}"
+            dir_flag_name = (
+                f"--{spec.dir_flag}" if spec and spec.dir_flag else f"--{name}-dir"
+            )
+
+            if artifact_input.file is not None and artifact_input.file.is_file():
+                if max_file_size is not None:
+                    try:
+                        size = artifact_input.file.stat().st_size
+                        if size > max_file_size:
+                            return (
+                                f"Error: {flag_name} file size ({size} bytes) exceeds "
+                                f"maximum allowed size ({max_file_size} bytes): {artifact_input.file}"
+                            )
+                    except OSError as e:
+                        return f"Error: Failed to inspect {flag_name} file: {e}"
+
+            if (
+                artifact_input.directory is not None
+                and artifact_input.directory.is_dir()
+            ):
+                file_count = 0
+                for root, _, files in os.walk(artifact_input.directory):
+                    for f in files:
+                        file_count += 1
+                        if max_file_count is not None and file_count > max_file_count:
+                            return (
+                                f"Error: {dir_flag_name} directory contains more than "
+                                f"{max_file_count} files: {artifact_input.directory}"
+                            )
+                        if max_file_size is not None:
+                            file_path = Path(root) / f
+                            try:
+                                size = file_path.stat().st_size
+                                if size > max_file_size:
+                                    return (
+                                        f"Error: file in {dir_flag_name} ({size} bytes) exceeds "
+                                        f"maximum allowed size ({max_file_size} bytes): {file_path}"
+                                    )
+                            except OSError as e:
+                                return f"Error: Failed to inspect file in {dir_flag_name}: {e}"
+
+        return None
 
     @staticmethod
     def _forward_source_count_text(counts: dict[str, int]) -> str:
