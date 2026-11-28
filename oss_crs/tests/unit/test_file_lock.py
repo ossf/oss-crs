@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import os
 import stat
 
 from oss_crs.src.target import (
@@ -15,9 +16,10 @@ def test_shared_file_lock_sets_shared_modes(tmp_path):
         dir_mode = lock_path.parent.stat().st_mode
         file_mode = lock_path.stat().st_mode
 
-        assert dir_mode & 0o777 == SHARED_LOCK_DIR_MODE & 0o777
-        assert dir_mode & stat.S_ISVTX
-        assert file_mode & 0o777 == SHARED_LOCK_FILE_MODE
+        if os.name != "nt":
+            assert dir_mode & 0o777 == SHARED_LOCK_DIR_MODE & 0o777
+            assert dir_mode & stat.S_ISVTX
+            assert file_mode & 0o777 == SHARED_LOCK_FILE_MODE
 
     assert lock_path.exists()
 
