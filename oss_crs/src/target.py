@@ -9,9 +9,18 @@ import stat
 import subprocess
 import uuid
 import git
-import fcntl
 from contextlib import contextmanager
 from rich.console import Console
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Fallback for Windows
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 from .config.target import FuzzingEngine, TargetConfig, TargetSanitizer
 from .constants import (
@@ -61,6 +70,34 @@ def _ensure_third_party_oss_fuzz() -> bool:
     return result.returncode == 0
 
 
+def _acquire_file_lock(file_obj) -> None:
+    """Acquire an exclusive lock on the file in a cross-platform manner."""
+    if fcntl is not None:
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX)
+    elif msvcrt is not None:
+        file_obj.seek(0)
+        import time
+
+        while True:
+            try:
+                msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                time.sleep(0.05)
+
+
+def _release_file_lock(file_obj) -> None:
+    """Release a lock on the file in a cross-platform manner."""
+    if fcntl is not None:
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        try:
+            file_obj.seek(0)
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+
 @contextmanager
 def file_lock(lock_path: Path, *, shared_permissions: bool = False):
     """
@@ -75,7 +112,7 @@ def file_lock(lock_path: Path, *, shared_permissions: bool = False):
         lock_path.parent.mkdir(mode=SHARED_LOCK_DIR_MODE, parents=True, exist_ok=True)
         try:
             lock_path.parent.chmod(SHARED_LOCK_DIR_MODE)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
     else:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,17 +136,19 @@ def file_lock(lock_path: Path, *, shared_permissions: bool = False):
             else:
                 try:
                     os.fchmod(fd, SHARED_LOCK_FILE_MODE)
-                except PermissionError:
+                except (AttributeError, PermissionError, OSError):
                     pass
                 lock_file = os.fdopen(fd, "r+")
         else:
             lock_file = open(lock_path, "w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        _acquire_file_lock(lock_file)
         yield
     finally:
         if lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            lock_file.close()
+            try:
+                _release_file_lock(lock_file)
+            finally:
+                lock_file.close()
 
 
 @contextmanager
